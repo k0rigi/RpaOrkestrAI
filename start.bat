@@ -5,5 +5,6 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" -m rpa_orkestrai --native
+echo RpaOrkestrAI masaustu penceresi aciliyor...
+".venv\Scripts\python.exe" -u launch.py --native
 if errorlevel 1 pause

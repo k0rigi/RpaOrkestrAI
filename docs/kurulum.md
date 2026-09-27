@@ -107,6 +107,10 @@ Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşleti
 
 `native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; otomatik paket indirme veya kurulum yapmaz.
 
+Başlatıcı `launch.py` ile doğrudan projenin `src/` klasörünü yükler. Böylece kurulu paketin eski kopyası veya macOS'ta gizli işaretlenmiş `.pth` dosyaları kaynak kodunun yüklenmesini engellemez. İlk açılışta bileşenler yüklenirken durum mesajları görünür. Proje iCloud ile eşitlenen Masaüstü/Belgeler içindeyse bulut simgeli dosyaların indirilmesi ek süre alabilir.
+
+Aynı portta, aynı sürüm ve çalışma alanına ait Studio açıksa yeni masaüstü penceresi ona bağlanır. Farklı bir uygulama/çalışma alanı veya eski sürüm algılanırsa anlaşılır hata gösterilir; başka uygulamanın portu devralınmaz. Güncelleme sonrası eski Studio'yu kapatıp tekrar açın. Bir sunucuya bağlanan pencere o sunucuyu kapatmaz; kendisi sunucu başlatan pencere kapanırken onu durdurur. CSV indirme yerel pencerede de etkindir.
+
 Komut satırından aynı başlatıcılar:
 
 ```bash

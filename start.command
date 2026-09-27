@@ -6,4 +6,12 @@ if [[ ! -x .venv/bin/python ]]; then
   read '?Kapatmak için Enter tuşuna basın…'
   exit 1
 fi
-exec .venv/bin/python -m rpa_orkestrai --native
+print 'RpaOrkestrAI masaüstü penceresi açılıyor…'
+if .venv/bin/python -u launch.py --native; then
+  exit 0
+else
+  result=$?
+  print '\nUygulama açılamadı. Yukarıdaki hata mesajını inceleyin.'
+  read '?Kapatmak için Enter tuşuna basın…'
+  exit $result
+fi

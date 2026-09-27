@@ -18,6 +18,7 @@ from .catalog import CATALOG
 from .config import Settings
 from .demo import demo_workflow
 from .engine import RunManager, WorkflowError, validate_workflow
+from .instance import identity
 from .locking import WorkspaceLock
 from .models import RunRequest, Workflow, WorkflowInput, now, uid
 from .storage import Store
@@ -59,7 +60,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             expected = urlsplit(str(request.base_url))
             if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
                 return JSONResponse({"detail": "Başka bir kaynaktan uygulamaya erişim engellendi."}, status_code=403)
-        elif request.headers.get("sec-fetch-site") == "cross-site":
+        elif request.headers.get("sec-fetch-site") == "cross-site" and not (
+            request.method == "GET" and request.url.path == "/"
+            and request.headers.get("sec-fetch-mode") == "navigate"
+        ):
             return JSONResponse({"detail": "Harici tarayıcı isteği engellendi."}, status_code=403)
         try:
             content_length = int(request.headers.get("content-length", "0"))
@@ -105,6 +109,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/health")
     def health():
         return {"status": "ok", "version": __version__}
+
+    @app.get("/api/instance")
+    def instance():
+        return identity(settings.data_dir)
 
     @app.get("/api/bootstrap")
     def bootstrap():

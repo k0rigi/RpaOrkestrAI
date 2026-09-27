@@ -24,6 +24,22 @@ def test_studio_bootstrap_and_static(client):
     assert client.get("/app.js").status_code == 200
 
 
+def test_native_instance_metadata_identifies_workspace_without_exposing_path(client):
+    from rpa_orkestrai.instance import identity
+
+    response = client.get("/api/instance")
+    assert response.status_code == 200
+    assert response.json() == identity(client.app.state.settings.data_dir)
+    assert str(client.app.state.settings.data_dir) not in response.text
+
+
+def test_opening_studio_from_a_link_is_allowed_but_cross_site_api_is_not(client):
+    headers = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate"}
+    assert client.get("/", headers=headers).status_code == 200
+    assert client.get("/api/bootstrap", headers=headers).status_code == 403
+    assert client.post("/api/workflows", json={"name": "Unexpected"}, headers=headers).status_code == 403
+
+
 def test_workflow_crud_duplicate_import_export(client):
     body = {"name": "Test akışı", "department": "Satış", "steps": [{"action": "core.log"}]}
     response = client.post("/api/workflows", json=body)

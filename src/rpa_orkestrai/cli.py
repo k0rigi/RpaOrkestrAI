@@ -64,6 +64,13 @@ def run_demo(settings: Settings) -> None:
 
 
 def serve(settings: Settings, *, native: bool, open_browser: bool) -> None:
+    print(f"RpaOrkestrAI Studio {__version__} — http://127.0.0.1:{settings.port}", flush=True)
+    if native:
+        from .native import serve_native
+
+        serve_native(settings)
+        return
+
     import uvicorn
 
     from .app import create_app
@@ -72,36 +79,16 @@ def serve(settings: Settings, *, native: bool, open_browser: bool) -> None:
     url = f"http://127.0.0.1:{settings.port}"
     config = uvicorn.Config(app, host="127.0.0.1", port=settings.port, log_level="info")
     server = uvicorn.Server(config)
-    print(f"RpaOrkestrAI Studio {__version__} — {url}")
-    if native:
-        try:
-            import webview
-        except ImportError as exc:
-            raise SystemExit('Masaüstü penceresi için: pip install -e ".[native]"') from exc
-        thread = threading.Thread(target=server.run, daemon=True, name="rpa-http")
-        thread.start()
-        try:
+    if open_browser:
+        def launch_when_ready():
             deadline = time.monotonic() + 10
-            while not server.started:
-                if not thread.is_alive() or time.monotonic() > deadline:
-                    raise SystemExit("Uygulama sunucusu açılamadı; port kullanımını kontrol edin.")
-                time.sleep(0.05)
-            webview.create_window("RpaOrkestrAI Studio", url, width=1440, height=940, min_size=(980, 680))
-            webview.start()
-        finally:
-            server.should_exit = True
-            thread.join(timeout=35)
-    else:
-        if open_browser:
-            def launch_when_ready():
-                deadline = time.monotonic() + 10
-                while not server.started and time.monotonic() < deadline:
-                    time.sleep(0.1)
-                if server.started:
-                    webbrowser.open(url)
+            while not server.started and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if server.started:
+                webbrowser.open(url)
 
-            threading.Thread(target=launch_when_ready, daemon=True).start()
-        server.run()
+        threading.Thread(target=launch_when_ready, daemon=True).start()
+    server.run()
 
 
 def main() -> None:
@@ -123,7 +110,12 @@ def main() -> None:
     elif args.command == "demo":
         run_demo(settings)
     else:
-        serve(settings, native=args.native, open_browser=not args.no_browser)
+        from .instance import StartupError
+
+        try:
+            serve(settings, native=args.native, open_browser=not args.no_browser)
+        except StartupError as exc:
+            parser.exit(1, f"Uygulama açılamadı: {exc}\n")
 
 
 if __name__ == "__main__":

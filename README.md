@@ -98,6 +98,10 @@ rpa-studio --native
 
 Bu kurulumdan sonra macOS'ta [start.command](start.command), Windows'ta [start.bat](start.bat) dosyasını çift tıklayarak yerel pencereyi açabilirsiniz. Başlatıcılar proje içindeki `.venv` sanal ortamını kullanır; Python, paket ve sistem bağımlılıklarını kendileri kurmaz.
 
+Başlatıcı açılış durumunu Terminal'de gösterir. Aynı sürüm ve çalışma alanı zaten açıksa masaüstü penceresi o sunucuya bağlanır; ikinci sunucu başlatmaz. Sunucu kapalıysa kendisi başlatır. Önceden açık bir sunucuya bağlanan pencerenin kapanması o sunucuyu durdurmaz. Başlatıcı kendi sunucusunu açtıysa pencere kapatılırken onu da kapatır. Eski bir sürüm açıkken güncelleme yaptıysanız önce eski uygulamayı kapatın.
+
+Başlatıcılar `launch.py` üzerinden bu klasördeki güncel kaynak kodunu kullanır; her kod değişikliğinde paketi yeniden kurmanız gerekmez. Açılış başarısız olursa Terminal hata mesajını gösterir ve Enter tuşuna basılana kadar açık kalır.
+
 Tarayıcıyı otomatik açmadan çalıştırmak için `rpa-studio --no-browser` kullanın. CLI seçeneklerini `rpa-studio --help` ile görebilirsiniz.
 
 ## Yapılandırma ve saklama
