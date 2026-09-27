@@ -52,12 +52,18 @@ git commit -m "Add ERP workflow support"
 git push -u origin feature/yeni-erp-akisi
 ```
 
-`.github/workflows/tests.yml`, pull request ve push olaylarında macOS/Windows üzerinde Python 3.11 ve 3.12 için çekirdek testleri ve kod kontrollerini çalıştırır. İşletim sistemi ekran izinleri ve gerçek ERP/veritabanı/Sheets erişimleri bu otomatik testlerden ayrı doğrulanır.
+`.github/workflows/tests.yml`, pull request ve push olaylarında macOS/Windows üzerinde Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar. `pip check`, yerel pencere motorunun gerçekten yüklenmesi, testler ve kod kontrolleri çalışır. İşletim sistemi ekran izinleri ve gerçek ERP/veritabanı/Sheets erişimleri bu otomatik testlerden ayrı doğrulanır.
 
 `.env`, servis hesabı anahtarları, veritabanı bağlantı klasörleri, yerel `data/` ve çalışma raporları `.gitignore` kapsamındadır. `.gitignore` daha önce Git'e eklenmiş bir dosyayı geçmişten çıkarmaz. Akış JSON'larını paylaşırken içine yazılmış iş verileri ve sabit metinler de dışa aktarılacağından dosyanın içeriğini inceleyin.
 
 ## Masaüstü kurulum paketleri
 
-`.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Windows `.exe` kurulum paketi ve macOS `.dmg` disk imajı **Artifacts** olarak üretilir; otomatik Release yayımlanmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).
+`.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Paketler kendi Python 3.12 yorumlayıcısını içerir. Windows `.exe` kurulum paketi ve macOS `.dmg` disk imajı **Artifacts** olarak üretilir; derleme işi tek başına Release veya güncelleme sunucusu yayını yapmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).
 
-Kullanıcıya sunulan test paketleri ayrıca [Releases indirme sayfasındadır](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.1-test.1).
+Kullanıcı indirmeleri için [orkestrai.net/rpa](https://orkestrai.net/rpa/) adresi ve GitHub alternatifi olarak [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümü kullanılır. 0.2.0 test yayınının etiketi `v0.2.0-test.1` olarak ayrılmıştır. **Code → Download ZIP** bu paketleri içermez; kaynak kodu indirir.
+
+## Yeni adım ve uygulama sürümü yayımlama
+
+Kodla geliştirilen yeni adım türleri test edilip sürüm numarası artırıldıktan sonra iki işletim sistemi için derlenir. `scripts/prepare_update_release.py`, doğrulanmış EXE/DMG dosyalarından statik indirme sayfası ve Ed25519 imzalı `stable.manifest` hazırlar. Özel imza anahtarı `credentials/` içinde veya güvenli başka bir konumda kalır; Git'e ve sunucuya gönderilmez. Sunucuya sürümlü paketler önce, bildirim en son aktarılır. [Komut ve yayın protokolü](guncelleme-mimarisi.md).
+
+Güncelleme istemcisi 0.2.0 ile başlar; 0.1.x kurulumları bu sürüme bir kez elle yükseltilir. Daha sonraki sürümler açılışta arka planda indirilir ve sonraki açılışta kurulur. Kullanıcının kendi akışını değiştirmesi yerel bir kayıttır; başka bilgisayarlara uygulama sürümü yayımlamaz.

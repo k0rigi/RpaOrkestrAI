@@ -113,7 +113,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
                 "runs": store.runs(), "catalog": library_catalog(), "settings": settings.public(),
                 "action_definitions": ACTION_DEFINITIONS + library_catalog(),
-                "favorites": store.favorites()}
+                "favorites": store.favorites(), "updates": update_status()}
+
+    def update_status():
+        from .update_service import source_status
+
+        updater = getattr(settings, "desktop_updates", None)
+        return updater.status() if updater is not None else source_status()
+
+    @app.get("/api/updates")
+    def updates():
+        return update_status()
+
+    @app.post("/api/updates/check")
+    def check_updates():
+        updater = getattr(settings, "desktop_updates", None)
+        if updater is not None:
+            updater.start()
+        return update_status()
 
     @app.get("/api/catalog")
     def catalog():

@@ -1,6 +1,10 @@
 # Kurulum ve bağlantılar
 
-RpaOrkestrAI Python 3.11 veya üstünü kullanır. Studio ve yerel demo, masaüstü otomasyon paketleri veya harici hesaplar olmadan açılabilir. Gerçek ERP, OCR, veritabanı, Sheets ve web işlemleri için `automation` ek bağımlılıklarını yükleyin.
+Normal kullanımda [indirme sayfasındaki](https://orkestrai.net/rpa/) Windows EXE veya macOS DMG paketini kullanın. Paket kendi Python 3.12 yorumlayıcısını taşır; bilgisayara Python kurmanız gerekmez. Sisteminizde Python 3.14 varsa paket bundan bağımsız çalışır. Windows'ta kurulumdan sonraki masaüstü kısayolunu, Mac'te `/Applications/RpaOrkestrAI.app` dosyasını açın. `start.command` hazır uygulama değildir; terminale bağlı kaynak kod başlatıcısıdır.
+
+0.1.x sürümlerinden 0.2.0'a ilk geçiş elle kurulum gerektirir. Sonraki yayımlanan sürümler açılışta arka planda indirilir ve bir sonraki açılışta kurulur; mevcut akışlar ve bağlantı ayarları korunur. [Masaüstü kurulum ayrıntıları](masaustu-dagitim.md), [güncelleme mimarisi](guncelleme-mimarisi.md).
+
+Aşağıdaki Python komutları **kaynak koddan geliştirme** içindir. Standart 64 bit Python 3.11–3.14 desteklenir; free-threaded varyantlar kapsam dışındadır. Studio ve yerel demo, masaüstü otomasyon paketleri veya harici hesaplar olmadan açılabilir. Gerçek ERP, OCR, veritabanı, Sheets ve web işlemleri için `automation` ek bağımlılıklarını yükleyin.
 
 ## macOS
 
@@ -17,27 +21,27 @@ cp .env.example .env
 rpa-studio
 ```
 
-Python sürümü 3.11'den eskiyse önce uygun bir Python kurup sanal ortamı o yorumlayıcıyla oluşturun. Uygulamayı her başlattığınızda aynı proje klasöründe `source .venv/bin/activate` çalıştırın; `.env` ve varsayılan `data/` dizini bu çalışma konumuna göre bulunur.
+Python sürümünü kontrol edip 3.11–3.14 aralığındaki yorumlayıcıyla sanal ortam oluşturun. Uygulamayı her başlattığınızda aynı proje klasöründe `source .venv/bin/activate` çalıştırın; `.env` ve varsayılan `data/` dizini bu çalışma konumuna göre bulunur.
 
 Masaüstü otomasyonu için Sistem Ayarları → Gizlilik ve Güvenlik altında uygulamayı başlatan Terminal/IDE veya paketlenmiş uygulamaya **Erişilebilirlik** ve **Ekran ve Sistem Sesi Kaydı** izinlerini verin. İzin değişikliğinden sonra ilgili uygulamanın yeniden açılması gerekebilir. [Apple erişilebilirlik izinleri](https://support.apple.com/guide/mac-help/allow-accessibility-apps-to-access-your-mac-mh43185/mac), [Apple ekran kaydı izinleri](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac).
 
 ## Windows / PowerShell
 
-GitHub'daki ZIP, kaynak koddur; kurulu uygulama veya sanal ortam içermez. ZIP'i tamamen çıkarıp yazabildiğiniz bir klasöre koyun. Windows ilk kurulumu için **Python 3.12 veya 3.11 (64 bit)** kullanın. Python yoksa [resmî Windows indirmelerinden](https://www.python.org/downloads/windows/) kurun. Şirket bilgisayarında yazılım kurulumu BT tarafından yönetiliyorsa Python kurulumunu BT'nin sağladığı yöntemle yapın.
+GitHub'daki **Code → Download ZIP**, kaynak koddur; kurulu uygulama veya sanal ortam içermez. ZIP'i tamamen çıkarıp yazabildiğiniz bir klasöre koyun. Kaynak kod kurulumu için **Python 3.11, 3.12, 3.13 veya 3.14 (standart 64 bit)** kullanın. Python yoksa [resmî Windows indirmelerinden](https://www.python.org/downloads/windows/) kurun. Şirket bilgisayarında yazılım kurulumu BT tarafından yönetiliyorsa Python kurulumunu BT'nin sağladığı yöntemle yapın.
 
-**Çift tıklayarak:** önce `setup-windows.bat`, başarılı kurulumdan sonra masaüstündeki **RpaOrkestrAI Studio** kısayolunu kullanın. Kısayol terminal açmaz. `start.bat` hata ayıklama için kullanılabilir. Kurulum betiği `.venv` oluşturur ve `.[native,automation]` paketlerini kurar. İnternet gerekir; Python'un kendisini kurmaz. Aynı klasörde tekrar çalıştırıldığında mevcut ortamı kullanır ve proje paketlerini kurar. `data/` ve `.env` dosyalarını değiştirmez. Uygulama açıkken kurulum/güncelleme yapmayın.
+**Çift tıklayarak:** önce `setup-windows.bat`, başarılı kurulumdan sonra masaüstündeki **RpaOrkestrAI Studio** kısayolunu kullanın. Kısayol terminal açmaz. `start.bat` hata ayıklama için kullanılabilir. Kurulum betiği mevcut desteklenen `.venv` ortamını kullanır; ortam yoksa sırasıyla Python 3.14, 3.13, 3.12 ve 3.11'i arayıp oluşturur. `.[native,automation]` paketlerini kurmak için internet gerekir; Python'un kendisini kurmaz. `data/` ve `.env` dosyalarını değiştirmez. Uygulama açıkken bu kaynak kod kurulumu/güncellemesini yapmayın.
 
 İndirdiğiniz sürümde kurulum betiği yoksa, proje klasöründe PowerShell açıp komutları sırayla çalıştırın. Bir komut hata verirse sonraki adıma geçmeden hatayı çözün:
 
 ```powershell
 Set-Location "C:\projeler\RpaOrkestrAI"
-py -3.12 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install ".[native,automation]"
 .\start.bat
 ```
 
-Python 3.11 kuruluysa ilk Python komutunda `py -3.11` kullanın. `py` bulunmuyorsa `python --version` ile sürümü kontrol edin; 64 bit 3.11/3.12 ise `python -m venv .venv` kullanabilirsiniz. Bu komutlar **Activate.ps1 gerektirmez**; PowerShell execution policy ayarını değiştirmeyin.
+İlk komutta kurulu sürümünüze göre `py -3.13`, `py -3.12` veya `py -3.11` de kullanabilirsiniz. `py` bulunmuyorsa `python --version` ile sürümü kontrol edin; standart 64 bit 3.11–3.14 ise `python -m venv .venv` kullanabilirsiniz. Bu komutlar **Activate.ps1 gerektirmez**; PowerShell execution policy ayarını değiştirmeyin.
 
 Masaüstü penceresi WebView2 gibi bir bileşen nedeniyle açılmıyorsa aynı uygulamayı tarayıcıda test edin:
 
@@ -120,9 +124,9 @@ python -m pip install -e ".[native]"
 rpa-studio --native
 ```
 
-Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşletim sisteminin web görünümü bileşenleri gerekir; Windows WebView2 gibi ek gereksinimleri [pywebview kurulum belgesinden](https://pywebview.flowrl.com/guide/installation.html) kontrol edin. Konsolsuz `.exe` / `.app` ve Windows kurulum paketi üretimi için [masaüstü dağıtım rehberini](masaustu-dagitim.md) izleyin. Paket imzalama ve macOS notarization henüz yapılandırılmamıştır.
+Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşletim sisteminin web görünümü bileşenleri gerekir; Windows WebView2 gibi ek gereksinimleri [pywebview kurulum belgesinden](https://pywebview.flowrl.com/guide/installation.html) kontrol edin. Konsolsuz `.exe` / `.app` ve Windows kurulum paketi üretimi için [masaüstü dağıtım rehberini](masaustu-dagitim.md) izleyin. Test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; güncelleme bildirimlerinin Ed25519 imzası bunlardan ayrıdır.
 
-`native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; Windows'ta önce `setup-windows.bat` çalıştırın. Başlatıcılar otomatik paket indirme veya kurulum yapmaz.
+`native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Bunlar terminale bağlı geliştirme başlatıcılarıdır; terminalin kapanması uygulamayı da kapatabilir. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; Windows'ta önce `setup-windows.bat` çalıştırın. Başlatıcılar otomatik paket indirme veya kurulum yapmaz.
 
 Varsayılan başlatıcı `launch.py` ile doğrudan projenin `src/` klasörünü yükler. Böylece kurulu paketin eski kopyası veya macOS'ta gizli işaretlenmiş `.pth` dosyaları kaynak kodunun yüklenmesini engellemez.
 
@@ -155,6 +159,9 @@ Bu örnek yalnız yerel demo verisini işler. Farklı veri klasörleriyle çalı
 | Belirti | Kontrol |
 | --- | --- |
 | `Sanal ortam bulunamadi` | ZIP'i çıkarın ve `setup-windows.bat` çalıştırın; `.venv` GitHub'a dahil değildir. |
+| Python 3.14 kurulu ama eski kurulum betiği reddediyor | Kaynak kodun 0.2.0 veya sonraki sürümünü alın; hazır EXE kurulumu sistem Python'una ihtiyaç duymaz. |
+| Mac'te terminal kapanınca Studio kapanıyor | `start.command` yerine Uygulamalar klasöründeki `RpaOrkestrAI.app` dosyasını açın. |
+| 0.1.x uygulaması yeni sürümü kendiliğinden almıyor | Güncelleme altyapısını içeren 0.2.0'ı bir kez elle kurun. |
 | Windows yerel pencere açılmıyor | `start-browser.bat` ile tarayıcıda test edin; pywebview/WebView2 hata mesajını kontrol edin. |
 | Paket indirmesi başarısız | Kurulum çıktısındaki ilk hatayı kontrol edin; şirket proxy/ağ kısıtları için BT ekibine başvurun. |
 | `rpa-studio` bulunamıyor | Sanal ortamı etkinleştirin veya `.venv` içindeki yürütülebilir dosyayı çağırın. |

@@ -1,5 +1,5 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "0.1.1"
+  #define AppVersion "0.2.0"
 #endif
 
 [Setup]
@@ -32,9 +32,49 @@ Name: "{userdesktop}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"
 Name: "{userprograms}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"
 
 [Run]
-Filename: "{app}\RpaOrkestrAI.exe"; Description: "RpaOrkestrAI Studio'yu aç"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\RpaOrkestrAI.exe"; Description: "RpaOrkestrAI Studio'yu aç"; Flags: nowait postinstall skipifsilent; Check: not IsUpdate
+Filename: "{app}\RpaOrkestrAI.exe"; Flags: nowait; Check: IsUpdate
 
 [Code]
+function OpenProcess(Access: LongWord; Inherit: BOOL; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function IsUpdate(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/RPAUPDATE') = 0 then
+      Result := True;
+end;
+
+function PreviousAppExited(): Boolean;
+var
+  ProcessId: Integer;
+  Handle: THandle;
+begin
+  Result := True;
+  if not IsUpdate() then exit;
+  ProcessId := StrToIntDef(ExpandConstant('{param:RPAPID|0}'), 0);
+  if ProcessId <= 0 then begin
+    Result := False;
+    exit;
+  end;
+  Handle := OpenProcess($00100000, False, ProcessId);
+  if Handle = 0 then begin
+    { Only an absent process is safe; access denied does not mean it exited. }
+    Result := DLLGetLastError = 87;
+    exit;
+  end;
+  Result := WaitForSingleObject(Handle, 120000) = 0;
+  CloseHandle(Handle);
+end;
+
 function WebViewInstalled(): Boolean;
 var
   Version: String;
@@ -48,6 +88,11 @@ end;
 
 function InitializeSetup(): Boolean;
 begin
+  if not PreviousAppExited() then begin
+    Result := False;
+    MsgBox('Studio kapanmadığı için güncelleme ertelendi. Çalışmalarınızı kaydedip uygulamayı kapatın.', mbInformation, MB_OK);
+    exit;
+  end;
   Result := WebViewInstalled();
   if not Result then
     MsgBox('Microsoft Edge WebView2 Runtime gerekli. Önce BT ekibiniz üzerinden veya https://developer.microsoft.com/microsoft-edge/webview2 adresinden kurun, ardından kurulumu yeniden açın.', mbError, MB_OK);

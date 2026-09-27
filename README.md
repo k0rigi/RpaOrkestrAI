@@ -6,18 +6,22 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 ## Masaüstü uygulaması olarak kullanım
 
-Hazır kurulum dosyalarını **[İndirme sayfasından](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.1-test.1)** alın. Depo özel olduğundan GitHub hesabınızla giriş yapın.
+Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.1.1-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1/M2/M3/M4 ve sonrası):** `RpaOrkestrAI-0.1.1-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; Uygulamalar klasöründen açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.2.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.2.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
-Bu paketler Python'u içerir ve terminal açmadan çalışır. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
+Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
+
+**0.1.x kullananlar 0.2.0'ı bir kez elle kurmalıdır.** 0.2.0 ile kurulu uygulama açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. İnternet yoksa mevcut sürüm çalışır, akışlar ve bağlantı ayarları korunur. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+
+Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.
 
 Kaynak kodla Windows kurulumu yapanlar için `setup-windows.bat` masaüstüne terminal açmayan **RpaOrkestrAI Studio** kısayolu ekler.
 
 ## Başlangıç
 
-Python **3.11+** gerekir. Komutları proje klasöründe çalıştırın.
+Bu bölüm **kaynak koddan geliştirme** içindir; standart 64 bit Python **3.11, 3.12, 3.13 veya 3.14** gerekir. Free-threaded Python dağıtımları destek kapsamı dışındadır. Komutları proje klasöründe çalıştırın.
 
 macOS:
 
@@ -32,7 +36,7 @@ rpa-studio
 Windows'ta GitHub'dan ilk kurulum:
 
 1. ZIP dosyasını tamamen çıkarın. Örneğin `C:\RpaOrkestrAI` gibi yazabildiğiniz bir klasör kullanın.
-2. **Python 3.12 veya 3.11 (64 bit)** kurulu olmalıdır.
+2. **Python 3.11–3.14 (standart 64 bit)** kurulu olmalıdır. Kurulum betiği 3.14, 3.13, 3.12 ve 3.11 sırasıyla arar; varsa desteklenen mevcut `.venv` ortamını kullanır.
 3. [setup-windows.bat](setup-windows.bat) dosyasını çift tıklayın. Sanal ortamı ve yerel pencere/otomasyon paketlerini kurar; internet gerekir.
 4. Kurulum bitince masaüstündeki **RpaOrkestrAI Studio** kısayoluyla terminal açmadan başlatın. Hata ayıklamak için [start.bat](start.bat) kullanılabilir. Yerel pencere bileşeninde sorun varsa [start-browser.bat](start-browser.bat) aynı Studio'yu tarayıcıda açar.
 
@@ -147,13 +151,14 @@ python -m pytest
 python -m ruff check .
 ```
 
-GitHub Actions, macOS ve Windows üzerinde Python 3.11/3.12 için çekirdek testleri çalıştırır. Bu testler canlı ERP oturumu, veritabanı hesabı veya Google anahtarı gerektirmez. Gerçek masaüstü, OCR, sürücü ve ağ bağlantıları hedef bilgisayarda ayrıca doğrulanmalıdır; CI bunların yerini tutmaz.
+GitHub Actions, macOS ve Windows üzerinde Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar, paket tutarlılığını ve yerel pencere motorunun yüklenmesini doğrular, testleri çalıştırır. Bu testler canlı ERP oturumu, veritabanı hesabı veya Google anahtarı gerektirmez. Gerçek masaüstü, OCR, sürücü ve ağ bağlantıları hedef bilgisayarda ayrıca doğrulanmalıdır; CI bunların yerini tutmaz.
 
 Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle internete veya ortak ağa açmayın. Masaüstü robotu çalışırken hedef pencere odağı ve ekran düzeni korunmalıdır. İptal isteği bir sonraki denetim noktasında uygulanır; tamamlanmış dış işlemleri geri almaz.
 
 ## Rehberler
 
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)
+- [Otomatik güncelleme ve yeni sürüm yayımlama](docs/guncelleme-mimarisi.md)
 - [Kurulum, macOS/Windows izinleri ve bağlantılar](docs/kurulum.md)
 - [ERP penceresini tanıtma ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)

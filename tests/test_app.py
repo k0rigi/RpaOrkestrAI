@@ -226,3 +226,20 @@ def test_new_window_flow_validation_and_public_run_error(client, monkeypatch):
         time.sleep(0.01)
     assert run['status'] == 'failed'
     assert run['error'] == 'ERP penceresi bulunamadı.'
+
+
+def test_update_status_and_checks_do_not_allow_cross_site_requests(tmp_path):
+    from unittest.mock import Mock
+
+    settings = Settings(tmp_path, dotenv=False)
+    updater = Mock()
+    updater.status.return_value = {"enabled": True, "status": "ready", "version": "0.2.0",
+                                   "available_version": "0.2.1", "message": "Yeni sürüm hazır."}
+    settings.desktop_updates = updater
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/bootstrap").json()["updates"]["status"] == "ready"
+        assert client.get("/api/updates").json()["available_version"] == "0.2.1"
+        assert client.post("/api/updates/check", headers={"origin": "https://evil.example"}).status_code == 403
+        updater.start.assert_not_called()
+        assert client.post("/api/updates/check", headers={"origin": "http://testserver"}).status_code == 200
+        updater.start.assert_called_once()

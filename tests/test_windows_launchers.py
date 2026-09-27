@@ -57,9 +57,48 @@ def test_failed_install_stops_and_preserves_workspace(checkout):
     sentinel.write_text('{}')
     result = launch(checkout / "setup-windows.bat")
     assert result.returncode == 1
+    assert "Gerekli paketler indiriliyor." in result.stdout
+    assert "desteklenen Python surumunde degil" not in result.stdout
     assert "Kurulum tamamlanamadi." in result.stdout
     assert "Kurulum tamamlandi." not in result.stdout
     assert sentinel.read_text() == '{}'
+
+
+def test_supported_existing_environment_reaches_success_without_touching_user_data(checkout, monkeypatch):
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(checkout / ".venv")], check=True)
+    data = checkout / "data"
+    data.mkdir()
+    workflow = data / "saved-workflow.json"
+    workflow.write_text('{"name": "existing workflow"}')
+    env_file = checkout / ".env"
+    env_file.write_text("RPA_PORT=9000\n")
+
+    # Exercise the real batch interpreter and version guard while replacing
+    # network installation and desktop mutation with observable local fixtures.
+    fake_modules = checkout / "fake modules"
+    fake_modules.mkdir()
+    (fake_modules / "pip.py").write_text(
+        "import pathlib, sys\n"
+        "with pathlib.Path('pip-calls.txt').open('a') as handle:\n"
+        "    handle.write(' '.join(sys.argv[1:]) + '\\n')\n"
+    )
+    monkeypatch.setenv("PYTHONPATH", str(fake_modules))
+    scripts = checkout / "scripts"
+    scripts.mkdir()
+    (scripts / "create_windows_shortcut.py").write_text(
+        "from pathlib import Path\nPath('shortcut-created.txt').touch()\n"
+    )
+
+    result = launch(checkout / "setup-windows.bat")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Kurulum tamamlandi." in result.stdout
+    assert (checkout / "pip-calls.txt").read_text().splitlines() == [
+        "install --upgrade pip", "install .[native,automation]",
+    ]
+    assert (checkout / "shortcut-created.txt").exists()
+    assert workflow.read_text() == '{"name": "existing workflow"}'
+    assert env_file.read_text() == "RPA_PORT=9000\n"
 
 
 @pytest.mark.parametrize("script", ["start.bat", "start-browser.bat"])

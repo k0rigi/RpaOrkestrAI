@@ -12,6 +12,8 @@
     settings: {},
     platform: "",
     version: "",
+    updates: {},
+    updatePoll: null,
     page: "dashboard",
     workflow: null,
     selected: null,
@@ -542,8 +544,12 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.1.1"}`),
+      node("span", "version", `v${state.version || "0.2.0"}`),
     );
+    const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
+    updateNotice.id = "update-notice";
+    updateNotice.hidden = state.updates.status !== "ready";
+    right.append(updateNotice);
     top.append(left, right);
     main.append(top, node("main", "page-content"));
     root.append(sidebar, main);
@@ -2263,6 +2269,33 @@
       el.append(h, node("p", "", description));
       return el;
     }
+    const updatePanel = panel(
+      "Uygulama güncellemeleri", "refresh",
+      "Yeni sürümler arka planda indirilir; indirilen sürüm bir sonraki açılışta kurulur. Akışlarınız ve bağlantı ayarlarınız korunur.",
+    );
+    updatePanel.append(node("p", "", `Yüklü sürüm: ${state.version}`));
+    const updateMessage = node("p", "update-message", state.updates.message || "Güncelleme durumu yükleniyor…");
+    updateMessage.id = "update-message";
+    updateMessage.setAttribute("role", "status");
+    const checkUpdate = button("Güncellemeleri kontrol et", "refresh", () => attempt(async () => {
+      checkUpdate.disabled = true;
+      try {
+        state.updates = await api("/api/updates/check", { method: "POST" });
+        paintUpdates();
+      } finally {
+        checkUpdate.disabled = !state.updates.enabled;
+      }
+    }));
+    checkUpdate.id = "check-update";
+    checkUpdate.disabled = !state.updates.enabled;
+    const downloads = node("a", "button", "İndirme sayfası");
+    downloads.href = "https://orkestrai.net/rpa/";
+    downloads.target = "_blank";
+    downloads.rel = "noopener noreferrer";
+    const updateActions = node("div", "update-actions");
+    updateActions.append(checkUpdate, downloads);
+    updatePanel.append(updateMessage, updateActions);
+    form.append(updatePanel);
     const db = panel(
       "Veritabanı",
       "database",
@@ -2411,7 +2444,7 @@
       node(
         "p",
         "",
-        "Terminal veya Python uygulamasına Sistem Ayarları içinden Erişilebilirlik ve Ekran Kaydı izinleri verin.",
+        "Kurulu RpaOrkestrAI uygulamasına Sistem Ayarları içinden Erişilebilirlik ve Ekran Kaydı izinleri verin. Kaynak kodla çalışıyorsanız izinler kullandığınız Python veya Terminal için gerekir.",
       ),
       node("h3", "", "Windows ve ekran ölçeği"),
       node(
@@ -2446,8 +2479,10 @@
       state.settings = data.settings || {};
       state.platform = data.platform || state.settings.platform || "";
       state.version = data.version || "";
+      state.updates = data.updates || {};
       render();
       pollRunList();
+      pollUpdates();
     } catch (error) {
       root.replaceChildren();
       root.setAttribute("aria-busy", "false");
@@ -2462,6 +2497,27 @@
       screen.append(content);
       root.append(screen);
     }
+  }
+  function paintUpdates() {
+    const message = document.getElementById("update-message");
+    if (message) message.textContent = state.updates.message || "";
+    const notice = document.getElementById("update-notice");
+    if (notice) notice.hidden = state.updates.status !== "ready";
+    const check = document.getElementById("check-update");
+    if (check) check.disabled = !state.updates.enabled || ["checking", "downloading"].includes(state.updates.status);
+  }
+  function pollUpdates() {
+    clearTimeout(state.updatePoll);
+    if (!state.updates.enabled) return;
+    state.updatePoll = setTimeout(async () => {
+      try {
+        state.updates = await api("/api/updates");
+        paintUpdates();
+      } catch (_) {
+        // An offline update check must not interrupt the editor or its unsaved work.
+      }
+      pollUpdates();
+    }, 10000);
   }
   window.addEventListener("beforeunload", (event) => {
     if (state.dirty) {

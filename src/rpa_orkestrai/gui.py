@@ -82,7 +82,7 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
 
         return run_check(Path(args[1]).resolve())
     previous_stdout, previous_stderr, previous_cwd = sys.stdout, sys.stderr, Path.cwd()
-    logger, log_path = None, None
+    logger, log_path, updater = None, None, None
     try:
         root = (workspace or default_workspace()).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
@@ -91,9 +91,16 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
         (root / "assets" / "templates").mkdir(parents=True, exist_ok=True)
         from .config import Settings
         from .native import serve_native
+        from .update_service import DesktopUpdates
 
         logger.info("Masaüstü uygulaması başlatılıyor.")
-        serve_native(Settings(), auto_port=True)
+        settings = Settings()
+        updater = DesktopUpdates(root)
+        if updater.apply_pending(settings):
+            return 0
+        settings.desktop_updates = updater
+        updater.start()
+        serve_native(settings, auto_port=True)
         return 0
     except Exception as exc:
         if logger:
@@ -114,6 +121,8 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
                 logger.exception("Hata penceresi de açılamadı.")
         return 1
     finally:
+        if updater is not None:
+            updater.stop()
         sys.stdout, sys.stderr = previous_stdout, previous_stderr
         os.chdir(previous_cwd)
         if logger:

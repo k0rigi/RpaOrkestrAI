@@ -29,8 +29,10 @@ def run_check(report: Path) -> int:
                 importlib.import_module(name)
             import uvicorn
 
+            from . import __version__
             from .app import create_app
             from .config import Settings
+            from .updates import current_platform_key
 
             sock = socket.socket()
             sock.bind(("127.0.0.1", 0))
@@ -51,6 +53,7 @@ def run_check(report: Path) -> int:
                     if response.status != 200 or expected not in response.read():
                         raise RuntimeError(f"Paket kaynağı doğrulanamadı: {route}")
             result = {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
+                      "version": __version__, "platform": current_platform_key(),
                       "checks": ["native-import", "automation-imports", "http-api", "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

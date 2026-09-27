@@ -106,3 +106,19 @@ def test_source_shortcut_quotes_paths_and_does_not_interpolate_powershell(monkey
     assert str(root) not in arguments[-1]
     assert run.call_args.kwargs['env']['RPA_SHORTCUT_ROOT'] == str(root)
     assert run.call_args.kwargs['env']['RPA_SHORTCUT_PYTHON'].endswith('pythonw.exe')
+
+
+def test_update_handoff_exits_before_opening_workspace(monkeypatch, tmp_path):
+    from rpa_orkestrai import native, update_service
+
+    updater = Mock()
+    updater.apply_pending.return_value = True
+    monkeypatch.setattr(update_service, 'DesktopUpdates', Mock(return_value=updater))
+    serve = Mock()
+    monkeypatch.setattr(native, 'serve_native', serve)
+    previous_cwd = Path.cwd()
+    assert gui.main(workspace=tmp_path, argv=[]) == 0
+    serve.assert_not_called()
+    updater.start.assert_not_called()
+    updater.stop.assert_called_once()
+    assert Path.cwd() == previous_cwd

@@ -11,6 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def app_version() -> str:
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        return tomllib.load(handle)["project"]["version"]
+
+
 def finalize_mac_bundle(bundle: Path) -> None:
     import plistlib
 
@@ -18,7 +25,8 @@ def finalize_mac_bundle(bundle: Path) -> None:
     with path.open("rb") as handle:
         info = plistlib.load(handle)
     info.update(NSAppleEventsUsageDescription="Tanıttığınız ERP penceresini öne getirmek için kullanılır.",
-                NSHighResolutionCapable=True)
+                NSHighResolutionCapable=True, CFBundleShortVersionString=app_version(),
+                CFBundleVersion=app_version())
     with path.open("wb") as handle:
         plistlib.dump(info, handle)
     # Clean Finder/iCloud metadata only on our newly generated bundle before signing.
