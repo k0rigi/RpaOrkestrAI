@@ -128,3 +128,44 @@ aktarılır. Paketler sunucudan indirilebildikten ve özetleri doğrulandıktan 
 **`stable.manifest` en son, geçici dosyadan atomik yeniden adlandırmayla** yayımlanır.
 Böylece istemciler henüz aktarımı bitmemiş bir sürüme yönlendirilmez. Önceki sürümün
 paketleri tutulur; aynı sürüm numarasındaki dosyaların içeriği değiştirilmez.
+
+## Mevcut hosting deposuyla yayına alma
+
+`k0rigi/orkestrai` hosting deposundaki **Publish RpaOrkestrAI desktop downloads**
+iş akışı yalnız `/home/orkestrai.net/public_html/rpa` dizinini yönetir. Yapılandırma
+`.github/workflows/publish-rpa.yml`, betik `.github/scripts/publish-rpa.py`
+konumundadır. Bu projedeki kaynakları sırasıyla
+`packaging/hosting/publish-rpa.yml` ve `scripts/deploy_update_bundle.py` dosyalarıdır.
+Bu iki dosya hosting deposuna eklenirken veya güncellenirken commit mesajına
+**`[skip ci]`** eklenir; mevcut, tüm web sitesini dağıtan ayrı iş akışının bu araç
+değişikliği nedeniyle tetiklenmesi önlenir. RPA yayını ayrıca elle başlatılır.
+
+İş akışı mevcut `HOST`, `USERNAME` ve `PASSWORD` GitHub Secrets değerlerini
+kullanır. Bunlar masaüstü uygulamasına, indirme sayfasına veya güncelleme paketine
+girmez. SSH sunucusunun bilinen açık anahtarı sabitlenmiştir; bilinmeyen sunucu
+anahtarı otomatik kabul edilmez.
+
+1. İmzalı yayın klasörüyle birlikte `publish-bundle.tar.gz` üretin ve arşivin
+   SHA-256 özetini alın. Arşiv, özel GitHub deposunda geçici aktarım dosyası olarak
+   tutulabilir; sunucunun GitHub erişim anahtarına ihtiyacı yoktur.
+2. Hosting deposunda **Actions → Publish RpaOrkestrAI desktop downloads → Run
+   workflow** yoluyla `action: inspect` çalıştırın. Bu işlem yalnız hedef dizinin
+   erişimini ve mevcut yayın sürümünü okur; dizin oluşturmaz veya dosya değiştirmez.
+3. Yayın için `action: publish`, `version`, `bundle_sha256` ve `bundle_url`
+   alanlarını doldurun. `bundle_url`, GitHub'ın verdiği kısa ömürlü
+   `https://release-assets.githubusercontent.com/…` indirme adresidir; normal
+   Release sayfası bağlantısı değildir. Adresi belgeye veya commit'e yazmayın.
+   İş akışı bunu doğrudan olay dosyasından okur; komut satırına veya günlüğe basmaz.
+4. İş akışı arşivi indirip boyut/özet kontrolü yapar, bildirimin Ed25519 imzasını ve
+   paketleri uygulamadaki yayıncı açık anahtarıyla doğrular. Ardından sunucuya özel
+   geçici dosya olarak aktarır. Sunucu yeniden arşiv ve paket özetlerini denetler;
+   yalnız izin verilen normal dosyaları çıkarır, farklı içerikle aynı sürümün
+   üzerine yazmayı reddeder ve bildirimi en son yayımlar.
+5. Başarılı işten sonra indirme sayfasını, bildirimi ve iki platformun paketlerini
+   HTTPS üzerinden kontrol edin. Süresi dolan aktarım URL'siyle yeniden denemek
+   gerekirse yeni bir kısa ömürlü URL alın; arşiv değişmediyse özeti değişmez.
+
+Bu yayın adımı her sürüm için bilinçli olarak elle başlatılır. Kurulu masaüstü
+uygulamalarının yeni yayını bulması, indirmesi ve sonraki açılışta kurması otomatik
+gerçekleşir. İş akışı mevcut web uygulamasını, veritabanını veya servisleri yeniden
+başlatmaz.
