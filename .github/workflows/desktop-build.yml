@@ -49,12 +49,12 @@ jobs:
           $version = python -c "import sys; sys.path.insert(0, 'src'); from rpa_orkestrai import __version__; print(__version__)"
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" 'packaging\windows-installer.iss'
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
-      - name: Check and archive macOS package
+      - name: Check and package macOS application
         if: runner.os == 'macOS'
         run: |
           dist/RpaOrkestrAI.app/Contents/MacOS/RpaOrkestrAI --self-test "$PWD/build/package-check.json"
           python -c "import json; d=json.load(open('build/package-check.json')); assert d['ok'] and d['frozen']"
-          ditto -c -k --sequesterRsrc --keepParent dist/RpaOrkestrAI.app dist/RpaOrkestrAI-macOS.zip
+          python scripts/build_macos_dmg.py dist/RpaOrkestrAI.app "dist/RpaOrkestrAI-macOS-$(uname -m).dmg"
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -67,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: RpaOrkestrAI-${{ matrix.artifact }}
-          path: dist/RpaOrkestrAI-macOS.zip
+          path: dist/RpaOrkestrAI-macOS-*.dmg
           if-no-files-found: error
       - name: Upload build diagnostics
         if: always()

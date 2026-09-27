@@ -6,7 +6,12 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 ## Masaüstü uygulaması olarak kullanım
 
-Son kullanıcı dağıtımı için Windows kurulum `.exe` dosyası ve macOS `.app` üretme altyapısı vardır. Bu paketler Python'u içerir ve terminal açmadan çalışır. GitHub'da **Actions → Build desktop apps** işi tamamlandıktan sonra **Artifacts** bölümünden alınır; **Code → Download ZIP** kaynak kod indirmesidir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
+Hazır kurulum dosyalarını **[İndirme sayfasından](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.0-test.1)** alın. Depo özel olduğundan GitHub hesabınızla giriş yapın.
+
+- **Windows:** `RpaOrkestrAI-Setup-0.1.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1/M2/M3/M4 ve sonrası):** `RpaOrkestrAI-0.1.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; Uygulamalar klasöründen açın. Bu paket Intel Mac için değildir.
+
+Bu paketler Python'u içerir ve terminal açmadan çalışır. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
 Kaynak kodla Windows kurulumu yapanlar için `setup-windows.bat` masaüstüne terminal açmayan **RpaOrkestrAI Studio** kısayolu ekler.
 

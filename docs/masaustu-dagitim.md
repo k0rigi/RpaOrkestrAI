@@ -1,6 +1,12 @@
 # Terminal gerektirmeyen masaüstü uygulaması
 
-Son kullanıcı için Windows dağıtımı `RpaOrkestrAI-Setup-<sürüm>-Windows-x64.exe`, macOS dağıtımı `RpaOrkestrAI.app` biçimindedir. Python ve uygulamanın Python paketleri derlemeye dahil edilir; kullanıcı kaynak kod, sanal ortam veya terminal ile uğraşmaz.
+Son kullanıcı için Windows dağıtımı `RpaOrkestrAI-Setup-<sürüm>-Windows-x64.exe`, macOS dağıtımı `.app` içeren `.dmg` biçimindedir. Python ve uygulamanın Python paketleri derlemeye dahil edilir; kullanıcı kaynak kod, sanal ortam veya terminal ile uğraşmaz.
+
+## Doğrudan indirme
+
+[Windows ve macOS test sürümü](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.0-test.1) sayfasındaki **Assets** bölümünü kullanın; özel depoya erişen GitHub hesabıyla giriş gerekir. Windows dosyası `RpaOrkestrAI-Setup-0.1.0-Windows-x64.exe`, Apple Silicon Mac dosyası `RpaOrkestrAI-0.1.0-macOS-arm64.dmg` adındadır.
+
+Önceki macOS indirmesi ZIP içinde ZIP içeriyordu. İndirme bütünlüğü doğrulanmasına rağmen Arşiv İzlencesi'nde açma hatası görüldüğü için dağıtım DMG'ye geçirildi. DMG'yi çift tıklayın ve uygulamayı içindeki **Applications** kısayoluna sürükleyin. `start.command` paketlenmiş uygulamanın başlatıcısı değildir; terminale bağlı kaynak kod sürümünü çalıştırır.
 
 ## Kullanıcı deneyimi
 
@@ -26,7 +32,7 @@ Bu dosyalar depoya gönderildikten sonra:
 1. GitHub deposunda **Actions → Build desktop apps → Run workflow** seçin.
 2. Windows ve macOS işleri, testleri çalıştırıp kendi platformlarının uygulamasını oluşturur.
 3. Derlenmiş uygulama geçici çalışma alanında `--self-test` ile açılır. Yerel API, arayüz dosyaları ve temel bağımlılıkların pakette bulunması kontrol edilir.
-4. Windows işi Inno Setup ile kurulum `.exe` dosyasını üretir; macOS işi `.app` dosyasını ZIP'e koyar.
+4. Windows işi Inno Setup ile kurulum `.exe` dosyasını üretir; macOS işi `.app` dosyasını Applications kısayoluyla birlikte doğrulanmış bir DMG'ye koyar.
 5. Başarılı çalışmanın **Artifacts** bölümünden `RpaOrkestrAI-Windows-x64` veya `RpaOrkestrAI-macOS` indirilir.
 
 **Code → Download ZIP kaynak koddur; kurulum dosyası değildir.** İş akışı elle tetiklenir; GitHub Release yayımlamaz. Paket derlemesi ve gerçek hedef makinedeki açılış doğrulaması tamamlanmadan dağıtımın doğrulandığı varsayılmamalıdır. Windows kurulum betiği ve GUI davranışı gerçek Windows oturumunda ayrıca denenmelidir; paket kontrolü masaüstüne tıklamaz.
@@ -46,7 +52,13 @@ Windows çıktısı `dist/RpaOrkestrAI/RpaOrkestrAI.exe` olur; `dist/RpaOrkestrA
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\windows-installer.iss
 ```
 
-Mac çıktısı `dist/RpaOrkestrAI.app` olur. Proje iCloud ile eşitlenen Masaüstü/Belgeler altındaysa Finder metaverisi imzalamayı bozabilir; `--dist-dir /tmp/rpa-desktop-dist` ile paketi eşitlenmeyen bir klasöre üretin. SQL Server adaptörünün derlenmesi için `unixODBC` gerekir; CI bunu kurar. Yalnız pencere/Sheets işlerini denemek için `python scripts/build_desktop.py --without-odbc` kullanılabilir; bu test paketi SQL Server bağlantısı içermez.
+Mac çıktısı `dist/RpaOrkestrAI.app` olur. Kurulum imajını oluşturmak için:
+
+```bash
+python scripts/build_macos_dmg.py dist/RpaOrkestrAI.app dist/RpaOrkestrAI-macOS-arm64.dmg
+```
+
+Dosya adındaki mimari, uygulamanın derlendiği mimariyle eşleşmelidir. Proje iCloud ile eşitlenen Masaüstü/Belgeler altındaysa Finder metaverisi imzalamayı bozabilir; `--dist-dir /tmp/rpa-desktop-dist` ile paketi eşitlenmeyen bir klasöre üretin. SQL Server adaptörünün derlenmesi için `unixODBC` gerekir; CI bunu kurar. Yalnız pencere/Sheets işlerini denemek için `python scripts/build_desktop.py --without-odbc` kullanılabilir; bu test paketi SQL Server bağlantısı içermez.
 
 Statik HTML/CSS/JS, pywebview kaynakları, sertifika deposu ve dinamik yüklenen modüller paketlenir. `.env`, servis hesabı anahtarı, yerel akışlar ve `data/` hiçbir zaman build girdisi değildir. Tesseract, veritabanı sürücüleri, Chromium ve WebView2 gibi harici sistem bileşenleri bu Python paketinden ayrıdır. İlk havuzdaki pencere ve Sheets işlemleri Chromium/Tesseract gerektirmez.
 
