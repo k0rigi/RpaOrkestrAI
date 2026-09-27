@@ -373,6 +373,7 @@ def main() -> int:
                 try:
                     with sftp.open(remote_path, "wx") as target, bundle.open("rb") as source:
                         sftp.chmod(remote_path, 0o600)
+                        target.set_pipelined(True)
                         for chunk in iter(lambda: source.read(1024 * 1024), b""):
                             target.write(chunk)
                     result = remote(client, "publish", config["version"], config["bundle_sha256"], token)
