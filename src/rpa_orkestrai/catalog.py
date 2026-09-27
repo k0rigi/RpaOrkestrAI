@@ -1,0 +1,103 @@
+"""The action catalog also drives the Studio's parameter forms."""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def field(name: str, label: str, kind: str = "text", default: Any = "", **kwargs: Any) -> dict:
+    return {"name": name, "label": label, "type": kind, "default": default, **kwargs}
+
+
+def action(kind: str, label: str, category: str, description: str, fields: list, **kwargs: Any) -> dict:
+    return {"type": kind, "label": label, "category": category, "description": description,
+            "fields": fields, **kwargs}
+
+
+OUTPUT = field("output", "Sonucu değişkene kaydet", default="result", required=True,
+               help="Sonraki adımda ${result} ile kullanın.")
+REGION = field("region", "Ekran bölgesi [x, y, genişlik, yükseklik]", "json", None,
+               help="Boş/null: ana ekran. Mantıksal ekran koordinatları.")
+OPERATORS = [
+    {"value": "eq", "label": "Eşittir"}, {"value": "ne", "label": "Eşit değildir"},
+    {"value": "contains", "label": "İçerir (harf duyarsız)"},
+    {"value": "gt", "label": "Büyüktür"}, {"value": "gte", "label": "Büyük veya eşittir"},
+    {"value": "lt", "label": "Küçüktür"}, {"value": "lte", "label": "Küçük veya eşittir"},
+    {"value": "truthy", "label": "Dolu / doğru"},
+]
+
+CATALOG = [
+    action("data.sample", "Örnek siparişler", "Veri", "Bağlantı gerektirmeyen örnek veri oluşturur.",
+           [field("output", "Veri değişkeni", default="orders", required=True)]),
+    action("core.set", "Değişken oluştur", "Veri", "Bir metin, sayı veya JSON değeri saklar.",
+           [field("name", "Değişken adı", default="value", required=True),
+            field("value", "Değer", "json", "")]),
+    action("data.append", "Listeye ekle", "Veri", "Bir kaydı sonuç listesine ekler; liste yoksa oluşturur.",
+           [field("name", "Liste değişkeni", default="results", required=True),
+            field("value", "Eklenecek değer", "json", "${item}")]),
+    action("data.export_csv", "Departman raporu", "Çıktı", "Kayıtları indirilebilir, Excel uyumlu CSV'ye yazar.",
+           [field("rows", "Kayıtlar", "json", "${orders}", required=True),
+            field("filename", "Dosya adı", default="rapor.csv", required=True)]),
+    action("control.for_each", "Her kayıt için", "Akış", "Listedeki her değer için alt adımları çalıştırır.",
+           [field("items", "Döngü listesi", "json", "${orders}", required=True),
+            field("item_name", "Geçerli kayıt değişkeni", default="item", required=True)], container="loop"),
+    action("control.if", "Koşul", "Akış", "Koşula göre Evet veya Değilse dalını çalıştırır.",
+           [field("left", "Sol değer", "json", "${item.amount}"),
+            field("operator", "Karşılaştırma", "select", "gte", options=OPERATORS),
+            field("right", "Sağ değer", "json", 1000)], container="condition"),
+    action("core.wait", "Bekle", "Akış", "İptal edilebilir süreli bekleme.",
+           [field("seconds", "Saniye", "number", 1)]),
+    action("core.log", "Çalışma notu", "Akış", "Çalışma günlüğüne bir not ekler.",
+           [field("message", "Not", default="Adım tamamlandı.", required=True,
+                  help="Günlüğe hassas iş verisi veya parola yazmayın.")]),
+    action("database.read", "Tablo oku", "Veritabanı", "İzin verilen tablodan salt okunur veri alır.",
+           [field("table", "Şema.Tablo", default="public.IASSALITEM", required=True),
+            field("columns", "Sütun listesi (null: tümü)", "json", None),
+            field("filters", "Eşitlik filtreleri", "json", {}),
+            field("limit", "Azami satır", "number", 1000),
+            field("output", "Veri değişkeni", default="orders", required=True)]),
+    action("desktop.click", "Koordinata tıkla", "Masaüstü", "Ana ekrandaki mantıksal koordinata tıklar.",
+           [field("x", "X", "number", 100), field("y", "Y", "number", 100)]),
+    action("desktop.write", "Metin yaz", "Masaüstü", "Aktif alana metin yazar.",
+           [field("text", "Metin", default="", required=True)]),
+    action("desktop.hotkey", "Klavye kısayolu", "Masaüstü", "mod tuşu macOS'ta Command, Windows'ta Ctrl olur.",
+           [field("keys", "Tuşlar", "json", ["mod", "a"], required=True)]),
+    action("desktop.press", "Tuşa bas", "Masaüstü", "Enter, Tab, aşağı ok gibi bir tuşa basar.",
+           [field("key", "Tuş", default="enter", required=True)]),
+    action("desktop.click_template", "Görseli bul ve tıkla", "Masaüstü", "Şablonu bekler ve merkezine tıklar.",
+           [field("template", "Şablon dosyası", default="buton.png", required=True), REGION,
+            field("confidence", "Eşleşme eşiği", "number", 0.85)]),
+    action("desktop.ocr", "Ekrandan metin oku", "Algılama", "OCR ile hata, onay veya ekran metnini okur.",
+           [REGION, field("output", "Metin değişkeni", default="screen_text", required=True)]),
+    action("desktop.scan_dropdown", "Liste seçeneklerini tara", "Algılama",
+           "Açılmış listeyi OCR ile okuyup kaydırır; benzersiz satırları toplar.",
+           [field("region", "Liste bölgesi [x, y, genişlik, yükseklik]", "json", [100, 100, 240, 300],
+                  required=True), field("scroll_amount", "Kaydırma adımı", "number", -3),
+            field("max_scrolls", "Azami kaydırma", "number", 20),
+            field("output", "Seçenekler değişkeni", default="options", required=True)]),
+    action("browser.open", "Web sayfası aç", "Web", "Arka planda Chromium oturumu açar.",
+           [field("url", "Adres", default="https://example.com", required=True)]),
+    action("browser.fill", "Web alanını doldur", "Web", "CSS veya Playwright seçicisiyle alan doldurur.",
+           [field("selector", "Seçici", default='input[name="q"]', required=True),
+            field("value", "Değer", required=True)]),
+    action("browser.click", "Web öğesine tıkla", "Web", "Seçilen web öğesine tıklar.",
+           [field("selector", "Seçici", default='button[type="submit"]', required=True)]),
+    action("browser.text", "Web metnini al", "Web", "Seçilen öğenin metnini değişkene aktarır.",
+           [field("selector", "Seçici", default="h1", required=True), OUTPUT]),
+    action("sheets.read", "Sheets aralığını oku", "Google Sheets", "Bir hücre veya aralıktaki değerleri alır.",
+           [field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
+            field("worksheet", "Sayfa adı", default="Sheet1", required=True),
+            field("range", "Hücre / aralık", default="A1:C10", required=True), OUTPUT]),
+    action("sheets.write", "Sheets aralığına yaz", "Google Sheets", "Hücre veya aralığa RAW değerleri yazar.",
+           [field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
+            field("worksheet", "Sayfa adı", default="Sheet1", required=True),
+            field("range", "Başlangıç hücresi / aralık", default="A1", required=True),
+            field("values", "Satır matrisi", "json", [["Örnek", 1]], required=True)]),
+]
+
+BY_TYPE = {entry["type"]: entry for entry in CATALOG}
+EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.")
+
+
+def defaults(action_type: str) -> dict[str, Any]:
+    return {f["name"]: f["default"] for f in BY_TYPE[action_type]["fields"]}

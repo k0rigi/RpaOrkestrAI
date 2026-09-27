@@ -1,0 +1,39 @@
+{
+  "name": "ERP sipariş okuma ve Finans raporu",
+  "description": "Önce veritabanı ayarlarını ve tablo adını doğrulayın. Önizlemede gerçek bağlantı kullanılmaz.",
+  "department": "Finans",
+  "steps": [
+    {
+      "id": "read-orders",
+      "title": "Sipariş tablosunu oku",
+      "action": "database.read",
+      "params": {
+        "table": "public.IASSALITEM",
+        "columns": null,
+        "filters": {},
+        "limit": 1000,
+        "output": "orders"
+      }
+    },
+    {
+      "id": "each-order",
+      "title": "Her sipariş için işlem yap",
+      "action": "control.for_each",
+      "params": {"items": "${orders}", "item_name": "item"},
+      "children": [
+        {
+          "id": "order-log",
+          "title": "İşleme başlangıcı",
+          "action": "core.log",
+          "params": {"message": "Sipariş sırası: ${loop_index}. ERP adımlarını bu döngüye ekleyin."}
+        }
+      ]
+    },
+    {
+      "id": "finance-report",
+      "title": "Finans çıktısını oluştur",
+      "action": "data.export_csv",
+      "params": {"rows": "${orders}", "filename": "finans-siparisler.csv"}
+    }
+  ]
+}
