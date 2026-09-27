@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import errno
+import json
 import platform
+import socket
 import threading
 import time
+from contextlib import ExitStack
 
-from .config import Settings
-from .instance import StartupError, existing_instance
+from .config import Settings, atomic_json
+from .instance import StartupError, existing_instance, identity
 
 
 def open_window(webview, url: str) -> None:
@@ -29,9 +33,26 @@ def open_window(webview, url: str) -> None:
         webview.start()
 
 
-def serve_native(settings: Settings) -> None:
+def serve_native(settings: Settings, *, auto_port: bool = False) -> None:
+    # This is only a discovery hint. Never attach without verifying the live server.
+    hint = settings.data_dir / ".native-instance.json"
+    if auto_port:
+        try:
+            saved = json.loads(hint.read_text(encoding="utf-8"))
+            port = saved.get("port")
+            if (saved.get("identity") == identity(settings.data_dir)
+                    and type(port) is int and 1 <= port <= 65535
+                    and existing_instance(f"http://127.0.0.1:{port}", settings.data_dir)):
+                settings.port = port
+        except (OSError, ValueError, AttributeError, StartupError):
+            pass
     url = f"http://127.0.0.1:{settings.port}"
-    reuse = existing_instance(url, settings.data_dir)
+    try:
+        reuse = existing_instance(url, settings.data_dir)
+    except StartupError:
+        if not auto_port:
+            raise
+        reuse = False
     print("Masaüstü penceresi hazırlanıyor…", flush=True)
     try:
         import webview
@@ -41,6 +62,26 @@ def serve_native(settings: Settings) -> None:
         print("Açık çalışma alanına bağlanılıyor.", flush=True)
         open_window(webview, url)
         return
+
+    with ExitStack() as resources:
+        sock = None
+        if auto_port:
+            sock = resources.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            if platform.system() == "Windows":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            try:
+                sock.bind(("127.0.0.1", settings.port))
+            except OSError as exc:
+                # Windows can report EACCES when another exclusive listener owns it.
+                if exc.errno not in {errno.EADDRINUSE, errno.EACCES}:
+                    raise
+                sock.bind(("127.0.0.1", 0))
+            settings.port = sock.getsockname()[1]
+        _serve_new_window(settings, webview, sock, hint if auto_port else None)
+
+
+def _serve_new_window(settings, webview, sock, hint) -> None:
+    url = f"http://127.0.0.1:{settings.port}"
 
     print("Yerel çalışma alanı başlatılıyor…", flush=True)
     import uvicorn
@@ -54,7 +95,11 @@ def serve_native(settings: Settings) -> None:
 
     def run_server():
         try:
-            server.run()
+            if sock is None:
+                server.run()
+            else:
+                # Keep the port reserved until uvicorn takes over; no bind race.
+                server.run(sockets=[sock])
         except SystemExit:
             startup_failure.append("Sunucu başlatılamadı; port veya çalışma alanı kullanımda olabilir.")
         except Exception:
@@ -70,6 +115,8 @@ def serve_native(settings: Settings) -> None:
                     "Sunucu açılamadı. Çalışma alanı başka bir uygulamada açık olabilir; açılış günlüğünü kontrol edin."
                 ))
             time.sleep(0.05)
+        if hint is not None:
+            atomic_json(hint, {"identity": identity(settings.data_dir), "port": settings.port})
         open_window(webview, url)
     finally:
         # Only stop the server created by this window, never one it attached to.

@@ -4,7 +4,7 @@ Son kullanıcı için Windows dağıtımı `RpaOrkestrAI-Setup-<sürüm>-Windows
 
 ## Doğrudan indirme
 
-[Windows ve macOS test sürümü](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.0-test.1) sayfasındaki **Assets** bölümünü kullanın; özel depoya erişen GitHub hesabıyla giriş gerekir. Windows dosyası `RpaOrkestrAI-Setup-0.1.0-Windows-x64.exe`, Apple Silicon Mac dosyası `RpaOrkestrAI-0.1.0-macOS-arm64.dmg` adındadır.
+[Windows ve macOS test sürümü](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.1-test.1) sayfasındaki **Assets** bölümünü kullanın; özel depoya erişen GitHub hesabıyla giriş gerekir. Windows dosyası `RpaOrkestrAI-Setup-0.1.1-Windows-x64.exe`, Apple Silicon Mac dosyası `RpaOrkestrAI-0.1.1-macOS-arm64.dmg` adındadır.
 
 Önceki macOS indirmesi ZIP içinde ZIP içeriyordu. İndirme bütünlüğü doğrulanmasına rağmen Arşiv İzlencesi'nde açma hatası görüldüğü için dağıtım DMG'ye geçirildi. DMG'yi çift tıklayın ve uygulamayı içindeki **Applications** kısayoluna sürükleyin. `start.command` paketlenmiş uygulamanın başlatıcısı değildir; terminale bağlı kaynak kod sürümünü çalıştırır.
 
@@ -13,6 +13,8 @@ Son kullanıcı için Windows dağıtımı `RpaOrkestrAI-Setup-<sürüm>-Windows
 Windows kurulum dosyası uygulamayı kullanıcının `AppData/Local/Programs/RpaOrkestrAI` klasörüne yerleştirir; masaüstü ve Başlat menüsü kısayollarını oluşturur. Normal kullanımda yönetici yetkisi istemez. Kısayol doğrudan konsolsuz `.exe` dosyasını çalıştırır. WebView2 Runtime yoksa kurulum, bileşenin kurulması için açıklama gösterir; Python kurdurmaz.
 
 macOS'ta `.app` dosyasını Uygulamalar klasörüne taşıyıp açın. Paket derlendiği işlemci mimarisi içindir; Apple Silicon ve Intel sürümleri ayrı hedeflerde derlenmelidir. Ekran Kaydı ve Erişilebilirlik izinleri paketlenmiş uygulamaya verilmelidir.
+
+Masaüstü uygulaması varsayılan port başka bir çalışma alanı veya uygulama tarafından kullanılıyorsa otomatik olarak boş bir yerel port seçer. Seçilen port işletim sistemi soketiyle ayrılır; ikinci açılış, aynı çalışma alanının canlı kimliğini doğrulayarak bu oturumu bulur. Diğer uygulama kapatılmaz ve başka çalışma alanına bağlanılmaz. Komut satırında açıkça seçilmiş portlar için mevcut hata davranışı korunur.
 
 Uygulama yerel servisini kendi sürecinde başlatır; pencere kapanınca kendisinin başlattığı servisi kapatır. Önceden açık aynı çalışma alanının servisine bağlanmışsa o servisi kapatmaz. Açılış hataları işletim sisteminin ileti kutusunda gösterilir, ayrıntılar dosyaya yazılır.
 

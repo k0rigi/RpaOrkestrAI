@@ -27,7 +27,8 @@ def test_gui_handles_missing_console_and_uses_explicit_checkout_workspace(monkey
 
     previous_cwd = Path.cwd()
     observed = []
-    def serve(settings):
+    def serve(settings, *, auto_port):
+        assert auto_port is True
         observed.append(settings.data_dir)
         assert Path.cwd() == tmp_path
         assert isinstance(sys.stderr, io.TextIOBase)

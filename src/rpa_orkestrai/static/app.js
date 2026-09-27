@@ -542,7 +542,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.1.0"}`),
+      node("span", "version", `v${state.version || "0.1.1"}`),
     );
     top.append(left, right);
     main.append(top, node("main", "page-content"));

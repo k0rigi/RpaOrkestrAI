@@ -117,3 +117,63 @@ def test_native_window_enables_report_downloads():
     open_window(gui, "http://127.0.0.1:8765")
     assert gui.settings["ALLOW_DOWNLOADS"] is True
     gui.start.assert_called_once()
+
+
+def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(monkeypatch, tmp_path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.request import ProxyHandler, build_opener
+
+    other_identity = identity(tmp_path / "other-workspace")
+
+    class OtherStudio(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps(other_identity).encode())
+
+        def log_message(self, *_):
+            pass
+
+    other = ThreadingHTTPServer(("127.0.0.1", 0), OtherStudio)
+    worker = threading.Thread(target=other.serve_forever, daemon=True)
+    worker.start()
+    original_port = other.server_address[1]
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace())
+    settings = Settings(tmp_path / "installed", dotenv=False)
+    settings.port = original_port
+    opener = build_opener(ProxyHandler({}))
+    windows = []
+
+    def window(_gui, url):
+        windows.append(url)
+        with opener.open(url + "/api/instance", timeout=5) as response:
+            assert json.load(response) == identity(settings.data_dir)
+        assert url != f"http://127.0.0.1:{original_port}"
+        if len(windows) == 1:
+            # A second launch must find the first process's alternate port.
+            second = Settings(settings.data_dir, dotenv=False)
+            second.port = original_port
+            serve_native(second, auto_port=True)
+
+    monkeypatch.setattr("rpa_orkestrai.native.open_window", window)
+    # A stale hint that points to another workspace must also be rejected.
+    (settings.data_dir / ".native-instance.json").write_text(json.dumps({
+        "identity": identity(settings.data_dir), "port": original_port,
+    }))
+    try:
+        serve_native(settings, auto_port=True)
+        assert len(windows) == 2 and windows[0] == windows[1]
+        assert not existing_instance(windows[0], settings.data_dir)
+        with opener.open(f"http://127.0.0.1:{original_port}/api/instance", timeout=5) as response:
+            assert json.load(response) == other_identity
+    finally:
+        other.shutdown()
+        other.server_close()
+        worker.join(timeout=5)
+
+
+def test_command_line_keeps_explicit_port_conflict_error(monkeypatch, tmp_path):
+    monkeypatch.setattr("rpa_orkestrai.native.existing_instance",
+                        Mock(side_effect=StartupError("Port kullanımda")))
+    with pytest.raises(StartupError, match="Port kullanımda"):
+        serve_native(Settings(tmp_path, dotenv=False))

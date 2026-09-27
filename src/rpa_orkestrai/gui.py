@@ -93,7 +93,7 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
         from .native import serve_native
 
         logger.info("Masaüstü uygulaması başlatılıyor.")
-        serve_native(Settings())
+        serve_native(Settings(), auto_port=True)
         return 0
     except Exception as exc:
         if logger:

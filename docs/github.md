@@ -60,4 +60,4 @@ git push -u origin feature/yeni-erp-akisi
 
 `.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Windows `.exe` kurulum paketi ve macOS `.dmg` disk imajı **Artifacts** olarak üretilir; otomatik Release yayımlanmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).
 
-Kullanıcıya sunulan test paketleri ayrıca [Releases indirme sayfasındadır](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.0-test.1).
+Kullanıcıya sunulan test paketleri ayrıca [Releases indirme sayfasındadır](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.1.1-test.1).
