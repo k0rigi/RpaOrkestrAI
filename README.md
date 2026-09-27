@@ -8,12 +8,12 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.2.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.2.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.3.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.3.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
-**0.1.x kullananlar 0.2.0'ı bir kez elle kurmalıdır.** 0.2.0 ile kurulu uygulama açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. İnternet yoksa mevcut sürüm çalışır, akışlar ve bağlantı ayarları korunur. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+**0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. İnternet yoksa mevcut sürüm çalışır, akışlar ve bağlantı ayarları korunur. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
 
 Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.
 
@@ -44,7 +44,7 @@ GitHub indirmesi `.venv` içermez; Python ortamı her bilgisayarda yeniden kurul
 
 Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka bir terminalden çalıştıracaksanız önce proje klasörüne geçip sanal ortamı etkinleştirin.
 
-Studio’nun ilk adım havuzu **Pencereyi tanı**, **Pencerede tıkla**, **Pencereye metin yaz**, **Sheets hücresini oku** ve **Koşul** adımlarından oluşur; yeni adımlar ihtiyaçlara göre geliştirilip eklenir. İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
+Studio’nun adım havuzu pencere tanıma, tıklama, **Alanı doldur**, tuş gönderme, görsel bekleme, Sheets hücresi/sütunu okuma, hücreye yazma, satır döngüsü, bekleme ve koşul adımlarından oluşur. **Alanı doldur**, ERP görüntüsünde seçilen X/Y noktasını veya görsel referansı kullanarak doğru alanı hedefler. B2, B3, B4 değerlerini sırayla kullanmak için [Sheets satır döngüsü rehberini](docs/sheets-satir-dongusu.md) izleyin. İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
 
 ```bash
 rpa-studio demo
@@ -161,6 +161,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 - [Otomatik güncelleme ve yeni sürüm yayımlama](docs/guncelleme-mimarisi.md)
 - [Kurulum, macOS/Windows izinleri ve bağlantılar](docs/kurulum.md)
 - [ERP penceresini tanıtma ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
+- [Sheets B2, B3, B4 satır döngüsü ve FormID alanını doldurma](docs/sheets-satir-dongusu.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
 - [Salt okunur veritabanı hesabı](docs/veritabani.md)
 - [Mimari ve genişletme](docs/mimari.md)

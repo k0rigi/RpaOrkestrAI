@@ -62,6 +62,11 @@ class DesktopController:
             raise ValueError("Screen coordinates must be finite numbers.")
         return round(x), round(y)
 
+    def size(self) -> tuple[int, int]:
+        """Return the primary display's logical coordinate size."""
+        width, height = self._gui().size()
+        return int(width), int(height)
+
     def click(self, x: float, y: float, *, clicks: int = 1, button: str = "left") -> None:
         if type(clicks) is not int or not 1 <= clicks <= 3 or button not in {"left", "right", "middle"}:
             raise ValueError("Invalid click count or mouse button.")

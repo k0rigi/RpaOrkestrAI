@@ -1,44 +1,70 @@
-# ERP penceresini tanıtma
+# ERP penceresini ve alanını tanıtma
 
-İade faturası süreci, genel adım havuzunu geliştirmek için ilk örnektir. Pencere tanıma, tıklama, metin yazma ve Sheets okuma adımları başka masaüstü uygulamalarında da kullanılabilir.
+Bu rehber 0.3.0 için geliştirilen pencere ve satır döngüsü adımlarını anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini sırayla işlemek için [satır döngüsü rehberini](sheets-satir-dongusu.md) kullanın.
 
-## İlk adım: Pencereyi tanı
+## Pencereyi tanı
 
 1. ERP uygulamasını açın ve ilgili pencereyi görünür hale getirin. Küçültülmüş veya başka masaüstündeki pencereler listelenmez.
 2. Studio'da akışınıza **Pencereyi tanı** ekleyin.
-3. Sağ panelde **Açık pencerelerden seç** düğmesine basın. ERP penceresini seçin. Uygulama adı ve başlığı otomatik doldurulur.
-4. **Şimdi kontrol et** ile eşleşmeyi doğrulayın. Bu düğme yalnız pencere bilgilerini okur; tıklama veya yazma yapmaz.
-5. Başlık belge numarası gibi değişken bilgi içeriyorsa sabit kısmını yazıp **İçerir** seçin. Uygulama adı tam eşleşir. Birden fazla sonuç varsa işlem durur; daha belirgin başlık kullanın.
+3. Sağ panelde **Açık pencerelerden seç** düğmesine basıp ERP penceresini seçin. Uygulama adı ve başlığı doldurulur.
+4. **Şimdi kontrol et** ile eşleşmeyi doğrulayın. Bu düğme pencere bilgilerini okur; tıklama veya yazma yapmaz.
+5. Başlık belge numarası gibi değişken bilgi içeriyorsa sabit kısmını yazıp **İçerir** seçin. Uygulama adı tam eşleşir. Birden fazla pencere eşleşirse daha belirgin başlık kullanın.
 6. Akışı kaydedin. Pencere her çalıştırmada yeniden bulunur; geçici pencere kimliği akış dosyasına kaydedilmez.
 
 Varsayılan çıktı `erp_window` olur. `${erp_window.found}` pencerenin bulunup bulunmadığını, `${erp_window}` ise sonraki pencere adımlarına verilecek pencere bilgisini taşır. Bulunan sonuç ayrıca `title`, `application`, `x`, `y`, `width`, `height` alanlarını içerir. Bulunamayan sonuç yalnız `found: false` içerir.
 
-Varsayılan olarak pencere 5 saniye beklenir; bulunamazsa akış durur. Alternatif olarak **Bulunamadı sonucu ile devam et** seçip sonraki **Koşul** adımında `${erp_window.found}` değerini **Dolu / doğru** ile değerlendirin. İşlemleri koşulun Evet dalına yerleştirin. Pencere bulunamazsa bu dal çalışmaz.
+Varsayılan olarak pencere 5 saniye beklenir; bulunamazsa akış durur. Alternatif olarak **Bulunamadı sonucu ile devam et** seçip sonraki **Koşul** adımında `${erp_window.found}` değerini **Dolu / doğru** ile değerlendirin. ERP işlemlerini koşulun Evet dalına yerleştirin.
 
-Bu adım **uygulama adı ve pencere başlığını** tanır. Pencere içindeki formun doğru sayfada olduğunu, bir alanın hazır olduğunu veya bir iş kaydının doğruluğunu görsel olarak doğrulamaz. ERP aynı başlıkla farklı formlar gösteriyorsa bunları ayırmak için ileride ayrı ekran/görsel tanıma adımı eklenmelidir.
+Pencere tanıma uygulama adı ve başlığını denetler. Aynı başlık altında birden fazla form açılabiliyorsa doğru formun hazır olduğunu **Pencerede görseli bekle** adımıyla ayrıca kontrol edin.
 
-## Sheets'teki değeri ERP alanına yazma
+## FormID alanına değer yaz
 
-Başlangıç düzeni:
+**Alanı doldur**, hedef alanı bulur, tıklar ve değeri yazar. Bu işlem için ayrıca **Pencerede tıkla** eklemek gerekmez.
 
-1. **Pencereyi tanı** → `erp_window`. Pencere bulunamazsa devam et seçeneğini seçin.
-2. **Koşul** → sol değer `${erp_window.found}`, karşılaştırma **Dolu / doğru**.
-3. Evet dalında **Sheets hücresini oku** → tablo kimliği, sayfa adı ve örneğin `A2`; çıktı `cell_value`.
-4. Aynı dalda **Pencerede tıkla** → pencere `${erp_window}`, hedef alanın pencere içi X/Y koordinatları.
-5. Aynı dalda **Pencereye metin yaz** → pencere `${erp_window}`, metin `${cell_value}`.
+- **Pencere değişkeni:** `${erp_window}`.
+- **Yazılacak değer:** tek hücre okuduysanız `${cell_value}`, satır döngüsündeyseniz `${row.value}`.
+- **Önce alandaki mevcut değeri temizle:** açık bırakın. Önceki satırın değeri temizlenip yenisi yazılır; kapatırsanız mevcut değere ekleme yapılır.
 
-Google bağlantısı için **Bağlantılar ve ayarlar** bölümünde servis hesabı JSON dosyasının yolunu tanımlayın ve ilgili tabloyu bu hesabın e-posta adresiyle paylaşın. Tablo kimliği Google Sheets adresindeki `/d/` ile `/edit` arasındaki bölümdür. `Sheets hücresini oku` tek bir hücreyi metin olarak döndürür; hücre boşsa akışı durdurur. Bu işlem faturayı ERP'de kaydetmez veya onaylamaz.
+### Pencere içi X / Y
 
-Tıklama konumu, **başlık çubuğu dahil pencerenin sol üst köşesine göre** verilir. Pencere taşınırsa yeni konumu kullanılır. Boyut, tema veya ekran ölçeği değişince alan koordinatlarını yeniden kontrol edin. Mevcut masaüstü tıklama altyapısı ana ekranla sınırlıdır; ERP'yi ana ekrana alın. Metin yazma odaktaki alana yazar ve mevcut içeriği otomatik temizlemez; önce tıklama adımıyla alanı seçin.
+**Hedefi bulma yöntemi** olarak **Pencere içi X / Y** seçin. **ERP ekranından hedef seç** düğmesine basın. Açılan pencere görüntüsünde FormID yazı kutusunun içine tıklayıp **Hedefi kaydet** seçin; X/Y değerleri doldurulur. X/Y'yi elle de girebilirsiniz. Seçmeniz gereken yer `FormID` etiketi değil, yanındaki yazı kutusudur.
 
-Her tıklama/yazma adımı hedef pencereyi öne getirmeye çalışır ve odağı doğrular. Pencere kapanır, başlığı değişir veya odak doğrulanamazsa işlem durur. Başlık değişen bir ekrana geçtikten sonra yeniden **Pencereyi tanı** ekleyin. Çalışırken odağı başka uygulamaya geçirmeyin; kontrol ile gerçek giriş arasındaki kullanıcı/işletim sistemi değişimleri bütünüyle engellenemez.
+Koordinatlar başlık çubuğu dahil pencerenin sol üst köşesine göredir. Pencere taşınırsa yeni konumu kullanılır. Pencere boyutu, uygulama düzeni, tema veya ekran ölçeği değişirse hedefi yeniden seçin. ERP penceresini ana ekranda ve tamamen görünür tutun.
 
-**Deneme modu** pencereyi aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Dış adımların çıktısını bilinmeyen olarak işaretler. Gerçek eşleşmeyi tasarım sırasında **Şimdi kontrol et** ile, gerçek akışı ise Deneme modu kapalıyken doğrulayın.
+### Referans görsel
+
+**ERP ekranından hedef seç** düğmesine basıp açılan araçta **Görsel referans** seçin. Hedefi iki aşamada belirleyin:
+
+1. Pencere görüntüsünde **FormID etiketini ve hemen çevresini** kapsayan küçük bir dikdörtgen çizin.
+2. Ardından değerin yazılacağı **yazı kutusunun içine tıklayın** ve **Hedefi kaydet** seçin. Yazı kutusu çizdiğiniz referansın dışında olabilir.
+
+Referans görsel kaydedilir; görselin merkezi ile seçtiğiniz yazı kutusu arasındaki X/Y farkı otomatik hesaplanır. Gerekirse **Görsel merkezinden sağa / sola** ve **aşağı / yukarı** değerlerini sonradan elle düzeltebilirsiniz. **Pencerede görseli bekle** adımında yalnız referans dikdörtgeni seçilir; tıklanacak alan gerekmez.
+
+Kutunun içindeki değişen fatura/form numarasını referansa dahil etmeyin; sonraki satırda bu içerik değişecektir. Aynı etiket birden fazla yerde görünüyorsa çevresindeki sabit ayrıntıları da seçerek hedefi ayırt edin.
+
+Arama yalnız tanıtılan pencerenin içinde yapılır. Görsel süre içinde bulunamazsa işlem durur. Eşleşme eşiği varsayılan olarak `0.9`'dur. Tema, ölçek veya yazı tipi değişirse referansı yeniden alın; yalnızca eşiği düşürmek benzer bir öğenin seçilmesine yol açabilir.
+
+## Tıklama, doldurma ve tuş adımlarının farkı
+
+| Adım | Görevi |
+| --- | --- |
+| **Pencerede tıkla** | Hedef butona/öğeye tek, çift veya sağ tık yapar; metin yazmaz. |
+| **Alanı doldur** | Hedef yazı alanına tıklar, istenirse içeriğini temizler, değeri yazar. |
+| **Pencerede tuşa bas** | Tanıtılan pencereye Enter, Tab veya bir kısayol gönderir; hedef alan aramaz. |
+| **Pencerede görseli bekle** | Bir işaretin görünmesini ya da kaybolmasını bekler; fare/klavye işlemi yapmaz. |
+| **Bekle** | Sabit süre bekler; ekranın hazır olduğunu doğrulamaz. |
+
+Eski akışlardaki **Pencereye metin yaz** adımı **Odaktaki alana yaz (eski)** adıyla düzenlenebilir. Bu adım yalnız odaktaki alana ekleme yapar. Yeni kütüphanede alanı açıkça seçen **Alanı doldur** kullanılır; mevcut akışların davranışı sessizce değiştirilmez.
+
+Her giriş adımı hedef pencereyi öne getirip odağı doğrular. Pencere kapanır, seçiciyle eşleşmez veya odak doğrulanamazsa işlem durur. Başlığı değişen bir ekrana geçtikten sonra yeniden **Pencereyi tanı** ekleyin. Akış çalışırken fare ve klavyeyi başka işler için kullanmayın.
 
 ## macOS ve Windows
 
-- **macOS:** `.[automation]` paketleri gereklidir. Başlıkları okumak için Ekran Kaydı, öne getirme ve giriş için Erişilebilirlik / Otomasyon izinleri gerekir. İzni uygulamayı başlatan Python/Terminal için verip uygulamayı yeniden açın. Eksik izin varsa Studio açıklayıcı hata gösterir.
-- **Windows:** Pencere listeleme Windows API'sini kullanır. Tıklama/yazma için `.[automation]` paketleri gerekir. İşletim sistemi odak değişikliğine izin vermezse adım durur; ERP'yi elle öne alıp yeniden deneyin. Yükseltilmiş yetkiyle çalışan uygulamalar ve farklı oturumlar girişe izin vermeyebilir.
-- Aynı ERP'nin uygulama adı ve başlığı iki işletim sisteminde farklı olabilir. Akışı başka bilgisayara taşıdıktan sonra o bilgisayardaki ERP penceresini yeniden seçin; tıklama koordinatlarını da doğrulayın.
+- Kurulum paketleri gerekli Python otomasyon bağımlılıklarını içerir. Kaynak koddan çalıştırırken `.[automation]` bağımlılıkları kurulmalıdır.
+- **macOS:** pencere başlıkları ve ekran görüntüleri için Ekran Kaydı; pencereyi öne getirme ve giriş için Erişilebilirlik / Otomasyon izinleri gerekir. Kurulu uygulamada izinleri **RpaOrkestrAI** için verin. Kaynak koddan çalıştırıyorsanız başlatan Python/Terminal için izin gerekebilir. İzin değişikliğinden sonra uygulamayı yeniden açın.
+- **Windows:** pencere listeleme Windows API'sini kullanır. ERP farklı bir oturumda veya yükseltilmiş yetkiyle çalışıyorsa giriş engellenebilir. Odağın doğrulanamadığı durumda adım durur.
+- Temizleme kısayolu Windows'ta **Ctrl+A**, macOS'ta **Command+A** kullanır. İki işletim sisteminde ERP uygulama adı, pencere başlığı, görünüm veya koordinatlar farklıysa hedefleri o bilgisayarda yeniden seçin.
 
-Bu beş adımın her biri yıldızlanabilir. Favoriler kütüphanenin üstünde **Sık kullanılanlar** bölümünde görünür.
+**Deneme modu**, akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **ERP ekranından hedef seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın.
+
+Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne taşıyabilirsiniz.

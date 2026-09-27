@@ -106,3 +106,11 @@ class WindowCheckRequest(Model):
     application: str = Field(default="", max_length=200)
     title: str = Field(min_length=1, max_length=500)
     match: Literal["exact", "contains"] = "exact"
+
+
+class TemplateCropRequest(Model):
+    capture_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    x: int = Field(ge=0, strict=True)
+    y: int = Field(ge=0, strict=True)
+    width: int = Field(ge=8, le=4000, strict=True)
+    height: int = Field(ge=8, le=4000, strict=True)

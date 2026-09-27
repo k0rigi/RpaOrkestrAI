@@ -22,8 +22,12 @@ def test_studio_bootstrap_and_static(client):
     bootstrap = client.get("/api/bootstrap").json()
     assert bootstrap["workflows"] == []
     assert {a["type"] for a in bootstrap["catalog"]} == {
-        "desktop.find_window", "desktop.window_click", "desktop.window_write", "sheets.read_cell", "control.if",
+        "desktop.find_window", "desktop.window_click", "desktop.window_fill", "desktop.window_key",
+        "desktop.window_wait_image", "sheets.read_cell", "sheets.read_column", "sheets.write_cell",
+        "control.if", "control.for_each", "core.wait",
     }
+    assert len({a["label"] for a in bootstrap["catalog"]}) == len(bootstrap["catalog"])
+    assert any(a["type"] == "desktop.window_write" for a in bootstrap["action_definitions"])
     assert bootstrap["favorites"] == []
     assert client.get("/api/catalog").json() == bootstrap["catalog"]
     assert any(a["type"] == "control.for_each" for a in bootstrap["action_definitions"])

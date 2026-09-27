@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from random import Random
 from urllib.request import ProxyHandler, build_opener
 
 
@@ -28,11 +29,28 @@ def run_check(report: Path) -> int:
             for name in ("webview", "gspread", "PIL.Image", "cv2", "pyperclip"):
                 importlib.import_module(name)
             import uvicorn
+            from PIL import Image
 
             from . import __version__
             from .app import create_app
             from .config import Settings
+            from .desktop.targets import CaptureStore
+            from .desktop.vision import Vision
+            from .desktop.windows import WindowInfo
             from .updates import current_platform_key
+
+            # Exercise the packaged crop/matching dependencies using generated
+            # pixels only; never read or control the real desktop during checks.
+            pixels = Random(42)
+            reference = Image.frombytes("RGB", (24, 18), bytes(pixels.randrange(220) for _ in range(24 * 18 * 3)))
+            screen = Image.new("RGB", (200, 120), "white")
+            screen.paste(reference, (70, 40))
+            captures = CaptureStore()
+            captured = captures.add(WindowInfo(1, 1, "Test", "ERP fixture", 0, 0, 200, 120), screen)
+            cropped = captures.crop(captured["id"], 70, 40, 24, 18, root / "templates")
+            matched = Vision.match_template(screen, root / "templates" / cropped["template"], require_unique=True)
+            if matched is None or (matched.x, matched.y) != (70, 40):
+                raise RuntimeError("Paket içindeki görsel hedef seçimi doğrulanamadı.")
 
             sock = socket.socket()
             sock.bind(("127.0.0.1", 0))
@@ -48,13 +66,13 @@ def run_check(report: Path) -> int:
                 time.sleep(0.05)
             opener = build_opener(ProxyHandler({}))
             for route, expected in (("/", b"RpaOrkestrAI"), ("/app.js", b"renderLibrary"),
-                                    ("/styles.css", b"step-library"), ("/api/bootstrap", b"desktop.find_window")):
+                                    ("/styles.css", b"step-library"), ("/api/bootstrap", b"desktop.window_fill")):
                 with opener.open(url + route, timeout=5) as response:
                     if response.status != 200 or expected not in response.read():
                         raise RuntimeError(f"Paket kaynağı doğrulanamadı: {route}")
             result = {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
                       "version": __version__, "platform": current_platform_key(),
-                      "checks": ["native-import", "automation-imports", "http-api", "bundled-static-files"]}
+                      "checks": ["native-import", "automation-imports", "target-crop-and-match", "http-api", "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

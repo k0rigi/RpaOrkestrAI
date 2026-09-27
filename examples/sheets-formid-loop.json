@@ -1,0 +1,57 @@
+{
+  "name": "Sheets satırlarından ERP FormID alanını doldur",
+  "description": "Tablo kimliğini, ERP pencere başlığını ve FormID hedefini yapılandırın. X/Y bilerek boş bırakılmıştır. İlk gerçek denemede azami satır 1 kullanın. Bu örnek fatura kaydetmez, onaylamaz ve sonuç yazmaz.",
+  "department": "Genel",
+  "steps": [
+    {
+      "id": "find-erp-window",
+      "title": "ERP penceresini seç",
+      "action": "desktop.find_window",
+      "params": {
+        "application": "",
+        "title": "ERP_PENCERE_BASLIGINI_SECIN",
+        "match": "exact",
+        "timeout": 5,
+        "on_missing": "stop",
+        "output": "erp_window"
+      }
+    },
+    {
+      "id": "read-formid-column",
+      "title": "B2'den başlayan FormID değerlerini oku",
+      "action": "sheets.read_column",
+      "params": {
+        "spreadsheet_id": "GOOGLE_SHEETS_KIMLIGINI_DEGISTIRIN",
+        "worksheet": "Sayfa1",
+        "start_cell": "B2",
+        "max_rows": 1,
+        "empty_policy": "stop",
+        "output": "sheet_rows"
+      }
+    },
+    {
+      "id": "each-formid-row",
+      "title": "Her FormID satırı için",
+      "action": "control.for_each",
+      "params": {
+        "items": "${sheet_rows}",
+        "item_name": "row"
+      },
+      "children": [
+        {
+          "id": "fill-formid-field",
+          "title": "FormID alanının hedefini seç",
+          "action": "desktop.window_fill",
+          "params": {
+            "window": "${erp_window}",
+            "target_mode": "coordinates",
+            "x": null,
+            "y": null,
+            "text": "${row.value}",
+            "clear": true
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -8,8 +8,16 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, dataclass
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from typing import Any
+
+from .vision import AmbiguousMatchError, Match, Vision
+
+SUPPORTED_KEYS = frozenset({
+    "enter", "tab", "esc", "backspace", "delete", "space", "up", "down", "left", "right",
+    "home", "end", "pageup", "pagedown",
+} | {f"f{index}" for index in range(1, 13)} | set("abcdefghijklmnopqrstuvwxyz0123456789"))
+SUPPORTED_MODIFIERS = frozenset({"none", "mod", "shift", "alt", "ctrl"})
 
 
 class WindowError(RuntimeError):
@@ -135,6 +143,194 @@ class WindowService:
             raise WindowError("Pencere odağı değişti; metin yazılmadı.")
         desktop.write(text)
 
+    @staticmethod
+    def _numbers(*values: float) -> None:
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+               for value in values):
+            raise WindowError("Hedef konumu geçerli sayılardan oluşmalıdır.")
+
+    def _guard(self, target: dict, expected: WindowInfo | None = None) -> WindowInfo:
+        self._check()
+        window = self.current(target)
+        if expected is not None and window != expected:
+            raise WindowError("Pencere konumu veya boyutu değişti; hedefi yeniden belirleyin.")
+        if not self.backend.is_active(window):
+            raise WindowError("Pencere odağı değişti; işlem durduruldu.")
+        self._check()
+        return window
+
+    @staticmethod
+    def _screen_size(desktop: Any) -> tuple[int, int]:
+        width, height = desktop.size()
+        if any(type(value) is not int or value <= 0 for value in (width, height)):
+            raise WindowError("Ana ekranın boyutu okunamadı.")
+        return width, height
+
+    def _point_in_window(self, window: WindowInfo, x: float, y: float, desktop: Any) -> tuple[int, int]:
+        self._numbers(x, y)
+        x, y = round(x), round(y)
+        if not 0 <= x < window.width or not 0 <= y < window.height:
+            raise WindowError("Hedef konumu pencere sınırlarının dışında.")
+        screen_x, screen_y = window.x + x, window.y + y
+        width, height = self._screen_size(desktop)
+        if not 0 <= screen_x < width or not 0 <= screen_y < height:
+            raise WindowError("Hedef ana ekranın dışında. ERP penceresini ana ekrana taşıyın.")
+        return screen_x, screen_y
+
+    def _capture_window(self, target: dict, desktop: Any) -> tuple[WindowInfo, Any]:
+        window = self._guard(target)
+        width, height = self._screen_size(desktop)
+        if window.width <= 0 or window.height <= 0:
+            raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+        clipped = (window.x < 0 or window.y < 0 or window.x + window.width > width
+                   or window.y + window.height > height)
+        if clipped:
+            allows_clipping = getattr(self.backend, "allows_frame_clipping", None)
+            if allows_clipping is None or allows_clipping(window, width, height) is not True:
+                raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+        left, top = max(0, window.x), max(0, window.y)
+        right, bottom = min(width, window.x + window.width), min(height, window.y + window.height)
+        if right <= left or bottom <= top:
+            raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+        image = desktop.screenshot((left, top, right - left, bottom - top))
+        self._guard(target, window)
+        if image.size != (right - left, bottom - top):
+            raise WindowError("Pencere görüntüsünün ölçeği değişti. Ekranı yeniden tanıtın.")
+        if clipped:
+            from PIL import Image
+
+            # GetWindowRect includes the invisible resize frame even when maximized.
+            # Keep its origin and dimensions so existing relative targets do not move;
+            # never ask the screen capture API to read outside the primary display.
+            canvas = Image.new(image.mode, (window.width, window.height))
+            canvas.paste(image, (left - window.x, top - window.y))
+            image = canvas
+        return window, image
+
+    def screenshot_window(self, target: dict, desktop: Any) -> tuple[WindowInfo, Any]:
+        """Capture the identified window in logical pixels, including its title bar."""
+        self.focus(target)
+        return self._capture_window(target, desktop)
+
+    @staticmethod
+    def _image_arguments(template: Path | None, confidence: float, timeout: float) -> Path:
+        WindowService._numbers(confidence, timeout)
+        if not 0 < confidence <= 1 or not 0 <= timeout <= 120:
+            raise WindowError("Görsel güveni 0–1, bekleme süresi 0–120 saniye arasında olmalıdır.")
+        if not isinstance(template, (str, Path)) or not str(template).strip():
+            raise WindowError("Önce bir hedef görsel kaydedin veya seçin.")
+        path = Path(template).expanduser()
+        if not path.is_file():
+            raise WindowError("Hedef görsel dosyası bulunamadı. Görseli yeniden kaydedin.")
+        return path
+
+    def _wait_image(
+        self, target: dict, template: Path, desktop: Any, *, confidence: float, timeout: float, visible: bool,
+    ) -> tuple[WindowInfo, Match | None]:
+        deadline = time.monotonic() + timeout
+        self.focus(target)
+        while True:
+            window, image = self._capture_window(target, desktop)
+            try:
+                match = Vision.match_template(image, template, threshold=confidence, require_unique=True)
+            except AmbiguousMatchError as exc:
+                raise WindowError("Hedef görsel birden fazla yerde bulundu. Daha ayırt edici bir görsel seçin.") from exc
+            except (ValueError, OSError) as exc:
+                raise WindowError("Hedef görsel okunamadı veya ayırt edici ayrıntı içermiyor.") from exc
+            self._guard(target, window)
+            if (match is not None) == visible:
+                return window, match
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                state = "görünmesi" if visible else "kaybolması"
+                raise TimeoutError(f"Hedef görselin {state} için bekleme süresi doldu.")
+            if self.cancel.wait(min(0.2, remaining)):
+                self._check()
+
+    def wait_image(
+        self, target: dict, template: Path, desktop: Any, *, confidence: float = 0.9,
+        timeout: float = 10, visible: bool = True,
+    ) -> Match | None:
+        if type(visible) is not bool:
+            raise WindowError("Görsel bekleme durumu geçersiz.")
+        template = self._image_arguments(template, confidence, timeout)
+        window, match = self._wait_image(target, template, desktop, confidence=confidence,
+                                         timeout=timeout, visible=visible)
+        if match is None:
+            return None
+        return Match(match.x + window.x, match.y + window.y, match.width, match.height, match.confidence)
+
+    def _resolve_target(
+        self, target: dict, desktop: Any, *, target_mode: str = "coordinates",
+        x: float | None = None, y: float | None = None, template: Path | None = None,
+        offset_x: float = 0, offset_y: float = 0, confidence: float = 0.9, timeout: float = 10,
+    ) -> tuple[WindowInfo, tuple[int, int]]:
+        self._numbers(offset_x, offset_y)
+        if target_mode == "coordinates":
+            self._numbers(x, y)
+            # Reject a malformed target before bringing another application forward.
+            self._point_in_window(self.current(target), x, y, desktop)
+            window = self.focus(target)
+            point = self._point_in_window(window, x, y, desktop)
+        elif target_mode == "image":
+            template = self._image_arguments(template, confidence, timeout)
+            window, match = self._wait_image(target, template, desktop, confidence=confidence,
+                                             timeout=timeout, visible=True)
+            point = self._point_in_window(window, match.center[0] + offset_x, match.center[1] + offset_y, desktop)
+        else:
+            raise WindowError("Hedef yöntemi koordinat veya görsel olmalıdır.")
+        self._guard(target, window)
+        return window, point
+
+    def click_target(
+        self, target: dict, desktop: Any, *, target_mode: str = "coordinates", x: float | None = None,
+        y: float | None = None, template: Path | None = None, offset_x: float = 0, offset_y: float = 0,
+        confidence: float = 0.9, timeout: float = 10, clicks: int = 1, button: str = "left",
+    ) -> None:
+        if (type(clicks) is not int or not 1 <= clicks <= 3 or not isinstance(button, str)
+                or button not in {"left", "right", "middle"}):
+            raise WindowError("Tıklama sayısı veya fare düğmesi geçersiz.")
+        window, point = self._resolve_target(target, desktop, target_mode=target_mode, x=x, y=y,
+                                             template=template, offset_x=offset_x, offset_y=offset_y,
+                                             confidence=confidence, timeout=timeout)
+        self._guard(target, window)
+        desktop.click(*point, clicks=clicks, button=button)
+
+    def fill_target(self, target: dict, text: str, desktop: Any, *, clear: bool = True, **targeting: Any) -> None:
+        if not isinstance(text, str) or not text:
+            raise WindowError("Yazılacak metin boş olmamalıdır.")
+        if len(text) > 10_000:
+            raise WindowError("Alanı doldur değeri en fazla 10.000 karakter olabilir.")
+        if any(ord(character) < 32 or ord(character) == 127 for character in text):
+            raise WindowError("Alanı doldur değeri Enter, Tab veya kontrol karakteri içeremez. "
+                              "Hücreyi düzeltin; tuş göndermek için Pencerede tuşa bas adımını kullanın.")
+        if type(clear) is not bool:
+            raise WindowError("Alanı temizleme seçimi geçersiz.")
+        clicks = targeting.pop("clicks", 1)
+        if type(clicks) is not int or clicks != 1 or targeting.pop("button", "left") != "left":
+            raise WindowError("Alan doldurma tek sol tıklama kullanır.")
+        window, point = self._resolve_target(target, desktop, **targeting)
+        self._guard(target, window)
+        desktop.click(*point, clicks=1, button="left")
+        self._guard(target, window)
+        if clear:
+            desktop.hotkey("mod", "a")
+            self._guard(target, window)
+            desktop.press("backspace")
+            self._guard(target, window)
+        desktop.write(text)
+
+    def press_key(self, target: dict, key: str, modifier: str, desktop: Any) -> None:
+        if (not isinstance(key, str) or not isinstance(modifier, str)
+                or key not in SUPPORTED_KEYS or modifier not in SUPPORTED_MODIFIERS):
+            raise WindowError("Tuş veya değiştirici desteklenmiyor.")
+        window = self.focus(target)
+        self._guard(target, window)
+        if modifier == "none":
+            desktop.press(key)
+        else:
+            desktop.hotkey(modifier, key)
+
 
 class MacWindows:
     def __init__(self):
@@ -149,7 +345,8 @@ class MacWindows:
         q = self.quartz
         if not q.CGPreflightScreenCaptureAccess():
             raise WindowError("Pencere başlıklarını okumak için Sistem Ayarları → Gizlilik ve Güvenlik → "
-                              "Ekran Kaydı bölümünden uygulamayı başlatan Python/Terminal'e izin verip yeniden açın.")
+                              "Ekran Kaydı bölümünden RpaOrkestrAI'ye izin verip uygulamayı yeniden açın. "
+                              "Kaynak koddan çalıştırıyorsanız Python/Terminal'e izin verin.")
         records = q.CGWindowListCopyWindowInfo(q.kCGWindowListOptionOnScreenOnly | q.kCGWindowListExcludeDesktopElements,
                                              q.kCGNullWindowID)
         if records is None:
@@ -213,6 +410,8 @@ class Win32Windows:
         signatures = {
             "EnumWindows": ([self.callback, w.LPARAM], w.BOOL),
             "IsWindowVisible": ([w.HWND], w.BOOL), "IsIconic": ([w.HWND], w.BOOL),
+            "IsZoomed": ([w.HWND], w.BOOL),
+            "GetSystemMetrics": ([ctypes.c_int], ctypes.c_int),
             "GetWindowTextLengthW": ([w.HWND], ctypes.c_int),
             "GetWindowTextW": ([w.HWND, w.LPWSTR, ctypes.c_int], ctypes.c_int),
             "GetWindowThreadProcessId": ([w.HWND, ctypes.POINTER(w.DWORD)], w.DWORD),
@@ -232,6 +431,22 @@ class Win32Windows:
         # Match the primary-display coordinate space used by PyAutoGUI.
         # The native shell may have already chosen a process DPI mode.
         self.user.SetProcessDPIAware()
+
+    def allows_frame_clipping(self, window: WindowInfo, width: int, height: int) -> bool:
+        """Permit only the native invisible frame of a maximized primary window."""
+        if not self.user.IsZoomed(window.window_id):
+            return False
+        # Use the primary display's resize frame and captioned-window padding
+        # (SM_CXSIZEFRAME, SM_CYSIZEFRAME, SM_CXPADDEDBORDER). Other displays
+        # remain outside the supported capture area.
+        border = self.user.GetSystemMetrics(92)
+        horizontal = self.user.GetSystemMetrics(32) + border
+        vertical = self.user.GetSystemMetrics(33) + border
+        if not 0 <= horizontal <= 64 or not 0 <= vertical <= 64:
+            return False
+        return (-horizontal <= window.x < width and -vertical <= window.y < height
+                and 0 < window.x + window.width <= width + horizontal
+                and 0 < window.y + window.height <= height + vertical)
 
     def list_windows(self) -> list[WindowInfo]:
         c, w, user = self.c, self.w, self.user

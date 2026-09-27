@@ -99,6 +99,7 @@ def test_window_sheets_and_guarded_input_compose_in_a_condition(tmp_path):
                               is_active=Mock(return_value=True))
     runner._windows = WindowService(backend=backend)
     runner._desktop = Mock()
+    runner._desktop.size.return_value = (1920, 1080)
     sheets = Mock()
     sheets.get_cell.return_value = 'FAT-00042'
     runner._sheets[('sheet-id', 'Faturalar')] = sheets
@@ -112,7 +113,7 @@ def test_window_sheets_and_guarded_input_compose_in_a_condition(tmp_path):
     ])
     runner.execute(workflow)
     sheets.get_cell.assert_called_once_with('A2')
-    runner._desktop.click.assert_called_once_with(120, 120)
+    runner._desktop.click.assert_called_once_with(120, 120, clicks=1, button="left")
     runner._desktop.write.assert_called_once_with('FAT-00042')
     assert runner.variables['erp_window']['found'] is True
     # Missing window selects Değilse; no Sheets access or desktop input follows.

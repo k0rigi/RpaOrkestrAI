@@ -8,10 +8,42 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 _T = TypeVar("_T")
 _CELL = r"\$?[A-Za-z]{1,3}\$?[1-9][0-9]*"
 _RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def normalize_spreadsheet_id(value: str) -> str:
+    """Accept an ID or a Google Sheets sharing URL without fetching the URL."""
+    error = "Provide a Google spreadsheet ID or an https://docs.google.com/spreadsheets/d/... URL."
+    if not isinstance(value, str):
+        raise ValueError(error)
+    value = value.strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return value
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ValueError(error)
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "docs.google.com"
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port not in (None, 443)
+        ):
+            raise ValueError(error)
+    except ValueError:
+        raise ValueError(error) from None
+    match = re.fullmatch(
+        r"/spreadsheets/(?:u/[0-9]+/)?d/([A-Za-z0-9_-]+)(?:/(?:edit|view|preview|copy|htmlview))?/?",
+        parsed.path,
+    )
+    if not match:
+        raise ValueError(error)
+    return match.group(1)
 
 
 class SheetsService:
@@ -26,8 +58,7 @@ class SheetsService:
         worksheet: str = "Sheet1", *, max_attempts: int = 3,
         timeout: float = 30, backoff: float = 1,
     ) -> None:
-        if not isinstance(spreadsheet_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", spreadsheet_id):
-            raise ValueError("A Google spreadsheet ID (not its URL) is required.")
+        spreadsheet_id = normalize_spreadsheet_id(spreadsheet_id)
         if not worksheet or len(worksheet) > 100:
             raise ValueError("Provide a worksheet title of at most 100 characters.")
         if type(max_attempts) is not int or not 1 <= max_attempts <= 5:
@@ -97,7 +128,38 @@ class SheetsService:
     def get_range(self, a1: str) -> list[list[Any]]:
         self._address(a1)
         worksheet = self._connect()
-        return [list(row) for row in self._retry(lambda: worksheet.get(a1))]
+        return [list(row) for row in self._retry(
+            lambda: worksheet.get(a1, value_render_option="FORMATTED_VALUE"),
+        )]
+
+    def get_column(
+        self, start_cell: str = "B2", max_rows: int = 100, empty_policy: str = "stop",
+    ) -> list[dict[str, int | str]]:
+        """Read at most max_rows physical rows for an ordered workflow loop.
+
+        Google omits trailing empty rows but preserves interior empty rows. Keep
+        each returned value's original row number so later steps can write a
+        result beside the source cell, even when empty rows are skipped.
+        """
+        self._address(start_cell, cell=True)
+        if type(max_rows) is not int or not 1 <= max_rows <= 1000:
+            raise ValueError("max_rows must be an integer between 1 and 1000.")
+        if empty_policy not in ("stop", "skip"):
+            raise ValueError("empty_policy must be 'stop' or 'skip'.")
+        match = re.fullmatch(r"\$?([A-Za-z]{1,3})\$?([1-9][0-9]*)", start_cell)
+        assert match is not None  # Validated above, before opening a connection.
+        column, first_row = match.group(1).upper(), int(match.group(2))
+        rows = self.get_range(f"{column}{first_row}:{column}{first_row + max_rows - 1}")
+        records: list[dict[str, int | str]] = []
+        for offset, row in enumerate(rows[:max_rows]):
+            value = "" if not row or row[0] is None else str(row[0])
+            if not value.strip():
+                if empty_policy == "stop":
+                    break
+                continue
+            row_number = first_row + offset
+            records.append({"row_number": row_number, "cell": f"{column}{row_number}", "value": value})
+        return records
 
     def update_range(self, a1: str, values: Sequence[Sequence[Any]], *, raw: bool = True) -> Any:
         self._address(a1)

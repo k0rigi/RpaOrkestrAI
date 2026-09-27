@@ -5,7 +5,7 @@ import pytest
 
 from rpa_orkestrai.desktop import DesktopController, DialogDetector, DialogRule, DropdownIterator, Vision
 from rpa_orkestrai.desktop.dropdown import DropdownScanLimitError
-from rpa_orkestrai.desktop.vision import Match
+from rpa_orkestrai.desktop.vision import AmbiguousMatchError, Match
 
 
 def test_desktop_bounds_shortcut_and_cancel_do_not_touch_real_screen(monkeypatch):
@@ -37,6 +37,7 @@ def test_retina_screenshot_normalizes_before_crop():
     controller.screenshot((10, 20, 100, 60))
     image.resize.assert_called_once_with((1280, 800))
     image.resize.return_value.crop.assert_called_once_with((10, 20, 110, 80))
+    assert controller.size() == (1280, 800)
 
 
 def test_template_matches_offset_back_to_screen_coordinates(monkeypatch):
@@ -120,3 +121,28 @@ def test_template_algorithm_finds_synthetic_image_and_rejects_flat_templates():
     assert found is not None and found.center == (46, 30)
     with pytest.raises(ValueError, match="flat color"):
         Vision.match_template(image, np.zeros((10, 10), dtype=np.uint8))
+
+
+def test_unique_template_rejects_two_distinct_matching_controls():
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("cv2")
+    template = np.random.default_rng(42).integers(0, 255, (12, 16), dtype=np.uint8)
+    image = np.zeros((100, 120), dtype=np.uint8)
+    image[20:32, 20:36] = template
+    found = Vision.match_template(image, template, threshold=0.99, require_unique=True)
+    assert found.center == (28, 26)
+    image[60:72, 70:86] = template
+    with pytest.raises(AmbiguousMatchError):
+        Vision.match_template(image, template, threshold=0.99, require_unique=True)
+    # Existing screen automation keeps its explicit best-match behavior.
+    assert Vision.match_template(image, template, threshold=0.99) is not None
+
+
+@pytest.mark.parametrize("system,modifier", [("darwin", "command"), ("win32", "ctrl")])
+def test_portable_modifier_maps_to_native_key(monkeypatch, system, modifier):
+    monkeypatch.setattr("rpa_orkestrai.desktop.controller.sys.platform", system)
+    desktop = DesktopController()
+    backend = Mock()
+    desktop._backend = backend
+    desktop.hotkey("mod", "a")
+    backend.hotkey.assert_called_once_with(modifier, "a")

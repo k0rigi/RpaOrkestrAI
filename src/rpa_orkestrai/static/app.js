@@ -544,7 +544,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.2.0"}`),
+      node("span", "version", `v${state.version || "0.3.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1083,6 +1083,19 @@
     if (!state.target)
       target.append(node("span", "", "Eklenecek yer: Ana akışın sonu"));
     pane.append(target);
+    if (state.catalog.some((spec) => spec.type === "sheets.read_column")) {
+      const guide = node("details", "flow-recipe");
+      guide.append(node("summary", "", "Sheets satırlarını ERP’ye işle"));
+      const steps = node("ol");
+      [
+        "ERP penceresini tanıt.",
+        "Sheets sütununu B2’den başlayarak oku.",
+        "Her satır için adımında listeyi ${sheet_rows} seç.",
+        "Döngünün içine Alanı doldur ekle; değer olarak ${row.value} kullan. Gerekli tıklama ve tuşları da içine ekle.",
+      ].forEach((text) => steps.append(node("li", "", text)));
+      guide.append(steps);
+      pane.append(guide);
+    }
     if (!state.catalog.length) {
       pane.append(empty(
         "Kütüphane henüz boş",
@@ -1353,7 +1366,7 @@
           branch === "otherwise"
             ? "DEĞİLSE"
             : container === "loop"
-              ? "HER ÖĞE İÇİN"
+              ? "HER SATIR İÇİN · İÇ ADIMLAR"
               : "KOŞUL DOĞRUYSA";
         const head = node("div", "branch-heading");
         head.append(
@@ -1365,7 +1378,7 @@
           const placeholder = node(
             "button",
             "branch-placeholder",
-            "Bu dala adım ekle",
+            container === "loop" ? "Her satırda yapılacak işlemi ekle" : "Bu dala adım ekle",
           );
           placeholder.addEventListener("click", () => setTarget(step, branch));
           group.append(placeholder);
@@ -1531,6 +1544,302 @@
       queueMicrotask(load);
     });
   }
+  function parameterValue(step, name) {
+    // Older loops omitted this parameter and execute with the engine's "item"
+    // binding. Newly added loops already have an explicit "row" catalog default.
+    if (step.action === "control.for_each" && name === "item_name" &&
+        !Object.hasOwn(step.params || {}, name)) return "item";
+    return Object.hasOwn(step.params || {}, name)
+      ? step.params[name]
+      : specFor(step.action).fields?.find((field) => field.name === name)?.default;
+  }
+  function fieldVisible(step, definition) {
+    return Object.entries(definition.visible_when || {}).every(
+      ([name, expected]) => parameterValue(step, name) === expected,
+    );
+  }
+  function precedingSteps(id, steps = state.workflow?.steps || [], inherited = []) {
+    const previous = [...inherited];
+    for (const step of steps) {
+      if (step.id === id) return previous;
+      const nested = precedingSteps(id, step.children || [], previous) ||
+        precedingSteps(id, step.otherwise || [], previous);
+      if (nested) return nested;
+      previous.push(step);
+    }
+    return null;
+  }
+  function recognizedWindowFor(step) {
+    const reference = String(parameterValue(step, "window") || "").match(/^\$\{([^}.]+)\}$/);
+    if (!reference) return null;
+    return (precedingSteps(step.id) || []).reverse().find(
+      (candidate) => candidate.action === "desktop.find_window" &&
+        parameterValue(candidate, "output") === reference[1],
+    ) || null;
+  }
+  function applyStepParams(step, values) {
+    Object.assign(step.params, values);
+    for (const name of Object.keys(values)) {
+      state.fieldErrors.delete(`${step.id}:${name}`);
+      state.drafts.delete(`${step.id}:${name}`);
+    }
+    markDirty();
+    renderInspector();
+    renderCanvas();
+  }
+  function windowTargetTools(step) {
+    const tools = node("div", "window-target-tools");
+    const recognized = recognizedWindowFor(step);
+    const target = button("ERP ekranından hedef seç", "eye", () => pickWindowTarget(step));
+    target.disabled = !recognized;
+    tools.append(target);
+    if (recognized) {
+      tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekran görüntüsünde alanı işaretleyin.`));
+    } else {
+      tools.append(node("p", "help", "Önce bu adımın önüne Pencereyi tanıt ekleyin. Pencere alanında onun çıktısını kullanın; örneğin ${erp_window}."));
+    }
+    return tools;
+  }
+  function pickWindowTarget(step) {
+    const workflow = state.workflow;
+    const recognized = recognizedWindowFor(step);
+    if (!recognized) {
+      toast("Önceki Pencereyi tanıt adımını ve pencere değişkenini kontrol edin.", true);
+      return;
+    }
+    const selector = {
+      application: parameterValue(recognized, "application") || "",
+      title: parameterValue(recognized, "title") || "",
+      match: parameterValue(recognized, "match") || "exact",
+    };
+    if (!selector.title.trim() || /\$\{/.test(selector.title + selector.application)) {
+      toast("Görüntü almak için Pencereyi tanıt adımında açık ERP penceresini seçin.", true);
+      return;
+    }
+    const referenceOnly = step.action === "desktop.window_wait_image";
+    dialog("ERP ekranında hedef seç", (body, d) => {
+      d.classList.add("target-picker-dialog");
+      let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") || "coordinates";
+      let capture = null, rectangle = null, point = null, drag = null, image = null;
+      let loading = false, saving = false, epoch = 0;
+      const discard = (id) => {
+        if (id) api(`/api/desktop/captures/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+      };
+      const current = () => d.isConnected && state.workflow === workflow && findStep(step.id)?.step === step;
+      const intro = node("p", "pane-caption", "ERP penceresi görüntü alınırken öne gelir. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün. Seçimi aşağıdaki görüntü üzerinde yapın.");
+      const toolbar = node("div", "target-picker-toolbar");
+      const modeLabel = node("span", "field-label", "Hedef yöntemi");
+      const coordinates = button("Konum", "desktop", () => changeMode("coordinates"), "small");
+      const visual = button("Görsel referans", "eye", () => changeMode("image"), "small");
+      if (!referenceOnly) toolbar.append(modeLabel, coordinates, visual);
+      const instruction = node("p", "target-picker-instruction");
+      instruction.setAttribute("aria-live", "polite");
+      const status = node("div", "target-picker-status");
+      status.setAttribute("role", "status");
+      const frame = node("div", "target-picker-frame");
+      const canvas = node("canvas", "target-picker-canvas");
+      canvas.setAttribute("aria-label", "ERP pencere görüntüsü. Konum için tıklayın; görsel referans için dikdörtgen çizin.");
+      canvas.setAttribute("role", "img");
+      canvas.hidden = true;
+      frame.append(canvas);
+      const selection = node("p", "target-picker-selection mono");
+      const actions = node("div", "target-picker-actions");
+      const refresh = button("Görüntüyü yenile", "refresh", load, "small");
+      const reset = button("Seçimi temizle", "cross", () => {
+        rectangle = point = drag = null;
+        draw();
+      }, "small");
+      const save = button("Hedefi kaydet", "check", commit, "primary");
+      actions.append(refresh, reset, save);
+      body.append(intro, toolbar, instruction, status, frame, selection, actions);
+      d.addEventListener("close", () => {
+        epoch += 1;
+        discard(capture?.id);
+        if (image) image.src = "";
+        image = capture = null;
+        canvas.width = canvas.height = 1;
+      });
+      function changeMode(next) {
+        if (loading || saving) return;
+        mode = next;
+        rectangle = point = drag = null;
+        draw();
+      }
+      function viewState() {
+        coordinates.setAttribute("aria-pressed", String(mode === "coordinates"));
+        visual.setAttribute("aria-pressed", String(mode === "image"));
+        coordinates.disabled = visual.disabled = loading || saving;
+        refresh.disabled = loading || saving;
+        reset.disabled = loading || saving || (!point && !rectangle);
+        save.disabled = loading || saving || !capture ||
+          (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !point));
+        if (loading) instruction.textContent = "ERP penceresinin görüntüsü alınıyor…";
+        else if (mode === "coordinates") instruction.textContent = "Yazılacak veya tıklanacak alanın ortasına tıklayın.";
+        else if (!rectangle) instruction.textContent = "Sabit ve ayırt edici bir etiketi (ör. Form ID) çevreleyen dikdörtgen çizin. Değişen alan değerlerini referansa dahil etmeyin.";
+        else if (!referenceOnly && !point) instruction.textContent = "Şimdi işlem yapılacak alanın ortasına tıklayın. Alan, seçtiğiniz referansın dışında olabilir.";
+        else instruction.textContent = referenceOnly ? "Beklenecek görsel referans hazır. Kaydedebilirsiniz." : "Görsel referans ve işlem yapılacak alan hazır. Kaydedebilirsiniz.";
+      }
+      function draw() {
+        viewState();
+        selection.textContent = "";
+        if (!capture || !image?.complete || !image.naturalWidth) return;
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const thickness = Math.max(2, canvas.width / 600);
+        context.lineWidth = thickness;
+        if (rectangle) {
+          context.strokeStyle = "#137c6b";
+          context.fillStyle = "#137c6b26";
+          context.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+          context.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+          selection.textContent = `Referans: ${rectangle.width} × ${rectangle.height}`;
+        }
+        if (point) {
+          const radius = Math.max(7, canvas.width / 100);
+          context.strokeStyle = "#d16a17";
+          context.beginPath();
+          context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+          context.moveTo(point.x - radius * 1.5, point.y);
+          context.lineTo(point.x + radius * 1.5, point.y);
+          context.moveTo(point.x, point.y - radius * 1.5);
+          context.lineTo(point.x, point.y + radius * 1.5);
+          context.stroke();
+          const logical = toWindow(point);
+          selection.textContent += `${rectangle ? " · " : ""}Alan: X ${logical.x}, Y ${logical.y}`;
+        }
+      }
+      function location(event) {
+        const bounds = canvas.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(canvas.width - 1, Math.round((event.clientX - bounds.left) * canvas.width / bounds.width))),
+          y: Math.max(0, Math.min(canvas.height - 1, Math.round((event.clientY - bounds.top) * canvas.height / bounds.height))),
+        };
+      }
+      function toWindow(position) {
+        return {
+          x: Math.min(capture.window.width - 1, Math.round(position.x * capture.window.width / canvas.width)),
+          y: Math.min(capture.window.height - 1, Math.round(position.y * capture.window.height / canvas.height)),
+        };
+      }
+      function dragged(start, end) {
+        return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y),
+          width: Math.abs(start.x - end.x), height: Math.abs(start.y - end.y) };
+      }
+      canvas.addEventListener("pointerdown", (event) => {
+        if (loading || saving || !capture || event.button !== 0) return;
+        event.preventDefault();
+        const position = location(event);
+        if (mode === "image" && !rectangle) {
+          drag = position;
+          canvas.setPointerCapture(event.pointerId);
+        } else {
+          point = position;
+          draw();
+        }
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        if (!drag) return;
+        rectangle = dragged(drag, location(event));
+        draw();
+      });
+      canvas.addEventListener("pointerup", (event) => {
+        if (!drag) return;
+        rectangle = dragged(drag, location(event));
+        drag = null;
+        if (rectangle.width < 8 || rectangle.height < 8) {
+          rectangle = null;
+          status.replaceChildren(note("En az 8 × 8 piksel bir referans alanı seçin."));
+        } else status.replaceChildren();
+        draw();
+      });
+      canvas.addEventListener("pointercancel", () => {
+        if (drag) rectangle = drag = null;
+        draw();
+      });
+      async function load() {
+        if (loading || saving) return;
+        const request = ++epoch;
+        loading = true;
+        discard(capture?.id);
+        capture = rectangle = point = drag = null;
+        canvas.hidden = true;
+        status.replaceChildren();
+        draw();
+        try {
+          const found = await api("/api/desktop/capture-window", { method: "POST", body: JSON.stringify(selector) });
+          if (!current() || epoch !== request) {
+            discard(found.id);
+            return;
+          }
+          if (typeof found.id !== "string" || !/^data:image\/png;base64,/.test(found.image || "") ||
+              !(found.width > 0 && found.height > 0 && found.window?.width > 0 && found.window?.height > 0)) {
+            discard(found.id);
+            throw new Error("ERP pencere görüntüsü okunamadı. Görüntüyü yenileyin.");
+          }
+          capture = found;
+          image = new Image();
+          const loaded = new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = () => reject(new Error("Pencere görüntüsü açılamadı. Yeniden deneyin."));
+          });
+          image.src = found.image;
+          await loaded;
+          if (!current() || epoch !== request) return;
+          if (image.naturalWidth !== found.width || image.naturalHeight !== found.height)
+            throw new Error("Görüntü boyutu doğrulanamadı. Görüntüyü yenileyin.");
+          canvas.width = found.width;
+          canvas.height = found.height;
+          canvas.hidden = false;
+        } catch (error) {
+          if (current() && epoch === request) {
+            discard(capture?.id);
+            capture = null;
+            status.replaceChildren(note(error.message));
+          }
+        } finally {
+          if (current() && epoch === request) {
+            loading = false;
+            draw();
+          }
+        }
+      }
+      async function commit() {
+        if (save.disabled || !current()) return;
+        saving = true;
+        viewState();
+        status.replaceChildren(node("p", "help", "Hedef kaydediliyor…"));
+        try {
+          let values;
+          if (mode === "coordinates") values = { target_mode: mode, ...toWindow(point) };
+          else {
+            const saved = await api("/api/desktop/templates", {
+              method: "POST", body: JSON.stringify({ capture_id: capture.id, ...rectangle }),
+            });
+            if (!current()) return;
+            if (typeof saved.template !== "string" || !saved.template)
+              throw new Error("Görsel referans kaydedilemedi.");
+            values = { template: saved.template };
+            if (!referenceOnly) {
+              const center = toWindow({ x: rectangle.x + Math.floor(rectangle.width / 2), y: rectangle.y + Math.floor(rectangle.height / 2) });
+              const position = toWindow(point);
+              Object.assign(values, { target_mode: "image", offset_x: position.x - center.x, offset_y: position.y - center.y });
+            }
+          }
+          d.close();
+          applyStepParams(step, values);
+          toast(mode === "image" ? "Görsel referans ve hedef kaydedildi." : "Pencere içindeki hedef konum kaydedildi.");
+        } catch (error) {
+          if (current()) status.replaceChildren(note(error.message));
+        } finally {
+          saving = false;
+          if (current()) viewState();
+        }
+      }
+      viewState();
+      queueMicrotask(load);
+    });
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -1577,12 +1886,61 @@
     pane.append(field("Adım adı", title), node("div", "inspector-divider"));
     step.params ||= {};
     if (step.action === "desktop.find_window") pane.append(windowRecognitionTools(step));
+    const targetActions = ["desktop.window_click", "desktop.window_fill", "desktop.window_wait_image"];
+    let targetTools = targetActions.includes(step.action) ? windowTargetTools(step) : null;
+    if (targetTools) pane.append(targetTools);
+    if (step.action === "desktop.window_write" && state.catalog.some((item) => item.type === "desktop.window_fill")) {
+      const conversion = node("div", "legacy-action-help");
+      conversion.append(
+        note("Bu eski adım odaklanmış alana yazar. Alanı doldur adımında hedef alanı da seçebilirsiniz."),
+        button("Alanı doldur adımına dönüştür", "edit", () => {
+          if ([...state.fieldErrors].some((key) => key.startsWith(`${step.id}:`))) {
+            toast("Önce bu adımdaki geçersiz değerleri düzeltin.", true);
+            return;
+          }
+          const replacement = specFor("desktop.window_fill");
+          const previous = { ...step.params };
+          const oldLabel = specFor(step.action).label;
+          step.params = {};
+          (replacement.fields || []).forEach((definition) => {
+            if (definition.default !== undefined && definition.default !== null)
+              step.params[definition.name] = clone(definition.default);
+          });
+          // Preserve existing values, and require the user to select a target.
+          Object.assign(step.params, previous);
+          delete step.params.x;
+          delete step.params.y;
+          step.params.target_mode = "coordinates";
+          step.action = replacement.type;
+          if (!step.title || step.title === oldLabel) step.title = replacement.label;
+          for (const key of state.fieldErrors) if (key.startsWith(`${step.id}:`)) state.fieldErrors.delete(key);
+          for (const key of state.drafts.keys()) if (key.startsWith(`${step.id}:`)) state.drafts.delete(key);
+          markDirty();
+          renderInspector();
+          renderCanvas();
+          toast("Yazılacak değer korundu. ERP ekranından hedef alanı seçin.");
+        }, "small"),
+      );
+      pane.append(conversion);
+    }
+    if (step.action === "control.for_each") {
+      const help = node("div", "loop-help");
+      help.append(
+        note("Listedeki her satır için İç adımlar sırayla çalışır. ERP’ye yazma, tıklama ve tuş adımlarını döngünün içine ekleyin."),
+        button("Her satırda yapılacak adımı ekle", "plus", () => setTarget(step, "children"), "small"),
+      );
+      pane.append(help);
+    }
+    if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
     (spec.fields || []).forEach((f) => {
-      let control, jsonMode;
-      const value = Object.hasOwn(step.params, f.name)
-        ? step.params[f.name]
-        : f.default;
       const key = `${step.id}:${f.name}`;
+      if (!fieldVisible(step, f)) {
+        state.fieldErrors.delete(key);
+        return;
+      }
+      let control, jsonMode;
+      const value = parameterValue(step, f.name);
+      if (state.drafts.has(key)) state.fieldErrors.add(key);
       if (f.type === "boolean") {
         control = node("input");
         control.type = "checkbox";
@@ -1734,8 +2092,15 @@
         else step.params[f.name] = next;
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();
+        if (f.name === "window" && targetTools) {
+          const updated = windowTargetTools(step);
+          targetTools.replaceWith(updated);
+          targetTools = updated;
+        }
         markDirty();
         if (f.name === "output") renderCanvas();
+        if ((spec.fields || []).some((definition) => Object.hasOwn(definition.visible_when || {}, f.name)))
+          renderInspector();
       };
       if (jsonMode) {
         const setModeView = () => {
@@ -1785,12 +2150,18 @@
             ["core.set", "data.append"].includes(s.action)
               ? s.params?.name
               : null,
-            s.action === "control.for_each" ? s.params?.item_name : null,
+            ...(s.action === "control.for_each" ? [
+              parameterValue(s, "item_name") || "row",
+              `${parameterValue(s, "item_name") || "row"}.value`,
+              `${parameterValue(s, "item_name") || "row"}.cell`,
+              `${parameterValue(s, "item_name") || "row"}.row_number`,
+            ] : []),
           ])
           .filter(Boolean),
       ),
     ];
-    names.push("item", "item.field");
+    for (const name of ["item", "item.field"])
+      if (!names.includes(name)) names.push(name);
     names.forEach((name) => {
       const expression = "${" + name + "}";
       const chip = node("button", "variable-chip mono", expression);

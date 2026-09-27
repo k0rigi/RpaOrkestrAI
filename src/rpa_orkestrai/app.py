@@ -19,7 +19,16 @@ from .config import Settings
 from .engine import RunManager, WorkflowError, validate_workflow
 from .instance import identity
 from .locking import WorkspaceLock
-from .models import FavoriteRequest, RunRequest, WindowCheckRequest, Workflow, WorkflowInput, now, uid
+from .models import (
+    FavoriteRequest,
+    RunRequest,
+    TemplateCropRequest,
+    WindowCheckRequest,
+    Workflow,
+    WorkflowInput,
+    now,
+    uid,
+)
 from .storage import Store
 
 
@@ -27,6 +36,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     store = Store(settings.data_dir)
     manager = RunManager(settings, store)
+    from .desktop.targets import CaptureStore
+
+    captures = CaptureStore()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -157,6 +169,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return WindowService().find(body.application, body.title, body.match, on_missing="continue")
         except WindowError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/desktop/capture-window")
+    def capture_desktop_window(body: WindowCheckRequest):
+        from .desktop.controller import DesktopController
+        from .desktop.windows import WindowError, WindowService
+
+        try:
+            with manager.desktop_setup():
+                windows = WindowService()
+                previous = next((w for w in windows.list_windows() if windows.backend.is_active(w)), None)
+                target = windows.find(body.application, body.title, body.match)
+                try:
+                    window, image = windows.screenshot_window(target, DesktopController())
+                    return captures.add(window, image)
+                finally:
+                    if previous is not None and previous.window_id != target.get("window_id"):
+                        try:
+                            windows.focus(previous.result())
+                        except WindowError:
+                            pass  # The capture remains valid; the user can switch back manually.
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail="Hedef seçimi şu anda kullanılamıyor. Çalışan akışı ve ekran izinlerini kontrol edin.") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Pencere görüntüsü alınamadı. Ekran izinlerini kontrol edin ve ERP'yi ana ekrana taşıyın.") from exc
+
+    @app.post("/api/desktop/templates", status_code=201)
+    def save_template(body: TemplateCropRequest):
+        from .desktop.windows import WindowError
+
+        try:
+            return captures.crop(**body.model_dump(), folder=Path(settings.get("template_dir")).expanduser().resolve())
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=422, detail="Referans görsel kaydedilemedi. Şablon klasörünün yazma iznini kontrol edin.") from exc
+
+    @app.delete("/api/desktop/captures/{capture_id}", status_code=204)
+    def discard_capture(capture_id: str):
+        captures.discard(capture_id)
+        return Response(status_code=204)
 
     @app.get("/api/workflows")
     def list_workflows():

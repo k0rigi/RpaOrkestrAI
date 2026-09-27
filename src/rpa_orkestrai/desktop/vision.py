@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any
 
 
+class AmbiguousMatchError(ValueError):
+    """More than one distinct screen location matches an input target."""
+
+
 @dataclass(frozen=True)
 class Match:
     x: int
@@ -48,7 +52,10 @@ class Vision:
         raise ValueError("Expected a grayscale or RGB/RGBA image.")
 
     @staticmethod
-    def match_template(image: Any, template: Any, threshold: float = 0.85, *, template_scale: float = 1.0) -> Match | None:
+    def match_template(
+        image: Any, template: Any, threshold: float = 0.85, *, template_scale: float = 1.0,
+        require_unique: bool = False,
+    ) -> Match | None:
         import cv2
         import numpy as np
 
@@ -69,6 +76,17 @@ class Vision:
         _, score, _, location = cv2.minMaxLoc(result)
         if not np.isfinite(score) or score < threshold:
             return None
+        if require_unique:
+            # Neighboring correlation peaks can describe the same control. Mask
+            # that local peak; another distant peak is an ambiguous target.
+            x, y = location
+            radius_x, radius_y = max(1, width // 2), max(1, height // 2)
+            remaining = result.copy()
+            remaining[max(0, y - radius_y):y + radius_y + 1,
+                      max(0, x - radius_x):x + radius_x + 1] = -1
+            _, second_score, _, _ = cv2.minMaxLoc(remaining)
+            if np.isfinite(second_score) and second_score >= threshold:
+                raise AmbiguousMatchError("More than one screen location matches the reference image.")
         return Match(int(location[0]), int(location[1]), width, height, float(score))
 
     @staticmethod

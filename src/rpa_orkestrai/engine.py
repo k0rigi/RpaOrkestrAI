@@ -9,7 +9,7 @@ import operator
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -82,6 +82,12 @@ def has_unknown(value: Any) -> bool:
     return False
 
 
+def active_fields(action: str, parameters: dict) -> list[dict]:
+    return [f for f in BY_TYPE[action]["fields"] if all(
+        parameters.get(key) == value for key, value in f.get("visible_when", {}).items()
+    )]
+
+
 def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
     def walk(steps: list[Step]) -> None:
         for step in steps:
@@ -93,10 +99,21 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
                 raise WorkflowError(f"{step.title or step.action}: bilinmeyen parametre.")
             if ready:
                 parameters = {**defaults(step.action), **step.params}
-                for f in fields:
+                for f in active_fields(step.action, parameters):
                     value = parameters.get(f["name"])
                     if f.get("required") and (value is None or value == ""):
                         raise WorkflowError(f"{step.title or step.action}: {f['label']} gereklidir.")
+                    if isinstance(value, str) and REFERENCE.search(value):
+                        continue
+                    if f["type"] == "select" and str(value) not in {str(o["value"]) for o in f["options"]}:
+                        raise WorkflowError(f"{step.title or step.action}: {f['label']} seçimi geçersiz.")
+                    if f["type"] == "boolean" and type(value) is not bool:
+                        raise WorkflowError(f"{step.title or step.action}: {f['label']} doğru/yanlış olmalıdır.")
+                    if f["type"] == "number" and value is not None:
+                        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                                or not math.isfinite(value) or value < f.get("min", -math.inf)
+                                or value > f.get("max", math.inf)):
+                            raise WorkflowError(f"{step.title or step.action}: {f['label']} geçerli aralıkta olmalıdır.")
                 for key in ("output", "name", "item_name"):
                     if key in parameters:
                         variable_name(parameters[key])
@@ -194,6 +211,9 @@ class Executor:
             if self.executed > 10000:
                 raise WorkflowError("Bir çalışma en fazla 10.000 adım çalıştırabilir.")
             raw = {**defaults(step.action), **step.params}
+            if step.action == "control.for_each" and "item_name" not in step.params:
+                # Imported pre-0.3 flows used item when this parameter was omitted.
+                raw["item_name"] = "item"
             label = step.title or BY_TYPE[step.action]["label"]
             self.log(f"Başladı: {label}", step_id=step.id)
             if self.run.dry_run and step.action.startswith(EXTERNAL_PREFIXES):
@@ -201,7 +221,10 @@ class Executor:
                 self.log(f"Önizleme: {label} harici işlem olduğu için atlandı.",
                          level="warning", step_id=step.id)
                 continue
-            p = resolve(raw, self.variables)
+            # Resolve selectors first; inactive target fields may contain old expressions.
+            selectors = {key for f in BY_TYPE[step.action]["fields"] for key in f.get("visible_when", {})}
+            selected = {**raw, **{key: resolve(raw[key], self.variables) for key in selectors}}
+            p = resolve({f["name"]: selected[f["name"]] for f in active_fields(step.action, selected)}, self.variables)
             if has_unknown(p):
                 self.mark_unknown(step, raw)
                 self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
@@ -234,6 +257,7 @@ class Executor:
                 self.check_cancelled()
                 self.variables[name] = item
                 self.variables["loop_index"] = index
+                self.log(f"Döngü: {index + 1}/{len(items)}", step_id=step.id)
                 self.steps(step.children)
         finally:
             for key, old in ((name, old_item), ("loop_index", old_index)):
@@ -267,11 +291,23 @@ class Executor:
         return self._windows
 
     def template_path(self, value: str) -> Path:
+        if not isinstance(value, str) or not value.strip():
+            raise WorkflowError("Önce referans görsel seçin.")
         root = Path(self.config["template_dir"]).expanduser().resolve()
         path = (root / value).resolve()
         if not path.is_relative_to(root) or not path.is_file():
             raise WorkflowError("Şablon, ayarlardaki şablon klasörü içinde mevcut bir dosya olmalıdır.")
         return path
+
+    def window_target(self, p: dict) -> dict:
+        mode = p.get("target_mode", "coordinates")
+        if mode not in {"coordinates", "image"}:
+            raise WorkflowError("Hedef yöntemi X/Y veya referans görsel olmalıdır.")
+        if mode == "coordinates":
+            return {"target_mode": mode, "x": p.get("x"), "y": p.get("y")}
+        return {"target_mode": mode, "template": self.template_path(p.get("template")),
+                "offset_x": p.get("offset_x", 0), "offset_y": p.get("offset_y", 0),
+                "confidence": p.get("confidence", 0.9), "timeout": p.get("timeout", 10)}
 
     def perform(self, action: str, p: dict) -> Any:
         if action == "data.sample":
@@ -314,7 +350,26 @@ class Executor:
         elif action == "desktop.find_window":
             return self.windows().find(p["application"], p["title"], p["match"], p["timeout"], p["on_missing"])
         elif action == "desktop.window_click":
-            self.windows().click(p["window"], p["x"], p["y"], self.desktop())
+            clicks = p.get("clicks", 1)
+            if type(clicks) is str and clicks in {"1", "2"}:
+                clicks = int(clicks)
+            if type(clicks) is not int or clicks not in {1, 2}:
+                raise WorkflowError("Tıklama sayısı 1 veya 2 olmalıdır.")
+            self.windows().click_target(p["window"], self.desktop(), **self.window_target(p),
+                                        clicks=clicks, button=p.get("button", "left"))
+        elif action == "desktop.window_fill":
+            text = p["text"]
+            if isinstance(text, (dict, list)) or text is None:
+                raise WorkflowError("Yazılacak değer bir metin veya sayı olmalıdır; satır için ${row.value} kullanın.")
+            self.windows().fill_target(p["window"], str(text), self.desktop(), clear=p["clear"],
+                                       **self.window_target(p))
+        elif action == "desktop.window_key":
+            self.windows().press_key(p["window"], p["key"], p["modifier"], self.desktop())
+        elif action == "desktop.window_wait_image":
+            if p["state"] not in {"visible", "hidden"}:
+                raise WorkflowError("Görselin beklenen durumu geçersiz.")
+            self.windows().wait_image(p["window"], self.template_path(p["template"]), self.desktop(),
+                                       confidence=p["confidence"], timeout=p["timeout"], visible=p["state"] == "visible")
         elif action == "desktop.window_write":
             self.windows().write(p["window"], p["text"], self.desktop())
         elif action == "desktop.click":
@@ -359,11 +414,15 @@ class Executor:
         elif action == "browser.text":
             return self.browser().text(p["selector"])
         elif action.startswith("sheets."):
-            from .integrations.sheets import SheetsService
+            from .integrations.sheets import SheetsService, normalize_spreadsheet_id
 
             if not self.config["google_credentials_path"]:
                 raise WorkflowError("Önce Ayarlar bölümünden Google servis hesabı dosyasını tanımlayın.")
-            key = (p["spreadsheet_id"], p["worksheet"])
+            try:
+                spreadsheet_id = normalize_spreadsheet_id(p["spreadsheet_id"])
+            except ValueError as exc:
+                raise WorkflowError("Geçerli bir Google Sheets bağlantısı veya tablo kimliği girin.") from exc
+            key = (spreadsheet_id, p["worksheet"])
             if key not in self._sheets:
                 self._sheets[key] = self.resources.enter_context(
                     SheetsService(self.config["google_credentials_path"], *key,
@@ -376,6 +435,18 @@ class Executor:
                 if value is None or value == "":
                     raise WorkflowError("Sheets hücresi boş. Hücre adresini ve veriyi kontrol edin.")
                 return value
+            if action == "sheets.read_column":
+                try:
+                    rows = self._sheets[key].get_column(p["start_cell"], p["max_rows"], p["empty_policy"])
+                except ValueError as exc:
+                    raise WorkflowError("Başlangıç hücresi (ör. B2), satır sınırı (1–1000) ve boş hücre seçimini kontrol edin.") from exc
+                if not rows:
+                    raise WorkflowError("Okunacak dolu satır bulunamadı. Başlangıç hücresini ve boş hücre seçimini kontrol edin.")
+                self.log(f"Sheets: {len(rows)} satır okundu.")
+                return rows
+            if action == "sheets.write_cell":
+                self._sheets[key].update_cell(p["cell"], p["value"], raw=True)
+                return None
             self._sheets[key].update_range(p["range"], p["values"])
         else:
             raise WorkflowError("Bu adım için çalıştırıcı bulunamadı.")
@@ -416,6 +487,14 @@ class RunManager:
         self._lock = threading.RLock()
         self._active: tuple[str, threading.Event] | None = None
         self._closed = False
+
+    @contextmanager
+    def desktop_setup(self):
+        """Keep setup captures from stealing focus during a running ERP flow."""
+        with self._lock:
+            if self._closed or self._active:
+                raise RuntimeError("Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya durdurun.")
+            yield
 
     def start(self, workflow: Workflow, *, dry_run: bool = False) -> Run:
         validate_workflow(workflow)
