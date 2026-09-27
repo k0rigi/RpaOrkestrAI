@@ -38,7 +38,9 @@ class Settings:
 
     def __init__(self, data_dir: Path | str | None = None, *, dotenv: bool = True):
         if dotenv:
-            load_dotenv()
+            # The native runtime can live outside the project (e.g. macOS Library).
+            # Connection settings belong to the launch directory, not package code.
+            load_dotenv(Path.cwd() / ".env")
         self.data_dir = Path(data_dir or os.getenv("RPA_DATA_DIR", "data")).expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()

@@ -12,6 +12,17 @@ from rpa_orkestrai.instance import StartupError, existing_instance, identity
 from rpa_orkestrai.native import open_window, serve_native
 
 
+def test_connection_env_is_loaded_from_launch_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RPA_DATABASE_URL", raising=False)
+    # Track the variable so monkeypatch also restores load_dotenv's mutation.
+    monkeypatch.setenv("RPA_DATABASE_URL", "")
+    monkeypatch.delenv("RPA_DATABASE_URL")
+    (tmp_path / ".env").write_text("RPA_DATABASE_URL=postgresql://example.invalid/demo\n")
+    settings = Settings(tmp_path / "data")
+    assert settings.get("database_url") == "postgresql://example.invalid/demo"
+
+
 def mock_opener(monkeypatch, *, metadata=None, failure=None):
     response = Mock()
     response.read.return_value = json.dumps(metadata).encode()

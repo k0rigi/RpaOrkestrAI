@@ -107,7 +107,9 @@ Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşleti
 
 `native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; otomatik paket indirme veya kurulum yapmaz.
 
-Başlatıcı `launch.py` ile doğrudan projenin `src/` klasörünü yükler. Böylece kurulu paketin eski kopyası veya macOS'ta gizli işaretlenmiş `.pth` dosyaları kaynak kodunun yüklenmesini engellemez. İlk açılışta bileşenler yüklenirken durum mesajları görünür. Proje iCloud ile eşitlenen Masaüstü/Belgeler içindeyse bulut simgeli dosyaların indirilmesi ek süre alabilir.
+Varsayılan başlatıcı `launch.py` ile doğrudan projenin `src/` klasörünü yükler. Böylece kurulu paketin eski kopyası veya macOS'ta gizli işaretlenmiş `.pth` dosyaları kaynak kodunun yüklenmesini engellemez.
+
+macOS'ta Masaüstü/Belgeler iCloud ile eşitleniyorsa Python dosyaları buluta taşınıp her açılışta dakikalarca bekletebilir. Bunu önlemek için `uv` kurulu olduğunda (veya `.bootstrap/bin/uv` mevcutsa) `setup-macos.command` çalıştırın. Python, sanal ortam ve paketler `~/Library/Application Support/RpaOrkestrAI/` altında; indirme önbelleği `~/Library/Caches/RpaOrkestrAI/uv` altında tutulur. Kurulum Chromium'u da hazırlar. Sonraki `start.command` açılışlarında güncel uygulama kaynakları bu yerel klasöre eşitlenir ve oradan çalıştırılır. Akışlar, çıktılar, `.env` ve bağlantı ayarları mevcut proje/veri dizininde kalır. Windows başlatıcısı değişmez. Bağımlılık değişikliği sonrası kurulumu tekrar çalıştırın.
 
 Aynı portta, aynı sürüm ve çalışma alanına ait Studio açıksa yeni masaüstü penceresi ona bağlanır. Farklı bir uygulama/çalışma alanı veya eski sürüm algılanırsa anlaşılır hata gösterilir; başka uygulamanın portu devralınmaz. Güncelleme sonrası eski Studio'yu kapatıp tekrar açın. Bir sunucuya bağlanan pencere o sunucuyu kapatmaz; kendisi sunucu başlatan pencere kapanırken onu durdurur. CSV indirme yerel pencerede de etkindir.
 
