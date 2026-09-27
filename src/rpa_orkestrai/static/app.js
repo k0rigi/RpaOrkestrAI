@@ -14,6 +14,8 @@
     version: "",
     updates: {},
     updatePoll: null,
+    license: null,
+    licenseTimer: null,
     page: "dashboard",
     workflow: null,
     selected: null,
@@ -82,6 +84,8 @@
     spark: "M12 3l2 6 7 3-7 2-2 7-3-7-6-2 6-3z",
     refresh:
       "M20 7v5h-5 M4 17v-5h5 M19 12a7 7 0 0 0-12-6L4 9 M5 12a7 7 0 0 0 12 6l3-3",
+    logout: "M15 4h4v16h-4 M10 16l-4-4 4-4 M6 12h10",
+    key: "M14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M13 12l8 8 M17 16l2-2 M19 18l2-2",
   };
 
   function node(tag, className, text) {
@@ -256,8 +260,9 @@
     });
     if (!response.ok) {
       let detail;
+      let body = null;
       try {
-        const body = await response.json();
+        body = await response.json();
         detail =
           typeof body.detail === "string"
             ? body.detail
@@ -265,6 +270,10 @@
       } catch {
         detail = `HTTP ${response.status}`;
       }
+      // The local API refuses work once the license is no longer valid.
+      if (response.status === 403 && body?.license?.state && body.license.state !== "valid"
+          && !root.querySelector(".license-screen"))
+        showLicenseGate(body.license);
       throw new Error(detail || "İşlem tamamlanamadı.");
     }
     if (response.status === 204) return null;
@@ -490,13 +499,18 @@
     );
     bottom.append(local);
     const owner = node("div", "workspace-owner");
-    owner.append(node("div", "avatar", "YS"));
-    const ownerText = node("div");
+    const account = state.license?.license || {};
+    const ownerName = account.full_name || account.user || "Lisanslı kullanıcı";
+    owner.append(node("div", "avatar", initials(ownerName)));
+    const ownerText = node("div", "owner-text");
     ownerText.append(
-      node("strong", "", "Yönetici stüdyosu"),
-      node("small", "", "Otomasyon çalışma alanı"),
+      node("strong", "", ownerName),
+      node("small", "", [account.company, licenseTerm(account)].filter(Boolean).join(" · ")),
     );
-    owner.append(ownerText);
+    owner.append(
+      ownerText,
+      iconButton("Oturumu kapat", "logout", () => logoutLicense(), "owner-logout"),
+    );
     bottom.append(owner);
     sidebar.append(bottom);
     const main = node("div", "main-shell");
@@ -544,7 +558,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.4.0"}`),
+      node("span", "version", `v${state.version || "0.5.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1083,20 +1097,6 @@
     if (!state.target)
       target.append(node("span", "", "Eklenecek yer: Ana akışın sonu"));
     pane.append(target);
-    if (state.catalog.some((spec) => spec.type === "sheets.read_rows")) {
-      const guide = node("details", "flow-recipe");
-      guide.append(node("summary", "", "Sheets satırlarını ERP’ye işle"));
-      const steps = node("ol");
-      [
-        "ERP penceresini tanıt.",
-        "Sheets satırlarını oku: başlangıç satırı 2; FormID için B, durum için C sütunu.",
-        "Her satır için adımında listeyi ${sheet_rows} seç.",
-        "Döngüye Koşul ekle: ${row.status} boş veya Bekliyor ise işle.",
-        "Koşulun doğru dalına Alanı doldur ekle; değer olarak ${row.form_id} kullan. İşlem sonucunu doğruladıktan sonra durum hücresini güncelle.",
-      ].forEach((text) => steps.append(node("li", "", text)));
-      guide.append(steps);
-      pane.append(guide);
-    }
     if (!state.catalog.length) {
       pane.append(empty(
         "Kütüphane henüz boş",
@@ -1566,8 +1566,8 @@
   function fieldVisible(step, definition) {
     if (["control.if", "control.while"].includes(step.action) && definition.name === "right" &&
         ["empty", "not_empty", "truthy"].includes(parameterValue(step, "operator"))) return false;
-    return Object.entries(definition.visible_when || {}).every(
-      ([name, expected]) => parameterValue(step, name) === expected,
+    return Object.entries(definition.visible_when || {}).every(([name, expected]) =>
+      Array.isArray(expected) ? expected.includes(parameterValue(step, name)) : parameterValue(step, name) === expected,
     );
   }
   function enclosingSteps(id, steps = state.workflow?.steps || [], parents = []) {
@@ -1619,7 +1619,7 @@
     const availability = node("p", "help");
     tools.append(target, snapshot);
     if (recognized) {
-      tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekranda seç ile geri sayımdan sonra fare konumunu alın veya görsel alanını sürükleyerek seçin.`));
+      tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekranda seç ile geri sayımdan sonra fare konumunu alın veya görsel alanını sürükleyerek seçin. Uygulama alan kimliği veriyorsa alan, ekran boyutundan bağımsız olarak kimliğiyle bulunur.`));
     } else {
       tools.append(node("p", "help", "Önce bu adımın önüne Pencereyi tanıt ekleyin. Pencere alanında onun çıktısını kullanın; örneğin ${erp_window}."));
     }
@@ -1656,8 +1656,10 @@
     const referenceOnly = step.action === "desktop.window_wait_image";
     dialog("ERP ekranında hedef seç", (body, d) => {
       d.classList.add("target-picker-dialog");
-      let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") || "coordinates";
+      // A saved field identity is re-picked through the pointer (Konum) selection.
+      let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") === "image" ? "image" : "coordinates";
       let capture = null, rectangle = null, point = null, drag = null, image = null;
+      let element = null, useElement = false;
       let loading = false, saving = false, epoch = 0;
       let session = null, polling = null, nativeBusy = false, nativeStatus = null;
       const discard = (id) => {
@@ -1690,6 +1692,7 @@
       instruction.setAttribute("aria-live", "polite");
       const status = node("div", "target-picker-status");
       status.setAttribute("role", "status");
+      const structure = node("div", "target-picker-structure");
       const frame = node("div", "target-picker-frame");
       const canvas = node("canvas", "target-picker-canvas");
       canvas.setAttribute("aria-label", "ERP pencere görüntüsü. Konum için tıklayın; görsel referans için dikdörtgen çizin.");
@@ -1711,7 +1714,7 @@
       }, "small");
       const save = button("Hedefi kaydet", "check", commit, "primary");
       actions.append(source === "native" ? repick : refresh, reset, save);
-      body.append(intro, toolbar, preparation, instruction, status, frame, selection, actions);
+      body.append(intro, toolbar, preparation, instruction, status, structure, frame, selection, actions);
       const unload = () => {
         epoch += 1;
         clearTimeout(polling);
@@ -1756,7 +1759,7 @@
         save.disabled = busy || !capture ||
           (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !point));
         preparationHelp.textContent = mode === "coordinates"
-          ? "Süre dolmadan fareyi ERP’deki hedef alanın üzerine getirin ve orada tutun. Süre bittiğindeki konum alınır; tıklamanız gerekmez. Esc ile iptal edebilirsiniz."
+          ? "Süre dolmadan fareyi ERP’deki hedef alanın üzerine getirin ve orada tutun. Süre bittiğindeki konum alınır; tıklamanız gerekmez. Uygulama alana bir kimlik veriyorsa ekran boyutundan bağımsız alan kimliği de önerilir. Esc ile iptal edebilirsiniz."
           : `Süre bitince ERP görüntüsünde sabit bir etiketi (ör. FormID) fareyle sürükleyerek seçin.${referenceOnly ? "" : " Ardından işlem yapılacak alanın ortasına tıklayın."} Seçimi kullan ile önizlemeye dönün. Esc ile iptal edebilirsiniz.`;
         if (nativeBusy) {
           const countdown = nativeStatus?.countdown;
@@ -1773,9 +1776,39 @@
       function discardSession(id) {
         if (id) api(`/api/desktop/pick/${encodeURIComponent(id)}`, { method: "DELETE", keepalive: true }).catch(() => {});
       }
+      function paintStructure() {
+        structure.replaceChildren();
+        if (referenceOnly || mode !== "coordinates" || !capture || !element) return;
+        if (!element.available) {
+          structure.append(note(element.reason || "Uygulama yapısından alan okunamadı; konum kaydedilecek."));
+          return;
+        }
+        const choice = (value, title, help) => {
+          const label = node("label", "structure-choice");
+          const input = node("input");
+          input.type = "radio";
+          input.name = `structure-${step.id}`;
+          input.checked = useElement === value;
+          input.addEventListener("change", () => { useElement = value; });
+          const text = node("span");
+          text.append(node("strong", "", title), node("small", "", help));
+          label.append(input, text);
+          return label;
+        };
+        structure.append(
+          node("p", "structure-found", `Uygulama yapısında alan bulundu: ${element.summary}`),
+          choice(true, "Alan kimliğiyle bul (önerilen)", "Pencere boyutu, konumu veya ekran ölçeği değişse de alan uygulamanın verdiği kimlikle bulunur."),
+          choice(false, "Konumla bul (X / Y)", "Pencere düzeni değişmediği sürece aynı noktaya tıklanır."),
+        );
+        if (!element.unique)
+          structure.append(note("Aynı kimlikte birden fazla alan var; seçtiğiniz sıradaki alan kaydedilir.", "warning"));
+      }
       function clearCapture() {
         discard(capture?.id);
         if (image) image.src = "";
+        element = null;
+        useElement = false;
+        structure.replaceChildren();
         image = capture = rectangle = point = drag = null;
         canvas.hidden = true;
         canvas.width = canvas.height = 1;
@@ -1847,6 +1880,12 @@
           canvas.setPointerCapture(event.pointerId);
         } else {
           point = position;
+          if (element?.available && mode === "coordinates") {
+            // A point moved by hand no longer matches the field read from the screen.
+            element = { available: false, reason: "Konumu görüntü üzerinde değiştirdiniz; alan kimliği yerine bu konum kaydedilecek." };
+            useElement = false;
+            paintStructure();
+          }
           draw();
         }
       });
@@ -1939,6 +1978,10 @@
           if (job.status === "completed") {
             await showCapture(job.result?.capture, request, job.result || {});
             if (!current() || epoch !== request) return;
+            element = mode === "coordinates" && job.result?.element && typeof job.result.element === "object"
+              ? job.result.element : null;
+            useElement = Boolean(element?.available && element.locator);
+            paintStructure();
             nativeBusy = false;
             status.replaceChildren(note("Seçimi kontrol edin. Hedefi kaydet dediğinizde adıma aktarılır; gerekirse görüntü üzerinde düzeltebilirsiniz.", "info", "check"));
             draw();
@@ -2015,7 +2058,9 @@
         status.replaceChildren(node("p", "help", "Hedef kaydediliyor…"));
         try {
           let values;
-          if (mode === "coordinates") values = { target_mode: mode, ...toWindow(point) };
+          const byStructure = mode === "coordinates" && useElement && element?.available && element.locator;
+          if (byStructure) values = { target_mode: "element", element: element.locator, ...toWindow(point) };
+          else if (mode === "coordinates") values = { target_mode: mode, ...toWindow(point) };
           else {
             const saved = await api("/api/desktop/templates", {
               method: "POST", body: JSON.stringify({ capture_id: capture.id, ...rectangle }),
@@ -2032,7 +2077,8 @@
           }
           d.close();
           applyStepParams(step, values);
-          toast(mode === "image" ? "Görsel referans ve hedef kaydedildi." : "Pencere içindeki hedef konum kaydedildi.");
+          toast(byStructure ? `Alan kimliği kaydedildi: ${element.summary}`
+            : mode === "image" ? "Görsel referans ve hedef kaydedildi." : "Pencere içindeki hedef konum kaydedildi.");
         } catch (error) {
           if (current()) status.replaceChildren(note(error.message));
         } finally {
@@ -2043,6 +2089,32 @@
       viewState();
       if (source === "snapshot") queueMicrotask(load);
     });
+  }
+  const elementRoles = {
+    Edit: "Metin kutusu", AXTextField: "Metin kutusu", AXTextArea: "Metin alanı", Document: "Metin alanı",
+    ComboBox: "Açılır liste", AXComboBox: "Açılır liste", AXPopUpButton: "Açılır liste",
+    Button: "Düğme", AXButton: "Düğme", CheckBox: "Onay kutusu", AXCheckBox: "Onay kutusu",
+    Text: "Etiket", AXStaticText: "Etiket", DataItem: "Tablo hücresi", AXCell: "Tablo hücresi",
+  };
+  function elementLocatorField(step, definition) {
+    const locator = parameterValue(step, definition.name);
+    const wrap = node("div", "field element-locator");
+    wrap.append(node("span", "field-label", definition.label));
+    if (locator && typeof locator === "object" && (locator.automation_id || locator.name)) {
+      const parts = [elementRoles[locator.role] || locator.role || "Alan"];
+      if (locator.automation_id) parts.push(`kimlik ${locator.automation_id}`);
+      if (locator.name) parts.push(`“${locator.name}”`);
+      if (locator.index) parts.push(`${locator.index + 1}. sıra`);
+      const card = node("div", "element-card");
+      card.append(icon("code"), node("span", "", parts.join(" · ")));
+      wrap.append(card);
+      if (locator.platform && state.platform && locator.platform !== state.platform)
+        wrap.append(note("Bu alan başka bir işletim sisteminde seçilmiş. Bu bilgisayarda Ekranda seç ile yeniden seçin.", "warning"));
+    } else {
+      wrap.append(note("Henüz alan seçilmedi. Ekranda seç → Konum ile fareyi alanın üzerine getirin; uygulama alan kimliği veriyorsa önerilir.", "warning"));
+    }
+    if (definition.help) wrap.append(node("p", "help", definition.help));
+    return wrap;
   }
   function columnMappingField(step, definition) {
     const key = `${step.id}:${definition.name}`;
@@ -2234,6 +2306,10 @@
       }
       if (f.type === "columns") {
         pane.append(columnMappingField(step, f));
+        return;
+      }
+      if (f.type === "element") {
+        pane.append(elementLocatorField(step, f));
         return;
       }
       let control, jsonMode;
@@ -2934,6 +3010,7 @@
       el.append(h, node("p", "", description));
       return el;
     }
+    form.append(licensePanel(panel));
     const updatePanel = panel(
       "Uygulama güncellemeleri", "refresh",
       "Yeni sürümler arka planda indirilir; indirilen sürüm bir sonraki açılışta kurulur. Akışlarınız ve bağlantı ayarlarınız korunur.",
@@ -3133,8 +3210,226 @@
     return page;
   }
 
+  function initials(name) {
+    const parts = String(name || "").split(/[\s@._-]+/).filter(Boolean);
+    return (parts.slice(0, 2).map((part) => part[0]).join("") || "RO").toLocaleUpperCase("tr-TR");
+  }
+  function licenseDate(value) {
+    if (!value) return "";
+    const [year, month, day] = String(value).slice(0, 10).split("-");
+    return year && month && day ? `${day}.${month}.${year}` : "";
+  }
+  function licenseDaysLeft(account) {
+    if (!account?.ends_on) return null;
+    const end = new Date(`${account.ends_on}T23:59:59+03:00`);
+    return Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+  }
+  function licenseTerm(account) {
+    const days = licenseDaysLeft(account);
+    if (days === null) return account?.user ? "Süresiz lisans" : "";
+    return days <= 30 ? `${days} gün kaldı` : `${licenseDate(account.ends_on)} tarihine kadar`;
+  }
+  function licensePanel(panel) {
+    const account = state.license?.license || {};
+    const section = panel(
+      "RpaOrkestrAI lisansı", "key",
+      "Lisans orkestrai.net hesabınıza bağlıdır. İnternet yokken son doğrulamadan sonra en fazla 7 gün kullanılabilir.",
+    );
+    const rows = node("dl", "license-facts");
+    const days = licenseDaysLeft(account);
+    for (const [label, value] of [
+      ["Kullanıcı", account.full_name ? `${account.full_name} (${account.user})` : account.user],
+      ["Firma", account.company],
+      ["Bitiş", account.ends_on ? `${licenseDate(account.ends_on)}${days !== null ? ` · ${days} gün kaldı` : ""}` : "Süresiz"],
+      ["Son doğrulama", state.license?.online === false
+        ? `Çevrimdışı; ${when(account.valid_until)} tarihine kadar geçerli`
+        : "orkestrai.net ile doğrulandı"],
+    ]) {
+      if (!value) continue;
+      rows.append(node("dt", "", label), node("dd", "", value));
+    }
+    const actions = node("div", "update-actions");
+    const verify = button("Lisansı şimdi doğrula", "refresh", () => attempt(async () => {
+      verify.disabled = true;
+      try {
+        const result = await api("/api/license/refresh", { method: "POST" });
+        if (result.state !== "valid") return showLicenseGate(result);
+        state.license = result;
+        toast(result.online === false ? "orkestrai.net'e ulaşılamadı; kayıtlı lisans kullanılıyor." : "Lisans doğrulandı.");
+        render();
+      } finally {
+        verify.disabled = false;
+      }
+    }));
+    actions.append(verify, button("Oturumu kapat", "logout", () => logoutLicense()));
+    section.append(rows, actions);
+    return section;
+  }
+  async function logoutLicense() {
+    const ok = await confirmDialog(
+      "Oturumu kapat",
+      "Bu bilgisayardaki lisans oturumu kapatılır. Akışlarınız ve bağlantı ayarlarınız korunur; yeniden giriş için internet gerekir.",
+      "Oturumu kapat",
+    );
+    if (!ok) return;
+    if (state.dirty && !(await confirmDialog(
+      "Kaydedilmemiş değişiklikler",
+      "Açık akıştaki kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?",
+      "Kaydetmeden çık",
+      true,
+    ))) return;
+    await attempt(async () => showLicenseGate(await api("/api/license/logout", { method: "POST" })));
+  }
+  function showLicenseGate(status) {
+    stopPolling();
+    clearTimeout(state.updatePoll);
+    clearInterval(state.licenseTimer);
+    document.querySelectorAll("dialog").forEach((el) => el.close());
+    state.license = status;
+    state.dirty = false;
+    root.replaceChildren();
+    root.setAttribute("aria-busy", "false");
+    const screen = node("main", "boot-screen license-screen");
+    const card = node("section", "license-card");
+    const mark = node("span", "brand-mark", "O");
+    mark.append(node("span"));
+    card.append(mark);
+    if (status.state === "expired" || status.state === "denied") closingNotice(card, status);
+    else loginForm(card, status);
+    screen.append(card);
+    root.append(screen);
+  }
+  function loginForm(card, status) {
+    card.append(
+      node("h1", "", "RpaOrkestrAI"),
+      node("p", "", "orkestrai.net kullanıcı adınız ve şifrenizle giriş yapın. Şifreniz bu bilgisayara kaydedilmez."),
+    );
+    const message = node("div", "license-message");
+    message.setAttribute("role", "alert");
+    const show = (text, variant = "error") => message.replaceChildren(text ? note(text, variant) : "");
+    if (status.message) show(status.message, "warning");
+    card.append(message);
+    if (status.state === "verification_required" && status.remembered) {
+      const retry = button("Yeniden doğrula", "refresh", async () => {
+        retry.disabled = true;
+        try {
+          const result = await api("/api/license/refresh", { method: "POST" });
+          if (result.state === "valid") return boot();
+          if (result.state !== "verification_required") return showLicenseGate(result);
+          show(result.online === false
+            ? "orkestrai.net'e hâlâ ulaşılamıyor. Bağlantıyı kontrol edip tekrar deneyin."
+            : result.message, "warning");
+        } catch (error) {
+          show(error.message);
+        } finally {
+          retry.disabled = false;
+        }
+      });
+      card.append(retry);
+    }
+    const form = node("form", "license-form");
+    const username = textInput(status.license?.user || "", "kullanıcı adı veya e-posta");
+    username.autocomplete = "username";
+    username.spellcheck = false;
+    username.autocapitalize = "none";
+    username.required = true;
+    const password = textInput("", "", "password");
+    password.autocomplete = "current-password";
+    password.required = true;
+    const submit = button("Giriş yap", "arrow", null, "primary");
+    submit.type = "submit";
+    form.append(
+      field("Kullanıcı adı", username, "E-posta adresinizin @ işaretinden önceki kısmı veya e-postanın tamamı."),
+      field("Şifre", password),
+      submit,
+    );
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      show("");
+      try {
+        const result = await api("/api/license/login", {
+          method: "POST",
+          body: JSON.stringify({ username: username.value.trim(), password: password.value }),
+        });
+        password.value = "";
+        if (result.state === "valid") return boot();
+        showLicenseGate(result);
+      } catch (error) {
+        show(error.message);
+        password.select();
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    card.append(form, node("p", "license-footnote", "Hesap ve lisans işlemleri için firma yöneticinize başvurun."));
+    queueMicrotask(() => (username.value ? password : username).focus());
+  }
+  function closingNotice(card, status) {
+    const expired = status.state === "expired";
+    card.append(
+      node("h1", "", expired ? "Kullanım süreniz dolmuştur" : "Lisans tanımlı değil"),
+      node("p", "", status.message || (expired
+        ? "RpaOrkestrAI kullanım süreniz dolmuştur."
+        : "Bu kullanıcı için RpaOrkestrAI lisansı tanımlı değil.")),
+    );
+    if (status.license?.user) card.append(node("p", "license-footnote", `Kullanıcı: ${status.license.user}`));
+    card.append(node("p", "", "Lisansınızı yenilemek veya yetki almak için firma yöneticinize başvurun."));
+    const countdown = node("p", "license-countdown");
+    countdown.setAttribute("aria-live", "polite");
+    const actions = node("div", "license-actions");
+    const quit = async () => {
+      clearInterval(state.licenseTimer);
+      try {
+        await api("/api/license/quit", { method: "POST" });
+        countdown.textContent = "Uygulama kapanıyor…";
+      } catch (error) {
+        countdown.textContent = error.message;
+      }
+    };
+    if (status.can_quit) {
+      let remaining = 15;
+      const paint = () => { countdown.textContent = `Uygulama ${remaining} saniye içinde kapanacak.`; };
+      paint();
+      state.licenseTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) quit();
+        else paint();
+      }, 1000);
+      actions.append(button("Şimdi kapat", "cross", quit, "primary"));
+    } else {
+      countdown.textContent = "Bu tarayıcı sekmesini kapatabilirsiniz.";
+    }
+    const recheck = button("Yeniden kontrol et", "refresh", async () => {
+      recheck.disabled = true;
+      try {
+        const result = await api("/api/license/refresh", { method: "POST" });
+        if (result.state === "valid") {
+          clearInterval(state.licenseTimer);
+          return boot();
+        }
+        toast(result.online === false ? "orkestrai.net'e ulaşılamadı." : "Lisans durumu değişmedi.", true);
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        recheck.disabled = false;
+      }
+    });
+    if (status.remembered) actions.append(recheck);
+    actions.append(button("Farklı kullanıcıyla giriş yap", "logout", async () => {
+      clearInterval(state.licenseTimer);
+      await attempt(async () => showLicenseGate(await api("/api/license/logout", { method: "POST" })));
+    }));
+    card.append(countdown, actions);
+  }
   async function boot() {
     try {
+      const license = await api("/api/license");
+      if (license.state !== "valid") {
+        showLicenseGate(license);
+        return;
+      }
+      state.license = license;
       const data = await api("/api/bootstrap");
       state.workflows = data.workflows || [];
       state.runs = data.runs || [];
@@ -3173,7 +3468,7 @@
   }
   function pollUpdates() {
     clearTimeout(state.updatePoll);
-    if (!state.updates.enabled) return;
+    if (!state.updates.enabled || root.querySelector(".license-screen")) return;
     state.updatePoll = setTimeout(async () => {
       try {
         state.updates = await api("/api/updates");

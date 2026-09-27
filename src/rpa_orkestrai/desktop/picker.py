@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .controller import DesktopController
+from .elements import ElementService
 from .windows import WindowError, WindowInfo, WindowService, validate_selector
 
 _host: tuple[Any, Any] | None = None
@@ -41,6 +42,16 @@ def unregister_native_host(window: Any) -> None:
 def native_available() -> bool:
     with _host_lock:
         return _host is not None
+
+
+def close_native_window() -> bool:
+    """Close this process's Studio window; pywebview marshals it to the GUI thread."""
+    with _host_lock:
+        host = _host
+    if host is None:
+        return False
+    host[1].destroy()
+    return True
 
 
 def _native_host() -> tuple[Any, Any]:
@@ -117,11 +128,14 @@ class PickerResult:
     y: int | None = None
     crop: dict[str, int] | None = None
     point: dict[str, int] | None = None
+    element: dict | None = None
 
     def as_dict(self) -> dict:
         result = {"window": self.window, "image": self.image}
         if self.x is not None:
             result.update(x=self.x, y=self.y)
+        if self.element is not None:
+            result["element"] = self.element
         if self.crop is not None:
             result["crop"] = self.crop
         if self.point is not None:
@@ -273,14 +287,23 @@ class LivePicker:
     def __init__(self, *, view_factory: Callable = NativePickerView,
                  windows_factory: Callable = WindowService,
                  desktop_factory: Callable = DesktopController,
+                 elements_factory: Callable = ElementService,
                  pointer: Callable = _mouse_position, escape: Callable = _escape_pressed,
                  clock: Callable = time.monotonic):
         self.view_factory = view_factory
         self.windows_factory = windows_factory
         self.desktop_factory = desktop_factory
+        self.elements_factory = elements_factory
         self.pointer = pointer
         self.escape = escape
         self.clock = clock
+
+    def _describe(self, window: WindowInfo, x: int, y: int, cancel: threading.Event) -> dict:
+        """Read-only accessibility lookup; it must never break a coordinate pick."""
+        try:
+            return self.elements_factory(cancel=cancel).describe_at(window, x, y)
+        except Exception:
+            return {"available": False, "reason": "Uygulama yapısı okunamadı; konum (X / Y) kullanılabilir."}
 
     @staticmethod
     def _point(window: WindowInfo, point: Any, size: tuple[int, int]) -> dict[str, int]:
@@ -377,7 +400,7 @@ class LivePicker:
                 cancel.wait(min(0.03, max(0, deadline - self.clock())))
             check()
             windows._guard(target, window)
-            point = None
+            point = element = None
             if mode == "coordinates":
                 screen_x, screen_y = sampled
                 point = self._point(window, {"x": screen_x - window.x, "y": screen_y - window.y},
@@ -387,6 +410,9 @@ class LivePicker:
                     left, top, hud_width, hud_height = bounds
                     if left <= screen_x < left + hud_width and top <= screen_y < top + hud_height:
                         raise WindowError("Fare geri sayım kutusunun üzerinde. ERP alanını yeniden seçin.")
+                # ERP is still in front: identify the field under the pointer by structure.
+                element = self._describe(window, screen_x, screen_y, cancel)
+                check()
             view.close_countdown()
             check()
             # No inputs are sent to ERP. The screenshot is only a review preview
@@ -397,7 +423,7 @@ class LivePicker:
             if width * height > 16_000_000 or image.width * image.height > 16_000_000:
                 raise WindowError("Ekran görüntüsü çok büyük. ERP penceresini küçültün.")
             if mode == "coordinates":
-                return PickerResult(window, image, **point).as_dict()
+                return PickerResult(window, image, **point, element=element).as_dict()
             state("selecting", message="Görsel alanını sürükleyerek seçin; Esc ile iptal edin.")
             selection = view.select(window, image, mode, (width, height), cancel, check)
             check()

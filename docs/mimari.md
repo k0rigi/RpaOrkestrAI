@@ -50,7 +50,9 @@ Tek uygulama süreci aynı anda bir akış çalıştırır; yeni çalıştırma 
 
 ## Yerel erişim modeli
 
-API loopback üzerinde çalışır. Kullanıcı hesabı, departman yetkileri veya uzak robot bağlantısı bulunmaz. Departman alanı düzenleme ve çıktı sınıflandırması içindir. İnternete veya ortak ağa yayınlama, kimlik doğrulama ve yetkilendirme eklenecek ayrı bir geliştirme aşamasıdır.
+API loopback üzerinde çalışır. Departman yetkileri veya uzak robot bağlantısı bulunmaz. Departman alanı düzenleme ve çıktı sınıflandırması içindir. İnternete veya ortak ağa yayınlama ayrı bir geliştirme aşamasıdır.
+
+`licensing.py`, orkestrai.net lisansını yerel API'nin önünde bir kapı olarak uygular. `/api/health`, `/api/instance` ve `/api/license*` dışındaki tüm `/api/` uçları geçerli lisans ister; aksi halde `403` ve lisans durumu döner. orkestrai.net, lisansı Ed25519 ile imzalar. Uygulama imzayı gömülü açık anahtarla çevrimdışı doğrular, cihaz kimliğini ve saat geri alınmasını denetler. Lisansı saatlik olarak cihaz bağlı yenileme oturumuyla tazeler. Şifre saklanmaz. Ayrıntılar: [lisans rehberi](lisans.md).
 
 API şeması çalışan uygulamada `/api/openapi.json` adresindedir. Swagger arayüzü kapalıdır; Studio dış CDN betiğine ihtiyaç duymaz ve betikleri yalnız kendi kaynağından yükler. Yabancı tarayıcı kaynaklarından gelen istekler engellenir; JSON istek gövdeleri 2 MB ile sınırlıdır.
 
@@ -62,7 +64,9 @@ Bağlantı sırları `.env` veya yerel `settings.json` dosyasında bulunur; akı
 
 Pencere seçimi `GET /api/desktop/windows`, salt okunur kontrol ise `POST /api/desktop/windows/check` ile yapılır. Bu uçlar akışı kaydetmez ve fare/klavye kullanmaz. Akışa yalnız başlık/uygulama eşleşmesi kaydedilir; işletim sistemi pencere kimliği çalıştırma anında üretilir. Tıklama ve yazma öncesinde bu kimlik, süreç, uygulama, başlık ve odak yeniden kontrol edilir. Başlık değişince yeni tanıma adımı gerekir. Pencereyi tanımak içindeki formu/görüntüyü doğrulamak değildir; görsel/form tanıma ayrı bir geliştirme alanıdır.
 
-Platform API referansları: [Apple Quartz pencere listesi](https://developer.apple.com/documentation/coregraphics/cgwindowlistcopywindowinfo(_:_:)), [Microsoft EnumWindows](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumwindows), [GetWindowRect ve DPI davranışı](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), [SetForegroundWindow kısıtları](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
+`desktop/elements.py`, alanları işletim sisteminin erişilebilirlik ağacından bulur. Windows'ta comtypes ile UI Automation kullanılır: pencerenin tüm alt öğeleri tek `FindAllBuildCache` çağrısıyla ve önbelleğe alınmış özellikleriyle okunur. Her çalışan iş parçacığı kendi COM bağlamını açar. macOS'ta pyobjc ile `AXUIElement` kullanılır: nokta testi uygulama öğesi üzerinden yapılır, alan araması sınırlı genişlik öncelikli taramayla yapılır. Kayıtlı konum belirleyici; platform, rol, kimlik (AutomationId/AXIdentifier), ad ve aynı kimlikteki sıra bilgisini içerir. Değeriyle aynı olan ad kimlik sayılmaz. Görünmeyen veya pencere dışında kalan öğeler eşleşmez. Tıklama noktası çalışma anındaki alan sınırlarından hesaplanır ve mevcut pencere/odak/ana ekran kontrollerinden geçer.
+
+Platform API referansları: [Microsoft UI Automation](https://learn.microsoft.com/en-us/windows/win32/winauto/entry-uiauto-win32), [Apple Accessibility (AXUIElement)](https://developer.apple.com/documentation/applicationservices/axuielement_h), [Apple Quartz pencere listesi](https://developer.apple.com/documentation/coregraphics/cgwindowlistcopywindowinfo(_:_:)), [Microsoft EnumWindows](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumwindows), [GetWindowRect ve DPI davranışı](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect), [SetForegroundWindow kısıtları](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
 
 ## Yeni işlem ekleme
 

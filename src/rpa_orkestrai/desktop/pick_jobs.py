@@ -82,7 +82,8 @@ class PickJobs:
                 if mode == 'coordinates':
                     point = {'x': selected['x'], 'y': selected['y']}
                 job['public'].update(status='completed', countdown=0, message='Hedef seçildi. Önizlemeyi kontrol edip kaydedin.',
-                                     result={'capture': capture, 'rectangle': selected.get('crop'), 'point': point})
+                                     result={'capture': capture, 'rectangle': selected.get('crop'), 'point': point,
+                                             'element': selected.get('element')})
         except InterruptedError:
             with self._lock:
                 job['public'].update(status='cancelled', countdown=0, message='Hedef seçimi iptal edildi.')

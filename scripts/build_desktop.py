@@ -77,9 +77,11 @@ def main() -> None:
         command += ["--exclude-module", "pyodbc"]
     if system == "Darwin":
         command += ["--osx-bundle-identifier", "com.rpaorkestrai.studio",
-                    "--hidden-import", "webview.platforms.cocoa"]
+                    "--hidden-import", "webview.platforms.cocoa", "--hidden-import", "ApplicationServices"]
     else:
-        command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium"]
+        # comtypes generates the UI Automation wrapper at run time; bundle its code generator.
+        command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",
+                    "--collect-submodules", "comtypes"]
     command += [str(ROOT / "launch_gui.pyw")]
     subprocess.run(command, cwd=ROOT, check=True)
     if system == "Darwin":

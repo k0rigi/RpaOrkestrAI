@@ -1,6 +1,6 @@
 # Sheets satırları, durum koşulları ve ERP işlemleri
 
-0.4.0'da **Sheets satırlarını oku** adımı, FormID ve durum gibi sütunları aynı kayıtta okur. **Her satır için** döngüsüne **Koşul** ekleyerek yalnız durumu boş veya `Bekliyor` olan kayıtları işleyebilirsiniz. Koşulun dallarına başka koşullar ve döngüler de eklenebilir.
+0.4.0 ve sonraki sürümlerde **Sheets satırlarını oku** adımı, FormID ve durum gibi sütunları aynı kayıtta okur. **Her satır için** döngüsüne **Koşul** ekleyerek yalnız durumu boş veya `Bekliyor` olan kayıtları işleyebilirsiniz. Koşulun dallarına başka koşullar ve döngüler de eklenebilir.
 
 ## Bağlantıyı ve ERP hedefini hazırlayın
 

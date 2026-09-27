@@ -11,7 +11,39 @@ import threading
 import time
 from pathlib import Path
 from random import Random
+from urllib.error import HTTPError
 from urllib.request import ProxyHandler, build_opener
+
+
+def _check_accessibility() -> None:
+    """Load the field-structure backend without touching any window (no permission prompt)."""
+    import platform
+
+    from .desktop.elements import AxElements, UiaElements
+
+    if platform.system() == "Windows":
+        UiaElements()._context()
+    elif platform.system() == "Darwin":
+        AxElements().ax.AXIsProcessTrusted()
+
+
+def _check_license_verification() -> None:
+    """Sign with a throwaway key and verify with the packaged license code (no network)."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from .licensing import verify_license
+
+    key = Ed25519PrivateKey.generate()
+    payload = json.dumps({
+        "surum": 1, "urun": "rpa-orkestrai", "modul": "MOD_RPA", "kullanici_id": 1, "kullanici": "paket",
+        "firma_id": 1, "bitis": None, "cihaz": "0" * 32, "verildi": "2026-01-01T00:00:00+03:00",
+        "gecerlilik": "2026-01-08T00:00:00+03:00",
+    }).encode()
+    envelope = {"payload": base64.b64encode(payload).decode(), "signature": base64.b64encode(key.sign(payload)).decode()}
+    if verify_license(envelope, key.public_key(), "0" * 32).user != "paket":
+        raise RuntimeError("Paket içindeki lisans doğrulaması çalışmadı.")
 
 
 def run_check(report: Path) -> int:
@@ -33,12 +65,16 @@ def run_check(report: Path) -> int:
 
             from . import __version__
             from .app import create_app
+            from .catalog import library_catalog
             from .config import Settings
             from .desktop.picker import LivePicker, overlay_html
             from .desktop.targets import CaptureStore
             from .desktop.vision import Vision
             from .desktop.windows import WindowInfo
             from .updates import current_platform_key
+
+            _check_license_verification()
+            _check_accessibility()
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -75,14 +111,25 @@ def run_check(report: Path) -> int:
                     raise RuntimeError("Paket içindeki servis başlatılamadı.")
                 time.sleep(0.05)
             opener = build_opener(ProxyHandler({}))
-            for route, expected in (("/", b"RpaOrkestrAI"), ("/app.js", b"renderLibrary"),
-                                    ("/styles.css", b"step-library"), ("/api/bootstrap", b"desktop.window_fill")):
+            for route, expected in (("/", b"RpaOrkestrAI"), ("/app.js", b"showLicenseGate"),
+                                    ("/styles.css", b"step-library"), ("/api/license", b"login_required")):
                 with opener.open(url + route, timeout=5) as response:
                     if response.status != 200 or expected not in response.read():
                         raise RuntimeError(f"Paket kaynağı doğrulanamadı: {route}")
+            # A fresh workspace has no license: the Studio API must refuse work.
+            try:
+                opener.open(url + "/api/bootstrap", timeout=5).close()
+                raise RuntimeError("Lisanssız çalışma alanı Studio API'sine erişebildi.")
+            except HTTPError as exc:
+                if exc.code != 403 or b"login_required" not in exc.read():
+                    raise RuntimeError("Lisans kapısı doğrulanamadı.") from exc
+            if not any(spec["type"] == "desktop.window_fill" for spec in library_catalog()):
+                raise RuntimeError("Paket içindeki adım kütüphanesi eksik.")
             result = {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
                       "version": __version__, "platform": current_platform_key(),
-                      "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay", "http-api", "bundled-static-files"]}
+                      "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
+                                 "license-verification", "license-gate", "accessibility-backend", "http-api",
+                                 "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

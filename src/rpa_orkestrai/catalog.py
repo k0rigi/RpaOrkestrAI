@@ -43,15 +43,22 @@ def image_fields() -> list[dict]:
 
 
 def target_fields() -> list[dict]:
+    # The wait applies to both searched targets; X/Y is used immediately.
+    searched = {"target_mode": ["image", "element"]}
     return [
         field("target_mode", "Hedefi bulma yöntemi", "select", "coordinates", required=True,
               options=[{"value": "coordinates", "label": "Pencere içi X / Y"},
-                       {"value": "image", "label": "Referans görsel"}]),
+                       {"value": "image", "label": "Referans görsel"},
+                       {"value": "element", "label": "Alan kimliği (uygulama yapısı)"}]),
         field("x", "Pencere içi X", "number", None, min=0, required=True,
               visible_when={"target_mode": "coordinates"}, help="Ekrandan hedef seç ile otomatik doldurabilirsiniz."),
         field("y", "Pencere içi Y", "number", None, min=0, required=True,
               visible_when={"target_mode": "coordinates"}),
-        *[{**f, "visible_when": {"target_mode": "image"}} for f in image_fields()],
+        field("element", "Alan kimliği", "element", None, required=True, visible_when={"target_mode": "element"},
+              help="Ekranda seç → Konum ile alınır. Alan, pencere boyutu veya ekran ölçeği değişse de "
+                   "uygulamanın kimliğiyle bulunur."),
+        *[{**f, "visible_when": searched if f["name"] == "timeout" else {"target_mode": "image"}}
+          for f in image_fields()],
         field("offset_x", "Görsel merkezinden sağa / sola", "number", 0,
               visible_when={"target_mode": "image"}, help="FormID etiketi ile yazı alanı arasındaki yatay fark."),
         field("offset_y", "Görsel merkezinden aşağı / yukarı", "number", 0,

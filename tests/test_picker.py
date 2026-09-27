@@ -41,11 +41,13 @@ def fixture_picker(*, pointer=(145, 125), escape=None, selection=None):
         tick[0] += 0.1
         return tick[0]
 
+    elements = Mock()
+    elements.describe_at.return_value = {"available": False, "reason": "Alan kimliği yok."}
     picker = LivePicker(view_factory=lambda: view, windows_factory=lambda **_: windows,
-                        desktop_factory=lambda **_: desktop, pointer=pointer_read,
-                        escape=escape or (lambda: False), clock=clock)
+                        desktop_factory=lambda **_: desktop, elements_factory=lambda **_: elements,
+                        pointer=pointer_read, escape=escape or (lambda: False), clock=clock)
     return SimpleNamespace(picker=picker, view=view, windows=windows, desktop=desktop,
-                           window=window, image=image, pointer=pointer_read)
+                           window=window, image=image, pointer=pointer_read, elements=elements)
 
 
 def pick(fixture, mode="coordinates", *, delay=3, cancel=None, state=None):
@@ -312,3 +314,29 @@ def test_native_overlay_drag_point_flat_region_and_escape(mode, viewport):
         assert page.evaluate("window.cancelled")
         assert not errors
         browser.close()
+
+
+def test_coordinate_pick_identifies_the_field_structure_without_input():
+    f = fixture_picker()
+    described = {"available": True, "summary": "Metin kutusu · kimlik txtFormId",
+                 "locator": {"platform": "Windows", "role": "Edit", "automation_id": "txtFormId",
+                             "name": "", "class_name": "", "index": 0}}
+    f.elements.describe_at.return_value = described
+    result = pick(f)
+    f.elements.describe_at.assert_called_once_with(f.window, 145, 125)
+    assert result["element"] == described
+    f.desktop.click.assert_not_called()
+
+
+def test_accessibility_failure_never_breaks_a_coordinate_pick():
+    f = fixture_picker()
+    f.elements.describe_at.side_effect = RuntimeError("COM failure")
+    result = pick(f)
+    assert (result["x"], result["y"]) == (45, 45)
+    assert result["element"]["available"] is False
+
+
+def test_image_pick_does_not_read_field_structure():
+    f = fixture_picker()
+    pick(f, "image")
+    f.elements.describe_at.assert_not_called()

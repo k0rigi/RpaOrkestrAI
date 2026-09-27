@@ -83,12 +83,16 @@ def has_unknown(value: Any) -> bool:
     return False
 
 
+def shown_for(expected: Any, actual: Any) -> bool:
+    return actual in expected if isinstance(expected, list) else actual == expected
+
+
 def active_fields(action: str, parameters: dict) -> list[dict]:
     return [f for f in BY_TYPE[action]["fields"] if not (
         action in {"control.if", "control.while"} and f["name"] == "right"
         and parameters.get("operator") in ("empty", "not_empty", "truthy")
     ) and all(
-        parameters.get(key) == value for key, value in f.get("visible_when", {}).items()
+        shown_for(value, parameters.get(key)) for key, value in f.get("visible_when", {}).items()
     )]
 
 
@@ -367,10 +371,12 @@ class Executor:
 
     def window_target(self, p: dict) -> dict:
         mode = p.get("target_mode", "coordinates")
-        if mode not in {"coordinates", "image"}:
-            raise WorkflowError("Hedef yöntemi X/Y veya referans görsel olmalıdır.")
+        if mode not in {"coordinates", "image", "element"}:
+            raise WorkflowError("Hedef yöntemi X/Y, referans görsel veya alan kimliği olmalıdır.")
         if mode == "coordinates":
             return {"target_mode": mode, "x": p.get("x"), "y": p.get("y")}
+        if mode == "element":
+            return {"target_mode": mode, "element": p.get("element"), "timeout": p.get("timeout", 10)}
         return {"target_mode": mode, "template": self.template_path(p.get("template")),
                 "offset_x": p.get("offset_x", 0), "offset_y": p.get("offset_y", 0),
                 "confidence": p.get("confidence", 0.9), "timeout": p.get("timeout", 10)}

@@ -8,8 +8,10 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.4.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.4.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.5.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.5.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+
+**0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. Son doğrulamadan sonra internetsiz en fazla 7 gün çalışır. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
@@ -46,7 +48,7 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 
 Studio’nun adım havuzu pencere tanıma, tıklama, **Alanı doldur**, tuş gönderme, görsel bekleme, Sheets hücresi/satırları okuma, hücreye yazma, satır döngüsü, sınırlı koşul döngüsü, bekleme ve koşul adımlarından oluşur. **Sheets satırlarını oku** ile B sütununa `form_id`, C sütununa `status` adı verin; döngüde `${row.form_id}` ve `${row.status}` kullanın. Durumu **boş veya Bekliyor** olanları koşulla seçebilir, her dalın içine işlem veya başka bir döngü ekleyebilirsiniz. **Koşul sürdükçe tekrarla**, tekrar ve süre sınırlarıyla çalışır. [Sheets satır ve koşul rehberi](docs/sheets-satir-dongusu.md).
 
-**Alanı doldur → Ekranda seç**, 3/5/10 saniyelik geri sayım sonunda fare konumunu alır; görsel yöntemde ekranın alınmış görüntüsü üzerinde fareyle alan kırpıp hedef noktayı seçersiniz. Önizlemeyi kontrol ederek **Hedefi kaydet** ile onaylayın; **Esc** seçimden vazgeçirir. **Görüntü üzerinde seç** aynı seçimi Studio içindeki görüntüde yapar ve tarayıcıdan kullanımda da çalışır. Her iki yöntemde ERP penceresi **ana ekranda ve tamamen görünür** olmalıdır. macOS ekran kaydı ve erişilebilirlik izinleri, Windows pencere odağı ve yetkileri [pencere tanıtma rehberinde](docs/pencere-tanitma.md) açıklanır.
+**Alanı doldur → Ekranda seç**, 3/5/10 saniyelik geri sayım sonunda fare konumunu alır. Uygulama alana bir kimlik veriyorsa (Windows UI Automation, macOS Erişilebilirlik) **Alan kimliği** önerilir: alan, pencere boyutu veya ekran ölçeği değişse de kimliğiyle bulunur. Kimlik vermeyen uygulamalarda konum veya görsel yöntem kullanılır; görsel yöntemde ekranın alınmış görüntüsü üzerinde fareyle alan kırpıp hedef noktayı seçersiniz. Önizlemeyi kontrol ederek **Hedefi kaydet** ile onaylayın; **Esc** seçimden vazgeçirir. **Görüntü üzerinde seç** aynı seçimi Studio içindeki görüntüde yapar ve tarayıcıdan kullanımda da çalışır. Her iki yöntemde ERP penceresi **ana ekranda ve tamamen görünür** olmalıdır. macOS ekran kaydı ve erişilebilirlik izinleri, Windows pencere odağı ve yetkileri [pencere tanıtma rehberinde](docs/pencere-tanitma.md) açıklanır.
 
 İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir; eski **Sheets sütununu oku** / `${row.value}` ve odaktaki alana yazma adımları korunur. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
 
@@ -73,13 +75,13 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
 | Veritabanı | PostgreSQL / SQL Server tablolarını izin listesi ve parametreli filtrelerle okuma |
-| Masaüstü | Geri sayımla fare konumu alma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
+| Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
 | ERP listeleri | Bilinen değerler veya OCR ile toplanan dropdown seçenekleri üzerinde döngü |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
 | Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
 | Web | Playwright ile headless Chromium işlemleri |
 
-Bu sürüm tek bilgisayarda uygulama sahibi tarafından kullanılır. Departman alanı raporları ve akışları sınıflandırır; kullanıcı hesabı veya erişim yetkisi oluşturmaz. Merkezi çok kullanıcılı sunucu, uzak robot yönetimi ve zamanlayıcı bu sürümün kapsamı dışındadır.
+Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve ayarlar o bilgisayarın çalışma alanında kalır. Departman alanı raporları ve akışları sınıflandırır; akış bazında erişim yetkisi oluşturmaz. Merkezi çok kullanıcılı sunucu, uzak robot yönetimi ve zamanlayıcı bu sürümün kapsamı dışındadır.
 
 ## İlk gerçek otomasyon
 
@@ -161,10 +163,11 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 ## Rehberler
 
+- [Kullanıcı girişi, lisans ve çevrimdışı kullanım](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)
 - [Otomatik güncelleme ve yeni sürüm yayımlama](docs/guncelleme-mimarisi.md)
 - [Kurulum, macOS/Windows izinleri ve bağlantılar](docs/kurulum.md)
-- [ERP penceresini tanıtma ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
+- [ERP penceresini tanıtma, alan kimliği ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
 - [Sheets satırları, boş/Bekliyor koşulu ve iç içe döngüler](docs/sheets-satir-dongusu.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
 - [Salt okunur veritabanı hesabı](docs/veritabani.md)

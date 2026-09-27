@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import platform
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,10 +19,12 @@ from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
 from .engine import RunManager, WorkflowError, validate_workflow
 from .instance import identity
+from .licensing import OPEN_PATHS, LicenseError, LicenseService, LicenseUnavailable
 from .locking import WorkspaceLock
 from .models import (
     DesktopPickRequest,
     FavoriteRequest,
+    LicenseLoginRequest,
     RunRequest,
     TemplateCropRequest,
     WindowCheckRequest,
@@ -33,8 +36,9 @@ from .models import (
 from .storage import Store
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, licensing: LicenseService | None = None) -> FastAPI:
     settings = settings or Settings()
+    licensing = licensing or LicenseService(settings.data_dir)
     store = Store(settings.data_dir)
     manager = RunManager(settings, store)
     from .desktop.pick_jobs import PickJobs
@@ -47,16 +51,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         with WorkspaceLock(settings.data_dir):
             store.recover_runs()
+            licensing.start()
             try:
                 yield
             finally:
+                licensing.stop()
                 picks.close()
                 manager.close()
 
     app = FastAPI(title="RpaOrkestrAI Studio", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
     app.state.store, app.state.manager, app.state.settings = store, manager, settings
-    app.state.picks = picks
+    app.state.picks, app.state.licensing = picks, licensing
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
     @app.middleware("http")
@@ -90,7 +96,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     return JSONResponse({"detail": "İstek en fazla 2 MB olabilir."}, status_code=413)
             # BaseHTTPMiddleware reuses a cached body when forwarding to the route.
             request._body = bytes(received)
-        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/api/") and path not in OPEN_PATHS and not licensing.allowed():
+            status = license_status()
+            response = JSONResponse({"detail": status["message"] or "Devam etmek için RpaOrkestrAI hesabınızla giriş yapın.",
+                                     "license": status}, status_code=403)
+        else:
+            response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
@@ -124,6 +136,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/instance")
     def instance():
         return identity(settings.data_dir)
+
+    def license_status():
+        from .desktop.picker import native_available
+
+        return {**licensing.status(), "can_quit": native_available()}
+
+    @app.get("/api/license")
+    def license_state():
+        return license_status()
+
+    @app.post("/api/license/login")
+    def license_login(body: LicenseLoginRequest):
+        try:
+            licensing.login(body.username, body.password)
+        except LicenseUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LicenseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return license_status()
+
+    @app.post("/api/license/refresh")
+    def license_refresh():
+        licensing.refresh()
+        return license_status()
+
+    @app.post("/api/license/logout")
+    def license_logout():
+        licensing.logout()
+        return license_status()
+
+    @app.post("/api/license/quit", status_code=202)
+    def quit_application():
+        from .desktop.picker import close_native_window, native_available
+
+        if not native_available():
+            raise HTTPException(status_code=409, detail="Tarayıcıda çalışırken bu sekmeyi kapatabilirsiniz.")
+        # Answer first; the window closes once the response has been sent.
+        threading.Timer(0.3, close_native_window).start()
+        return {"closing": True}
 
     @app.get("/api/bootstrap")
     def bootstrap():

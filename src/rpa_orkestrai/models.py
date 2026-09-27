@@ -98,6 +98,11 @@ class RunRequest(Model):
     dry_run: bool = False
 
 
+class LicenseLoginRequest(Model):
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class FavoriteRequest(Model):
     favorite: bool = Field(strict=True)
 

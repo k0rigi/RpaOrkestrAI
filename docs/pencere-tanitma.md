@@ -1,6 +1,6 @@
 # ERP penceresini ve alanını tanıtma
 
-Bu rehber 0.4.0 sürümündeki pencere tanıma ve fareyle hedef seçimini anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini durum sütununa göre işlemek için [satır ve koşul rehberini](sheets-satir-dongusu.md) kullanın.
+Bu rehber 0.5.0 sürümündeki pencere tanıma, fareyle hedef seçimi ve alan kimliğiyle hedefleme yöntemlerini anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini durum sütununa göre işlemek için [satır ve koşul rehberini](sheets-satir-dongusu.md) kullanın.
 
 ## Pencereyi tanı
 
@@ -39,6 +39,28 @@ Seçmeniz gereken yer `FormID` etiketi değil, yanındaki yazı kutusudur. Seçi
 
 Koordinatlar başlık çubuğu dahil pencerenin sol üst köşesine göredir. Pencere taşınırsa yeni konumu kullanılır. Pencere boyutu, uygulama düzeni, tema veya ekran ölçeği değişirse hedefi yeniden seçin. ERP penceresini ana ekranda ve tamamen görünür tutun.
 
+### Alanı kimliğiyle bul (uygulama yapısı)
+
+Birçok masaüstü uygulaması, ekran okuyucular için alanlarına bir kimlik ve ad verir. Windows'ta bu bilgi **UI Automation** (AutomationId, ad, alan türü), macOS'ta **Erişilebilirlik** (AXIdentifier, başlık/açıklama, rol) üzerinden okunur. Alan bu kimlikle bulunursa tıklanacak nokta, alanın o anki konumundan hesaplanır. Böylece pencere büyütülse, küçültülse, taşınsa veya ekran ölçeği değişse de aynı alana yazılır.
+
+1. **Ekranda seç** → **Konum** yöntemiyle fareyi FormID yazı kutusunun üzerine getirin.
+2. Süre bitince Studio, farenin altındaki alanı uygulama yapısından okur. Alan bir kimlik veya ad veriyorsa önizlemede *Uygulama yapısında alan bulundu* yazısı ve iki seçenek görünür:
+   - **Alan kimliğiyle bul (önerilen):** Adım, **Hedefi bulma yöntemi = Alan kimliği (uygulama yapısı)** olarak kaydedilir.
+   - **Konumla bul (X / Y):** Önceki sürümlerdeki gibi pencere içi X/Y kaydedilir.
+3. **Hedefi kaydet** seçin. Sağ panelde kaydedilen alan türü ve kimliği gösterilir. **En fazla bekle (saniye)** alanı, ekran geç açılıyorsa alanın görünmesini bu süre kadar bekler.
+
+Aynı kimlikte birden fazla alan varsa seçtiğiniz alanın sırası kaydedilir. Başka bir sekmede kalan veya görünmeyen alanlara hiçbir zaman tıklanmaz. Alan süre içinde bulunamazsa adım durur; ERP'ye tahmini bir konumda tıklama yapılmaz. Kimlik, seçildiği işletim sistemine özeldir. Aynı akış diğer işletim sisteminde kullanılacaksa alanı o bilgisayarda yeniden seçin.
+
+**Her uygulama alan kimliği vermez.** Önizlemede *uygulama bu alana kimlik veya ad vermiyor* yazıyorsa konum veya görsel yöntemini kullanın. Bu durum genellikle şu uygulamalarda görülür:
+
+- Kendi çizimini yapan veya oyun motoru benzeri arayüzler.
+- Windows'ta Java tabanlı istemciler. Bu istemciler alanlarını ancak Java Access Bridge açıksa gösterir; bu sürüm Java Access Bridge'i kullanmaz.
+- Citrix, RDP veya başka bir uzak masaüstü içindeki uygulamalar. Burada yalnız ekran görüntüsü vardır.
+
+Adın, alanın içindeki değerle aynı olduğu alanlarda (bazı uygulamalar yazı kutusunun içeriğini ad olarak bildirir) ad kimlik olarak kullanılmaz. Değer her satırda değişeceği için bu alanlar konum veya görsel yöntemiyle hedeflenir.
+
+macOS'ta alan kimliğini okumak için RpaOrkestrAI'ye **Erişilebilirlik** izni verilmelidir. Bu izin, pencereyi öne getirmek için de zaten gereklidir.
+
 ### Fareyle görsel alanını kırp
 
 **Ekranda seç** düğmesine basıp **Görsel referans** yöntemini seçin. Hazırlık süresini belirleyip **Tamam, geri sayımı başlat** seçin. Süre sonunda ERP penceresinin görüntüsü üzerinde seçim aracı açılır:
@@ -58,7 +80,7 @@ Arama yalnız tanıtılan pencerenin içinde yapılır. Görsel süre içinde bu
 
 **Görüntü üzerinde seç**, geri sayım kullanmadan ERP pencere görüntüsünü Studio'da açar. Konum için görüntüye tıklayın; görsel için fareyle dikdörtgen çizip hedef noktayı işaretleyin. **Hedefi kaydet** ile uygulayın. Bu yöntem Studio tarayıcıda çalışırken de kullanılabilir; **Ekranda seç** ise yerel masaüstü uygulaması gerektirir.
 
-Her iki yöntem de bu sürümde ERP penceresinin **ana ekranda ve tamamı görünür** olmasını gerektirir. Ekran ölçeği, pencere düzeni veya tema değiştiğinde hedefi yeniden tanıtın. Seçim sırasında ERP penceresi taşınır/kapanırsa veya başlığı değişirse seçim hata ile durur; doğru pencereyi açıp tekrar seçin. Seçim sürerken akış başlatılamaz; akış çalışırken de hedef seçimi başlatılamaz.
+Konum ve görsel yöntemleri bu sürümde ERP penceresinin **ana ekranda ve tamamı görünür** olmasını gerektirir. Ekran ölçeği, pencere düzeni veya tema değiştiğinde bu hedefleri yeniden tanıtın; alan kimliğiyle kaydedilen hedefler bu değişikliklerden etkilenmez. Seçim sırasında ERP penceresi taşınır/kapanırsa veya başlığı değişirse seçim hata ile durur; doğru pencereyi açıp tekrar seçin. Seçim sürerken akış başlatılamaz; akış çalışırken de hedef seçimi başlatılamaz.
 
 ## Tıklama, doldurma ve tuş adımlarının farkı
 
@@ -77,8 +99,8 @@ Her giriş adımı hedef pencereyi öne getirip odağı doğrular. Pencere kapan
 ## macOS ve Windows
 
 - Kurulum paketleri gerekli Python otomasyon bağımlılıklarını içerir. Kaynak koddan çalıştırırken `.[automation]` bağımlılıkları kurulmalıdır.
-- **macOS:** pencere başlıkları ve ekran görüntüleri için Ekran Kaydı; pencereyi öne getirme ve giriş için Erişilebilirlik / Otomasyon izinleri gerekir. Kurulu uygulamada izinleri **RpaOrkestrAI** için verin. Kaynak koddan çalıştırıyorsanız başlatan Python/Terminal için izin gerekebilir. İzin değişikliğinden sonra uygulamayı yeniden açın.
-- **Windows:** pencere listeleme Windows API'sini kullanır. ERP farklı bir oturumda veya yükseltilmiş yetkiyle çalışıyorsa giriş engellenebilir. Odağın doğrulanamadığı durumda adım durur.
+- **macOS:** pencere başlıkları ve ekran görüntüleri için Ekran Kaydı; pencereyi öne getirme, alan kimliğini okuma ve giriş için Erişilebilirlik / Otomasyon izinleri gerekir. Kurulu uygulamada izinleri **RpaOrkestrAI** için verin. Kaynak koddan çalıştırıyorsanız başlatan Python/Terminal için izin gerekebilir. İzin değişikliğinden sonra uygulamayı yeniden açın.
+- **Windows:** pencere listeleme Windows API'sini, alan kimliği UI Automation'ı kullanır. ERP farklı bir oturumda veya yükseltilmiş yetkiyle çalışıyorsa giriş engellenebilir. Odağın doğrulanamadığı durumda adım durur.
 - Temizleme kısayolu Windows'ta **Ctrl+A**, macOS'ta **Command+A** kullanır. İki işletim sisteminde ERP uygulama adı, pencere başlığı, görünüm veya koordinatlar farklıysa hedefleri o bilgisayarda yeniden seçin.
 
 **Deneme modu**, akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **Ekranda seç**, **Görüntü üzerinde seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın.

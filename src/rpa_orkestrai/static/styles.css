@@ -1022,25 +1022,6 @@ label.field-label {
   color: var(--muted);
   padding-left: 24px;
 }
-.flow-recipe {
-  margin-top: 14px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  font-size: 11px;
-  line-height: 1.55;
-  background: #f6f9f3;
-}
-.flow-recipe summary {
-  cursor: pointer;
-  font-weight: 650;
-  color: #2b5145;
-}
-.flow-recipe ol {
-  padding-left: 18px;
-  margin: 12px 0 0;
-}
-.flow-recipe li + li { margin-top: 8px; }
 .window-target-tools,
 .legacy-action-help,
 .loop-help {
@@ -1719,6 +1700,152 @@ label.field-label {
   width: 50px;
   font-size: 35px;
   border-radius: 15px;
+}
+.target-picker-structure:empty {
+  display: none;
+}
+.target-picker-structure {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.structure-found {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+}
+.structure-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  cursor: pointer;
+}
+.structure-choice:has(input:checked) {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+}
+.structure-choice input {
+  margin-top: 3px;
+}
+.structure-choice strong,
+.structure-choice small {
+  display: block;
+}
+.structure-choice small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.element-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--teal-tint);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.element-card svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--teal);
+}
+.license-screen {
+  padding: 24px 16px;
+}
+.license-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  padding: 32px 28px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.license-card h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.license-card p {
+  margin: 0;
+  line-height: 1.55;
+}
+.license-message,
+.license-form {
+  width: 100%;
+  text-align: left;
+}
+.license-message:empty {
+  display: none;
+}
+.license-form {
+  display: grid;
+  gap: 4px;
+}
+.license-form .field {
+  margin-bottom: 10px;
+}
+.license-form .button {
+  justify-content: center;
+  width: 100%;
+}
+.license-footnote {
+  font-size: 11px !important;
+}
+.license-countdown {
+  font-weight: 600;
+  color: var(--red) !important;
+}
+.license-actions {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+.license-actions .button {
+  justify-content: center;
+}
+.license-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 4px 0 16px;
+  font-size: 13px;
+}
+.license-facts dt {
+  color: var(--muted);
+}
+.license-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.owner-text {
+  flex: 1;
+  min-width: 0;
+}
+.owner-text strong,
+.owner-text small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owner-logout {
+  flex: none;
+  color: #9fb8b2;
+}
+.owner-logout:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 .connection-error {
   max-width: 520px;

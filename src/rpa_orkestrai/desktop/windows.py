@@ -51,9 +51,18 @@ def validate_selector(application: str, title: str, match: str, timeout: float =
 
 
 class WindowService:
-    def __init__(self, *, cancel: threading.Event | None = None, backend: Any = None):
+    def __init__(self, *, cancel: threading.Event | None = None, backend: Any = None, elements: Any = None):
         self.cancel = cancel or threading.Event()
         self._backend = backend
+        self._elements = elements
+
+    @property
+    def elements(self):
+        if self._elements is None:
+            from .elements import ElementService
+
+            self._elements = ElementService(cancel=self.cancel)
+        return self._elements
 
     @property
     def backend(self):
@@ -264,6 +273,7 @@ class WindowService:
         self, target: dict, desktop: Any, *, target_mode: str = "coordinates",
         x: float | None = None, y: float | None = None, template: Path | None = None,
         offset_x: float = 0, offset_y: float = 0, confidence: float = 0.9, timeout: float = 10,
+        element: dict | None = None,
     ) -> tuple[WindowInfo, tuple[int, int]]:
         self._numbers(offset_x, offset_y)
         if target_mode == "coordinates":
@@ -277,8 +287,23 @@ class WindowService:
             window, match = self._wait_image(target, template, desktop, confidence=confidence,
                                              timeout=timeout, visible=True)
             point = self._point_in_window(window, match.center[0] + offset_x, match.center[1] + offset_y, desktop)
+        elif target_mode == "element":
+            from .elements import validate_locator
+
+            self._numbers(timeout)
+            if not 0 <= timeout <= 120:
+                raise WindowError("Alan bekleme süresi 0–120 saniye arasında olmalıdır.")
+            # Reject a malformed locator before bringing another application forward.
+            validate_locator(element)
+            self.current(target)
+            window = self.focus(target)
+            found = self.elements.find(window, element, timeout=timeout)
+            self._check()
+            # The field's current bounds give the point: window size and display scale may change.
+            center_x, center_y = found.center
+            point = self._point_in_window(window, center_x - window.x, center_y - window.y, desktop)
         else:
-            raise WindowError("Hedef yöntemi koordinat veya görsel olmalıdır.")
+            raise WindowError("Hedef yöntemi koordinat, görsel veya alan kimliği olmalıdır.")
         self._guard(target, window)
         return window, point
 
@@ -286,13 +311,14 @@ class WindowService:
         self, target: dict, desktop: Any, *, target_mode: str = "coordinates", x: float | None = None,
         y: float | None = None, template: Path | None = None, offset_x: float = 0, offset_y: float = 0,
         confidence: float = 0.9, timeout: float = 10, clicks: int = 1, button: str = "left",
+        element: dict | None = None,
     ) -> None:
         if (type(clicks) is not int or not 1 <= clicks <= 3 or not isinstance(button, str)
                 or button not in {"left", "right", "middle"}):
             raise WindowError("Tıklama sayısı veya fare düğmesi geçersiz.")
         window, point = self._resolve_target(target, desktop, target_mode=target_mode, x=x, y=y,
                                              template=template, offset_x=offset_x, offset_y=offset_y,
-                                             confidence=confidence, timeout=timeout)
+                                             confidence=confidence, timeout=timeout, element=element)
         self._guard(target, window)
         desktop.click(*point, clicks=clicks, button=button)
 
