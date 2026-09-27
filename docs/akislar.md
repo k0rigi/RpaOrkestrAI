@@ -4,7 +4,9 @@ Bir akış ad, açıklama, departman ve sıralı adımlardan oluşur. Her adım�
 
 ## Tasarım düzeni
 
-Önce küçük bir akış oluşturun: örnek veri → günlük → CSV. Ardından veri kaynağını gerçek veritabanı veya Sheets okumasıyla değiştirin. ERP tıklamaları ve OCR koşullarını sonradan eklemek, veri ve ekran sorunlarını birbirinden ayırarak doğrulamayı kolaylaştırır.
+İlk adım havuzu pencere tanıma, pencere içinde tıklama/yazma, Sheets hücresi okuma ve koşul adımlarını içerir. [ERP penceresiyle başlangıç rehberini](pencere-tanitma.md) izleyebilirsiniz. Yeni adımlar gerçek ihtiyaçlara göre geliştirilip kütüphaneye eklenir. Eski kayıtlı veya içe aktarılan akışlar, mevcut işlem tanımlarıyla açılabilir, düzenlenebilir ve çalıştırılabilir; aşağıdaki örnekler bu işlem desteğini anlatır.
+
+Kütüphaneye eklenen bir adımın yanındaki yıldız düğmesi, adımı en üstteki **Sık kullanılanlar** bölümüne taşır. Yıldıza tekrar basmak adımı kendi kategorisine döndürür. Adım adına veya artıya basmak akışa adım ekler; yıldız yalnız favori tercihini değiştirir. Favoriler çalışma alanına `favorites.json` olarak hemen kaydedilir, uygulama yeniden açıldığında korunur ve akış JSON dışa aktarımına dahil edilmez. Aynı özellik macOS ve Windows'ta, tarayıcıda ve yerel pencerede kullanılır.
 
 Kaydettiğiniz akış yerel veri klasörüne yazılır. Çalıştırılan sürümle sonradan yaptığınız düzenlemeleri karıştırmamak için her değişiklikten sonra kaydedip yeni bir çalışma başlatın. Farklı bilgisayara taşımak için JSON dışa aktarın ve diğer Studio'da içe aktarın. Hedef bilgisayarın bağlantıları, şablonları ve ekran ayarları ayrıca hazırlanmalıdır.
 

@@ -23,22 +23,39 @@ Masaüstü otomasyonu için Sistem Ayarları → Gizlilik ve Güvenlik altında 
 
 ## Windows / PowerShell
 
+GitHub'daki ZIP, kaynak koddur; kurulu uygulama veya sanal ortam içermez. ZIP'i tamamen çıkarıp yazabildiğiniz bir klasöre koyun. Windows ilk kurulumu için **Python 3.12 veya 3.11 (64 bit)** kullanın. Python yoksa [resmî Windows indirmelerinden](https://www.python.org/downloads/windows/) kurun. Şirket bilgisayarında yazılım kurulumu BT tarafından yönetiliyorsa Python kurulumunu BT'nin sağladığı yöntemle yapın.
+
+**Çift tıklayarak:** önce `setup-windows.bat`, başarılı kurulumdan sonra masaüstündeki **RpaOrkestrAI Studio** kısayolunu kullanın. Kısayol terminal açmaz. `start.bat` hata ayıklama için kullanılabilir. Kurulum betiği `.venv` oluşturur ve `.[native,automation]` paketlerini kurar. İnternet gerekir; Python'un kendisini kurmaz. Aynı klasörde tekrar çalıştırıldığında mevcut ortamı kullanır ve proje paketlerini kurar. `data/` ve `.env` dosyalarını değiştirmez. Uygulama açıkken kurulum/güncelleme yapmayın.
+
+İndirdiğiniz sürümde kurulum betiği yoksa, proje klasöründe PowerShell açıp komutları sırayla çalıştırın. Bir komut hata verirse sonraki adıma geçmeden hatayı çözün:
+
 ```powershell
 Set-Location "C:\projeler\RpaOrkestrAI"
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-rpa-studio
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install ".[native,automation]"
+.\start.bat
 ```
 
-Makinenizde 3.12 kuruluysa ilk komutta `py -3.12` kullanabilirsiniz. PowerShell aktivasyon betiğini engelliyorsa sistemin execution policy ayarını değiştirmeden sanal ortamın programlarını doğrudan çağırabilirsiniz:
+Python 3.11 kuruluysa ilk Python komutunda `py -3.11` kullanın. `py` bulunmuyorsa `python --version` ile sürümü kontrol edin; 64 bit 3.11/3.12 ise `python -m venv .venv` kullanabilirsiniz. Bu komutlar **Activate.ps1 gerektirmez**; PowerShell execution policy ayarını değiştirmeyin.
+
+Masaüstü penceresi WebView2 gibi bir bileşen nedeniyle açılmıyorsa aynı uygulamayı tarayıcıda test edin:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\rpa-studio.exe
+.\.venv\Scripts\python.exe -u launch.py
 ```
+
+Terminal açık kalır; Studio `http://127.0.0.1:8765` adresinde açılır. Tarayıcıda çalışması ERP otomasyonunu engellemez; Python robotu yine bu bilgisayarda çalışır. Yeni sürümde aynı işlem `start-browser.bat` ile yapılabilir. Yerel pencere gereksinimleri için [pywebview kurulum belgesine](https://pywebview.flowrl.com/guide/installation.html) bakın.
+
+ERP pencere tanıma/tıklama ve Sheets denemesi için Chromium indirmek gerekmez. Daha sonra web otomasyonu kullanılacaksa ayrıca:
+
+```powershell
+.\.venv\Scripts\python.exe -m playwright install chromium
+```
+
+**İlk test:** Studio açılınca yeni akışa `Pencereyi tanı` ekleyin, ERP'yi açın, `Açık pencerelerden seç` ve `Şimdi kontrol et` ile eşleşmeyi doğrulayın. Bu kontrol tıklama/yazma yapmaz. Adım listede yoksa indirdiğiniz kaynak sürümünün güncelliğini kontrol edin. Sonra küçük bir akışla devam edin; Deneme modu dış sistemlere erişmez.
+
+**Başka bilgisayara taşıma:** kodu GitHub'dan alın ve ortamı o bilgisayarda kurun. `.venv` taşınabilir değildir. Akışları Studio'dan JSON dışa/içe aktarın; bağlantı bilgilerini ve Google servis hesabı dosyasını hedef bilgisayarda ayrıca tanımlayın. Güncellemede mevcut `data/` ve `.env` dosyalarını koruyun. Taşınmış/yarım kalmış `.venv` hata verirse uygulamayı kapatıp yalnız `.venv` klasörünü yeniden adlandırın ve kurulum betiğini çalıştırın. [Python sanal ortamlarının taşınabilirliği](https://docs.python.org/3/library/venv.html#how-venvs-work).
 
 Masaüstü akışını ekranı açık ve kilidi kaldırılmış bir oturumda çalıştırın. ERP ve şablonların üretildiği ekran ölçeğini, pencere boyutunu ve yakınlaştırmayı eşleştirin. Farklı monitörlere taşınan pencereler için koordinatları ve şablonları yeniden doğrulayın. Yönetici yetkisiyle çalışan ERP ile normal kullanıcı oturumundaki robot arasında giriş kısıtlamaları olabilir; uygulamayı rutin olarak yönetici yapmadan önce ERP'nin normal yetkilerle çalışmasını tercih edin.
 
@@ -103,13 +120,13 @@ python -m pip install -e ".[native]"
 rpa-studio --native
 ```
 
-Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşletim sisteminin web görünümü bileşenleri gerekir; Windows WebView2 gibi ek gereksinimleri [pywebview kurulum belgesinden](https://pywebview.flowrl.com/guide/installation.html) kontrol edin. Bu depoda imzalı `.app` veya `.exe` dağıtım paketi üretilmez.
+Bu seçenek aynı Studio arayüzünü pywebview penceresinde gösterir. İşletim sisteminin web görünümü bileşenleri gerekir; Windows WebView2 gibi ek gereksinimleri [pywebview kurulum belgesinden](https://pywebview.flowrl.com/guide/installation.html) kontrol edin. Konsolsuz `.exe` / `.app` ve Windows kurulum paketi üretimi için [masaüstü dağıtım rehberini](masaustu-dagitim.md) izleyin. Paket imzalama ve macOS notarization henüz yapılandırılmamıştır.
 
-`native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; otomatik paket indirme veya kurulum yapmaz.
+`native` bağımlılıklarını kurduktan sonra proje kökündeki **macOS `start.command`** veya **Windows `start.bat`** dosyasını çift tıklayabilirsiniz. Başlatıcı önce kendi klasörüne geçer ve `.venv` içindeki Python ile yerel pencereyi açar. Sanal ortam yoksa kurulum yönergesi gösterir; Windows'ta önce `setup-windows.bat` çalıştırın. Başlatıcılar otomatik paket indirme veya kurulum yapmaz.
 
 Varsayılan başlatıcı `launch.py` ile doğrudan projenin `src/` klasörünü yükler. Böylece kurulu paketin eski kopyası veya macOS'ta gizli işaretlenmiş `.pth` dosyaları kaynak kodunun yüklenmesini engellemez.
 
-macOS'ta Masaüstü/Belgeler iCloud ile eşitleniyorsa Python dosyaları buluta taşınıp her açılışta dakikalarca bekletebilir. Bunu önlemek için `uv` kurulu olduğunda (veya `.bootstrap/bin/uv` mevcutsa) `setup-macos.command` çalıştırın. Python, sanal ortam ve paketler `~/Library/Application Support/RpaOrkestrAI/` altında; indirme önbelleği `~/Library/Caches/RpaOrkestrAI/uv` altında tutulur. Kurulum Chromium'u da hazırlar. Sonraki `start.command` açılışlarında güncel uygulama kaynakları bu yerel klasöre eşitlenir ve oradan çalıştırılır. Akışlar, çıktılar, `.env` ve bağlantı ayarları mevcut proje/veri dizininde kalır. Windows başlatıcısı değişmez. Bağımlılık değişikliği sonrası kurulumu tekrar çalıştırın.
+macOS'ta Masaüstü/Belgeler iCloud ile eşitleniyorsa Python dosyaları buluta taşınıp her açılışta dakikalarca bekletebilir. Bunu önlemek için `uv` kurulu olduğunda (veya `.bootstrap/bin/uv` mevcutsa) `setup-macos.command` çalıştırın. Python, sanal ortam ve paketler `~/Library/Application Support/RpaOrkestrAI/` altında; indirme önbelleği `~/Library/Caches/RpaOrkestrAI/uv` altında tutulur. Kurulum Chromium'u da hazırlar. Sonraki `start.command` açılışlarında güncel uygulama kaynakları bu yerel klasöre eşitlenir ve oradan çalıştırılır. Akışlar, çıktılar, `.env` ve bağlantı ayarları mevcut proje/veri dizininde kalır. Windows'ta proje içindeki `.venv` kullanılır. Bağımlılık değişikliği sonrası ilgili platformun kurulum betiğini tekrar çalıştırın.
 
 Aynı portta, aynı sürüm ve çalışma alanına ait Studio açıksa yeni masaüstü penceresi ona bağlanır. Farklı bir uygulama/çalışma alanı veya eski sürüm algılanırsa anlaşılır hata gösterilir; başka uygulamanın portu devralınmaz. Güncelleme sonrası eski Studio'yu kapatıp tekrar açın. Bir sunucuya bağlanan pencere o sunucuyu kapatmaz; kendisi sunucu başlatan pencere kapanırken onu durdurur. CSV indirme yerel pencerede de etkindir.
 
@@ -137,6 +154,9 @@ Bu örnek yalnız yerel demo verisini işler. Farklı veri klasörleriyle çalı
 
 | Belirti | Kontrol |
 | --- | --- |
+| `Sanal ortam bulunamadi` | ZIP'i çıkarın ve `setup-windows.bat` çalıştırın; `.venv` GitHub'a dahil değildir. |
+| Windows yerel pencere açılmıyor | `start-browser.bat` ile tarayıcıda test edin; pywebview/WebView2 hata mesajını kontrol edin. |
+| Paket indirmesi başarısız | Kurulum çıktısındaki ilk hatayı kontrol edin; şirket proxy/ağ kısıtları için BT ekibine başvurun. |
 | `rpa-studio` bulunamıyor | Sanal ortamı etkinleştirin veya `.venv` içindeki yürütülebilir dosyayı çağırın. |
 | Masaüstü görüntüsü siyah / tıklama çalışmıyor | macOS izinleri, açık oturum ve hedef pencerenin odağını kontrol edin. |
 | Şablon bulunamıyor | Ekran ölçeğini, ERP temasını, arama bölgesini ve güven eşiğini kontrol edin. |

@@ -4,6 +4,12 @@
 
 Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı arayüzü pywebview ile yerel uygulama penceresinde açabilirsiniz. Masaüstü işlemleri uygulamanın çalıştığı bilgisayarda gerçekleşir.
 
+## Masaüstü uygulaması olarak kullanım
+
+Son kullanıcı dağıtımı için Windows kurulum `.exe` dosyası ve macOS `.app` üretme altyapısı vardır. Bu paketler Python'u içerir ve terminal açmadan çalışır. GitHub'da **Actions → Build desktop apps** işi tamamlandıktan sonra **Artifacts** bölümünden alınır; **Code → Download ZIP** kaynak kod indirmesidir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
+
+Kaynak kodla Windows kurulumu yapanlar için `setup-windows.bat` masaüstüne terminal açmayan **RpaOrkestrAI Studio** kısayolu ekler.
+
 ## Başlangıç
 
 Python **3.11+** gerekir. Komutları proje klasöründe çalıştırın.
@@ -18,19 +24,18 @@ cp .env.example .env
 rpa-studio
 ```
 
-Windows / PowerShell:
+Windows'ta GitHub'dan ilk kurulum:
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-Copy-Item .env.example .env
-rpa-studio
-```
+1. ZIP dosyasını tamamen çıkarın. Örneğin `C:\RpaOrkestrAI` gibi yazabildiğiniz bir klasör kullanın.
+2. **Python 3.12 veya 3.11 (64 bit)** kurulu olmalıdır.
+3. [setup-windows.bat](setup-windows.bat) dosyasını çift tıklayın. Sanal ortamı ve yerel pencere/otomasyon paketlerini kurar; internet gerekir.
+4. Kurulum bitince masaüstündeki **RpaOrkestrAI Studio** kısayoluyla terminal açmadan başlatın. Hata ayıklamak için [start.bat](start.bat) kullanılabilir. Yerel pencere bileşeninde sorun varsa [start-browser.bat](start-browser.bat) aynı Studio'yu tarayıcıda açar.
+
+GitHub indirmesi `.venv` içermez; Python ortamı her bilgisayarda yeniden kurulur. macOS ortamını Windows'a kopyalamayın. PowerShell komutları ve hata çözümleri [Windows kurulum rehberindedir](docs/kurulum.md#windows--powershell).
 
 Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka bir terminalden çalıştıracaksanız önce proje klasörüne geçip sanal ortamı etkinleştirin.
 
-İlk denemede örnek akışı açın, adımlarını inceleyin ve çalıştırın. Örnek veriden üretilen CSV'yi çalışma sonucundan indirin. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
+Studio’nun ilk adım havuzu **Pencereyi tanı**, **Pencerede tıkla**, **Pencereye metin yaz**, **Sheets hücresini oku** ve **Koşul** adımlarından oluşur; yeni adımlar ihtiyaçlara göre geliştirilip eklenir. İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
 
 ```bash
 rpa-studio demo
@@ -65,6 +70,8 @@ Bu sürüm tek bilgisayarda uygulama sahibi tarafından kullanılır. Departman 
 
 ## İlk gerçek otomasyon
 
+Masaüstü ERP için [pencere tanıtma rehberiyle](docs/pencere-tanitma.md) başlayın. Daha kapsamlı işlemler için aşağıdaki sırayı izleyin. Tabloda ve rehberlerde anlatılan mevcut motor işlemleri, eski veya içe aktarılan akışlarda desteklenmeye devam eder.
+
 1. [Kurulum rehberindeki](docs/kurulum.md) otomasyon paketlerini ve gerekli sistem araçlarını kurun.
 2. Bağlantı bilgilerini `.env` veya uygulamanın bağlantı ayarlarında tanımlayın. Veritabanında ayrı salt okunur kullanıcı kullanın.
 3. Yeni akışa ad ve departman girin. Adım kitaplığından veri okuma adımını ve ardından bir döngü ekleyin.
@@ -96,7 +103,7 @@ python -m pip install -e ".[native]"
 rpa-studio --native
 ```
 
-Bu kurulumdan sonra macOS'ta [start.command](start.command), Windows'ta [start.bat](start.bat) dosyasını çift tıklayarak yerel pencereyi açabilirsiniz. Başlatıcılar varsayılan olarak proje içindeki `.venv` sanal ortamını kullanır; Python, paket ve sistem bağımlılıklarını kendileri kurmaz.
+Bu kurulumdan sonra macOS'ta [start.command](start.command), Windows'ta [start.bat](start.bat) dosyasını çift tıklayarak yerel pencereyi açabilirsiniz. Başlatıcılar varsayılan olarak proje içindeki `.venv` sanal ortamını kullanır. Windows ilk kurulumunu `setup-windows.bat` yapar; `start.bat` ve `start-browser.bat` paket indirmez.
 
 **macOS'ta Masaüstü/Belgeler iCloud ile eşitleniyorsa:** önce [setup-macos.command](setup-macos.command) dosyasını çalıştırın (`uv` veya proje içindeki `.bootstrap/bin/uv` gereklidir). Bu kurulum Python ve paketleri `~/Library/Application Support/RpaOrkestrAI/` içine yerleştirir. Ardından `start.command` bu yerel ortamı tercih eder ve güncel kaynak kodunu oraya eşitler; Python bileşenleri her açılışta buluttan beklenmez. Akışlar ve ayarlar projenin mevcut veri dizininde kalır.
 
@@ -141,7 +148,9 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 ## Rehberler
 
+- [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)
 - [Kurulum, macOS/Windows izinleri ve bağlantılar](docs/kurulum.md)
+- [ERP penceresini tanıtma ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
 - [Salt okunur veritabanı hesabı](docs/veritabani.md)
 - [Mimari ve genişletme](docs/mimari.md)

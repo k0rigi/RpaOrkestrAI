@@ -6,6 +6,9 @@
     workflows: [],
     runs: [],
     catalog: [],
+    actionDefinitions: [],
+    favorites: [],
+    favoriteSaving: false,
     settings: {},
     platform: "",
     version: "",
@@ -40,6 +43,7 @@
     settings:
       "M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
     plus: "M12 5v14 M5 12h14",
+    star: "M12 3l2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9z",
     arrow: "M5 12h14 M14 7l5 5-5 5",
     back: "M19 12H5 M10 7l-5 5 5 5",
     chevron: "M9 5l7 7-7 7",
@@ -211,7 +215,8 @@
   }
   function specFor(action) {
     return (
-      state.catalog.find((a) => a.type === action) || {
+      state.catalog.find((a) => a.type === action) ||
+      state.actionDefinitions.find((a) => a.type === action) || {
         type: action,
         label: action,
         category: "Diğer",
@@ -226,7 +231,7 @@
     if (/sheet/.test(type)) return "sheet";
     if (/browser|web|playwright/.test(type)) return "globe";
     if (/for_each|loop|dropdown/.test(type)) return "loop";
-    if (/^if$|condition|decision|branch/.test(type)) return "branch";
+    if (/control\.if|^if$|condition|decision|branch/.test(type)) return "branch";
     if (/ocr|vision|detect|screen/.test(type)) return "eye";
     if (/desktop|click|type|hotkey/.test(type)) return "desktop";
     if (/export|report|csv|file/.test(type)) return "file";
@@ -1072,8 +1077,20 @@
     if (!state.target)
       target.append(node("span", "", "Eklenecek yer: Ana akışın sonu"));
     pane.append(target);
-    const groups = new Map();
+    if (!state.catalog.length) {
+      pane.append(empty(
+        "Kütüphane henüz boş",
+        "İhtiyacınıza göre geliştirilen adımlar burada yer alacak. Eklenen adımları yıldızlayarak sık kullanılanlara taşıyabilirsiniz.",
+      ));
+      return;
+    }
+    const favorites = new Set(state.favorites);
+    const pinned = state.favorites
+      .map((type) => state.catalog.find((spec) => spec.type === type))
+      .filter(Boolean);
+    const groups = new Map([["Sık kullanılanlar", pinned]]);
     state.catalog.forEach((spec) => {
+      if (favorites.has(spec.type)) return;
       const group = spec.category || "Genel";
       if (!groups.has(group)) groups.set(group, []);
       groups.get(group).push(spec);
@@ -1081,7 +1098,10 @@
     for (const [category, specs] of groups) {
       const group = node("div", "library-group");
       group.append(node("h3", "", category));
+      if (!specs.length)
+        group.append(node("p", "pane-caption", "Sık kullandığınız adımları yıldızlayın; burada görünsün."));
       specs.forEach((spec) => {
+        const row = node("div", "library-row");
         const action = node("button", "library-action");
         action.type = "button";
         action.title = spec.description || spec.label;
@@ -1091,9 +1111,48 @@
           node("span", "add-symbol", "+"),
         );
         action.addEventListener("click", () => addStep(spec));
-        group.append(action);
+        const favorite = favorites.has(spec.type);
+        const star = iconButton(
+          `${spec.label}: ${favorite ? "Favorilerden çıkar" : "Favoriye ekle"}`,
+          "star",
+          () => toggleFavorite(spec.type),
+          `favorite-button${favorite ? " is-favorite" : ""}`,
+        );
+        star.dataset.favoriteType = spec.type;
+        star.setAttribute("aria-pressed", String(favorite));
+        star.disabled = state.favoriteSaving;
+        row.append(action, star);
+        group.append(row);
       });
       pane.append(group);
+    }
+  }
+  async function toggleFavorite(type) {
+    if (state.favoriteSaving) return;
+    const favorite = !state.favorites.includes(type);
+    state.favoriteSaving = true;
+    document.querySelectorAll(".favorite-button").forEach((button) => {
+      button.disabled = true;
+    });
+    try {
+      state.favorites = await api(`/api/favorites/${encodeURIComponent(type)}`, {
+        method: "PUT",
+        body: JSON.stringify({ favorite }),
+      });
+      toast(favorite ? "Adım sık kullanılanlara eklendi." : "Adım favorilerden çıkarıldı.");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      state.favoriteSaving = false;
+      const pane = document.getElementById("step-library");
+      if (pane) {
+        const scroll = pane.scrollTop;
+        const restoreFocus = pane.contains(document.activeElement);
+        renderLibrary();
+        if (restoreFocus)
+          pane.querySelector(`[data-favorite-type="${CSS.escape(type)}"]`)?.focus({ preventScroll: true });
+        pane.scrollTop = scroll;
+      }
     }
   }
   function findStep(id, steps = state.workflow?.steps || []) {
@@ -1366,6 +1425,106 @@
     renderInspector();
   }
 
+  function windowRecognitionTools(step) {
+    const tools = node("div", "window-recognition-tools");
+    const result = node("div");
+    result.id = "window-check-result";
+    result.setAttribute("role", "status");
+    const check = button("Şimdi kontrol et", "eye", async () => {
+      check.disabled = true;
+      const selector = {
+        application: step.params.application || "",
+        title: step.params.title || "",
+        match: step.params.match || "exact",
+      };
+      const unchanged = () => tools.isConnected &&
+        selector.application === (step.params.application || "") &&
+        selector.title === (step.params.title || "") &&
+        selector.match === (step.params.match || "exact");
+      result.replaceChildren(node("p", "help", "Pencere kontrol ediliyor…"));
+      try {
+        if (!selector.title.trim()) throw new Error("Önce bir pencere seçin veya başlığını yazın.");
+        const found = await api("/api/desktop/windows/check", {
+          method: "POST", body: JSON.stringify(selector),
+        });
+        if (unchanged()) result.replaceChildren(note(
+          found.found
+            ? `Pencere bulundu: ${found.title} (${found.width} × ${found.height}).`
+            : "Pencere bulunamadı. ERP ekranını açın veya başlık eşleşmesini düzenleyin.",
+          found.found ? "info" : "", found.found ? "check" : "info",
+        ));
+      } catch (error) {
+        if (unchanged()) result.replaceChildren(note(error.message));
+      } finally {
+        check.disabled = false;
+      }
+    });
+    tools.append(
+      button("Açık pencerelerden seç", "desktop", () => pickWindow(step)),
+      check,
+      node("p", "pane-caption", "Kontrol pencere başlığını arar; içeriğini incelemez. ERP penceresini görünür tutun."),
+      result,
+    );
+    return tools;
+  }
+  function pickWindow(step) {
+    const workflow = state.workflow;
+    dialog("ERP penceresini tanıt", (body, d) => {
+      body.append(node("p", "pane-caption", "ERP penceresini açık tutun ve listeden seçin. Başlık ve uygulama adı adıma aktarılacak."));
+      const search = textInput("", "Uygulama veya pencere başlığı ara…", "search");
+      search.setAttribute("aria-label", "Açık pencerelerde ara");
+      const list = node("div", "window-picker-list");
+      const status = node("div");
+      status.setAttribute("role", "status");
+      let windows = [];
+      const render = () => {
+        list.replaceChildren();
+        const query = search.value.toLocaleLowerCase("tr");
+        const filtered = windows.filter((w) => `${w.application} ${w.title}`.toLocaleLowerCase("tr").includes(query));
+        if (!filtered.length) list.append(node("p", "help", "Eşleşen pencere yok. ERP ekranını görünür hale getirip listeyi yenileyin."));
+        filtered.forEach((w) => {
+          const choose = button(w.title, "desktop", () => {
+            if (state.workflow !== workflow || findStep(step.id)?.step !== step) {
+              d.close();
+              return;
+            }
+            Object.assign(step.params, { application: w.application, title: w.title, match: "exact" });
+            for (const name of ["application", "title", "match"]) {
+              state.fieldErrors.delete(`${step.id}:${name}`);
+              state.drafts.delete(`${step.id}:${name}`);
+            }
+            markDirty();
+            d.close();
+            renderInspector();
+            renderCanvas();
+            toast("Pencere tanıtıldı. Şimdi kontrol et ile eşleşmeyi doğrulayabilirsiniz.");
+          }, "window-picker-choice");
+          choose.append(node("small", "", `${w.application || "Uygulama adı okunamadı"} · ${w.width} × ${w.height}`));
+          list.append(choose);
+        });
+      };
+      const refresh = button("Listeyi yenile", "refresh", load);
+      async function load() {
+        refresh.disabled = true;
+        list.replaceChildren();
+        status.replaceChildren(node("p", "help", "Açık pencereler okunuyor…"));
+        try {
+          windows = await api("/api/desktop/windows");
+          if (!d.isConnected) return;
+          status.replaceChildren();
+          render();
+        } catch (error) {
+          windows = [];
+          status.replaceChildren(note(error.message));
+        } finally {
+          refresh.disabled = false;
+        }
+      }
+      search.addEventListener("input", render);
+      body.append(search, refresh, status, list);
+      queueMicrotask(load);
+    });
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -1411,6 +1570,7 @@
     });
     pane.append(field("Adım adı", title), node("div", "inspector-divider"));
     step.params ||= {};
+    if (step.action === "desktop.find_window") pane.append(windowRecognitionTools(step));
     (spec.fields || []).forEach((f) => {
       let control, jsonMode;
       const value = Object.hasOwn(step.params, f.name)
@@ -1566,6 +1726,8 @@
         control.classList.remove("invalid");
         if (next === undefined) delete step.params[f.name];
         else step.params[f.name] = next;
+        if (step.action === "desktop.find_window")
+          document.getElementById("window-check-result")?.replaceChildren();
         markDirty();
         if (f.name === "output") renderCanvas();
       };
@@ -1611,6 +1773,9 @@
         allSteps(state.workflow.steps)
           .flatMap((s) => [
             s.params?.output,
+            s.action === "desktop.find_window" && s.params?.output
+              ? `${s.params.output}.found`
+              : null,
             ["core.set", "data.append"].includes(s.action)
               ? s.params?.name
               : null,
@@ -2276,6 +2441,8 @@
       state.workflows = data.workflows || [];
       state.runs = data.runs || [];
       state.catalog = data.catalog || [];
+      state.actionDefinitions = data.action_definitions || [];
+      state.favorites = data.favorites || [];
       state.settings = data.settings || {};
       state.platform = data.platform || state.settings.platform || "";
       state.version = data.version || "";

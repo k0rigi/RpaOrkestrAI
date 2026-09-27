@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import threading
 import time
 
@@ -22,7 +23,10 @@ def open_window(webview, url: str) -> None:
 
     window.events.loaded += on_loaded
     # pywebview requires the GUI loop on the main thread on both platforms.
-    webview.start()
+    if platform.system() == "Windows":
+        webview.start(gui="edgechromium")
+    else:
+        webview.start()
 
 
 def serve_native(settings: Settings) -> None:

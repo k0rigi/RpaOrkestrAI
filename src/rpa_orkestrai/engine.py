@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from .catalog import BY_TYPE, EXTERNAL_PREFIXES, defaults
 from .config import Settings
+from .desktop.windows import WindowError, validate_selector
 from .models import Artifact, Event, Run, Step, Workflow, now
 from .storage import Store
 
@@ -101,6 +102,14 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
                         variable_name(parameters[key])
                 if parameters.get("item_name") == "loop_index":
                     raise WorkflowError("loop_index döngü sayacı için ayrılmıştır; başka bir öğe adı seçin.")
+                if step.action == "desktop.find_window":
+                    try:
+                        validate_selector(parameters["application"], parameters["title"],
+                                          parameters["match"], parameters["timeout"])
+                        if parameters["on_missing"] not in {"stop", "continue"}:
+                            raise WindowError("Pencere bulunamadığında yapılacak işlem geçersiz.")
+                    except WindowError as exc:
+                        raise WorkflowError(str(exc)) from exc
             walk(step.children)
             walk(step.otherwise)
 
@@ -143,6 +152,7 @@ class Executor:
         self.resources = ExitStack()
         self._browser: Any = None
         self._desktop: Any = None
+        self._windows: Any = None
         self._database: Any = None
         self._sheets: dict[tuple[str, str], Any] = {}
         self.executed = 0
@@ -249,6 +259,13 @@ class Executor:
                                               cancel_check=self.cancel.is_set)
         return self._desktop
 
+    def windows(self) -> Any:
+        if self._windows is None:
+            from .desktop.windows import WindowService
+
+            self._windows = WindowService(cancel=self.cancel)
+        return self._windows
+
     def template_path(self, value: str) -> Path:
         root = Path(self.config["template_dir"]).expanduser().resolve()
         path = (root / value).resolve()
@@ -294,6 +311,12 @@ class Executor:
             frame = self._database.read_table(p["table"], columns=p["columns"], filters=p["filters"],
                                               limit=int(p["limit"]))
             return json.loads(frame.to_json(orient="records", date_format="iso"))
+        elif action == "desktop.find_window":
+            return self.windows().find(p["application"], p["title"], p["match"], p["timeout"], p["on_missing"])
+        elif action == "desktop.window_click":
+            self.windows().click(p["window"], p["x"], p["y"], self.desktop())
+        elif action == "desktop.window_write":
+            self.windows().write(p["window"], p["text"], self.desktop())
         elif action == "desktop.click":
             self.desktop().click(float(p["x"]), float(p["y"]))
         elif action == "desktop.write":
@@ -348,6 +371,11 @@ class Executor:
                 )
             if action == "sheets.read":
                 return self._sheets[key].get_range(p["range"])
+            if action == "sheets.read_cell":
+                value = self._sheets[key].get_cell(p["cell"])
+                if value is None or value == "":
+                    raise WorkflowError("Sheets hücresi boş. Hücre adresini ve veriyi kontrol edin.")
+                return value
             self._sheets[key].update_range(p["range"], p["values"])
         else:
             raise WorkflowError("Bu adım için çalıştırıcı bulunamadı.")
@@ -414,7 +442,7 @@ class RunManager:
             runner.log("Çalışma kullanıcı tarafından durduruldu.", level="warning")
         except Exception as exc:
             run.status = "failed"
-            if isinstance(exc, WorkflowError):
+            if isinstance(exc, (WorkflowError, WindowError)):
                 run.error = str(exc)
             elif isinstance(exc, ImportError):
                 run.error = ("Gerekli otomasyon paketi veya sistem sürücüsü yüklenemedi. "

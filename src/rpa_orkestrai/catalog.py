@@ -26,7 +26,9 @@ OPERATORS = [
     {"value": "truthy", "label": "Dolu / doğru"},
 ]
 
-CATALOG = [
+# Existing workflows still need these definitions for editing and execution.
+# New library actions are introduced in CATALOG as requirements are agreed.
+ACTION_DEFINITIONS = [
     action("data.sample", "Örnek siparişler", "Veri", "Bağlantı gerektirmeyen örnek veri oluşturur.",
            [field("output", "Veri değişkeni", default="orders", required=True)]),
     action("core.set", "Değişken oluştur", "Veri", "Bir metin, sayı veya JSON değeri saklar.",
@@ -95,8 +97,50 @@ CATALOG = [
             field("values", "Satır matrisi", "json", [["Örnek", 1]], required=True)]),
 ]
 
-BY_TYPE = {entry["type"]: entry for entry in CATALOG}
+CATALOG: list[dict[str, Any]] = [
+    action("desktop.find_window", "Pencereyi tanı", "Pencere",
+           "Açık masaüstü penceresini uygulama ve başlığıyla bulur. Sonucu diğer adımlarda kullanın.",
+           [field("application", "Uygulama adı", help="Açık pencerelerden seçebilirsiniz. Boşsa tüm uygulamalarda arar."),
+            field("title", "Pencere başlığı", required=True,
+                  help="Değişen belge numaraları varsa sabit kısmı yazıp İçerir seçin."),
+            field("match", "Başlık eşleşmesi", "select", "exact", required=True,
+                  options=[{"value": "exact", "label": "Tam eşleşme"},
+                           {"value": "contains", "label": "İçerir"}]),
+            field("timeout", "En fazla bekle (saniye)", "number", 5, min=0, max=120),
+            field("on_missing", "Pencere bulunamazsa", "select", "stop", required=True,
+                  options=[{"value": "stop", "label": "Akışı durdur"},
+                           {"value": "continue", "label": "Bulunamadı sonucu ile devam et"}]),
+            field("output", "Pencere değişkeni", default="erp_window", required=True,
+                  help="${erp_window.found}: açık mı? Diğer pencere adımlarına ${erp_window} verin.")]),
+    action("desktop.window_click", "Pencerede tıkla", "Pencere",
+           "Tanıtılan pencereyi öne alır ve pencerenin sol üstüne göre belirlenen konuma tıklar.",
+           [field("window", "Pencere değişkeni", default="${erp_window}", required=True),
+            field("x", "Pencere içi X", "number", None, min=0, required=True,
+                  help="Başlık çubuğu dahil pencerenin sol kenarından uzaklık. Hedef ana ekranda olmalıdır."),
+            field("y", "Pencere içi Y", "number", None, min=0, required=True)]),
+    action("desktop.window_write", "Pencereye metin yaz", "Pencere",
+           "Tanıtılan pencereyi öne alır ve odaktaki alana metin yazar. Önce hedef alana tıklayın.",
+           [field("window", "Pencere değişkeni", default="${erp_window}", required=True),
+            field("text", "Yazılacak metin", default="${cell_value}", required=True,
+                  help="Sheets hücresi için ${cell_value} kullanın. Metin, alandaki mevcut değerin yanına yazılır.")]),
+    action("sheets.read_cell", "Sheets hücresini oku", "Google Sheets",
+           "Bir Google Sheets hücresinin değerini metin olarak alır; yazma adımına aktarabilirsiniz.",
+           [field("spreadsheet_id", "Elektronik tablo kimliği", required=True,
+                  help="Sheets adresindeki /d/ ile /edit arasındaki kimlik. Servis hesabıyla paylaşılmış olmalıdır."),
+            field("worksheet", "Sayfa adı", default="Sheet1", required=True),
+            field("cell", "Hücre", default="A2", required=True),
+            field("output", "Değer değişkeni", default="cell_value", required=True)]),
+    action("control.if", "Koşul", "Akış", "Koşula göre Evet veya Değilse dalını çalıştırır.",
+           [field("left", "Sol değer", "json", "${erp_window.found}"),
+            field("operator", "Karşılaştırma", "select", "truthy", options=OPERATORS, required=True),
+            field("right", "Sağ değer", "json", True)], container="condition"),
+]
+BY_TYPE = {entry["type"]: entry for entry in ACTION_DEFINITIONS + CATALOG}
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.")
+
+
+def library_catalog() -> list[dict[str, Any]]:
+    return CATALOG
 
 
 def defaults(action_type: str) -> dict[str, Any]:

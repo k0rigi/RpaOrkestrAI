@@ -14,13 +14,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from . import __version__
-from .catalog import CATALOG
+from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
-from .demo import demo_workflow
 from .engine import RunManager, WorkflowError, validate_workflow
 from .instance import identity
 from .locking import WorkspaceLock
-from .models import RunRequest, Workflow, WorkflowInput, now, uid
+from .models import FavoriteRequest, RunRequest, WindowCheckRequest, Workflow, WorkflowInput, now, uid
 from .storage import Store
 
 
@@ -33,11 +32,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         with WorkspaceLock(settings.data_dir):
             store.recover_runs()
-            marker = settings.data_dir / ".initialized"
-            if not marker.exists():
-                if not store.workflows():
-                    store.save_workflow(demo_workflow())
-                marker.touch()
             try:
                 yield
             finally:
@@ -117,11 +111,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/bootstrap")
     def bootstrap():
         return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
-                "runs": store.runs(), "catalog": CATALOG, "settings": settings.public()}
+                "runs": store.runs(), "catalog": library_catalog(), "settings": settings.public(),
+                "action_definitions": ACTION_DEFINITIONS + library_catalog(),
+                "favorites": store.favorites()}
 
     @app.get("/api/catalog")
     def catalog():
-        return CATALOG
+        return library_catalog()
+
+    @app.put("/api/favorites/{action_type}")
+    def set_favorite(action_type: str, body: FavoriteRequest):
+        return store.set_favorite(action_type, body.favorite)
+
+    @app.get("/api/desktop/windows")
+    def desktop_windows():
+        from .desktop.windows import WindowError, WindowService
+
+        try:
+            return [window.result() for window in WindowService().list_windows()]
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/desktop/windows/check")
+    def check_desktop_window(body: WindowCheckRequest):
+        from .desktop.windows import WindowError, WindowService
+
+        try:
+            return WindowService().find(body.application, body.title, body.match, on_missing="continue")
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/workflows")
     def list_workflows():

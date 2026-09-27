@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 from pathlib import Path
 
+from .catalog import library_catalog
 from .config import atomic_json
 from .models import Event, Run, Workflow, now
 
@@ -21,6 +23,27 @@ class Store:
         if kind not in {"workflows", "runs"} or not re.fullmatch(r"[a-f0-9]{32}", key):
             raise KeyError(key)
         return self.root / kind / f"{key}.json"
+
+    def favorites(self) -> list[str]:
+        with self._lock:
+            path = self.root / "favorites.json"
+            if not path.exists():
+                return []
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            available = {entry["type"] for entry in library_catalog()}
+            return list(dict.fromkeys(kind for kind in saved if kind in available))
+
+    def set_favorite(self, action_type: str, favorite: bool) -> list[str]:
+        if action_type not in {entry["type"] for entry in library_catalog()}:
+            raise KeyError(action_type)
+        with self._lock:
+            favorites = self.favorites()
+            if favorite and action_type not in favorites:
+                favorites.append(action_type)
+            elif not favorite and action_type in favorites:
+                favorites.remove(action_type)
+            atomic_json(self.root / "favorites.json", favorites)
+            return favorites
 
     def save_workflow(self, workflow: Workflow) -> Workflow:
         with self._lock:

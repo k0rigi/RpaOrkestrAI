@@ -960,6 +960,67 @@ label.field-label {
   text-align: left;
   font-size: 11px;
   line-height: 1.4;
+  min-width: 0;
+  flex: 1;
+}
+.library-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.library-action > span:not(.add-symbol) {
+  overflow-wrap: anywhere;
+}
+.library-action svg {
+  flex-shrink: 0;
+}
+.favorite-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 32px;
+}
+.favorite-button.is-favorite {
+  color: #a77b22;
+}
+.favorite-button.is-favorite svg {
+  fill: #f5e5b6;
+}
+.step-library .empty {
+  padding: 24px 4px;
+}
+.window-recognition-tools {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.window-recognition-tools .button {
+  justify-content: flex-start;
+}
+.window-recognition-tools .pane-caption {
+  margin-bottom: 0;
+}
+.window-picker-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 14px;
+}
+.window-picker-choice {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+}
+.window-picker-choice span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.window-picker-choice small {
+  flex-basis: 100%;
+  color: var(--muted);
+  padding-left: 24px;
 }
 .library-action:hover {
   background: #edf3ea;
@@ -1645,6 +1706,9 @@ label.field-label {
   }
 }
 @media (max-width: 1200px) {
+  .library-action .add-symbol {
+    display: none;
+  }
   .app-shell {
     grid-template-columns: 190px minmax(0, 1fr);
   }

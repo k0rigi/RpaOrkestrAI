@@ -55,3 +55,7 @@ git push -u origin feature/yeni-erp-akisi
 `.github/workflows/tests.yml`, pull request ve push olaylarında macOS/Windows üzerinde Python 3.11 ve 3.12 için çekirdek testleri ve kod kontrollerini çalıştırır. İşletim sistemi ekran izinleri ve gerçek ERP/veritabanı/Sheets erişimleri bu otomatik testlerden ayrı doğrulanır.
 
 `.env`, servis hesabı anahtarları, veritabanı bağlantı klasörleri, yerel `data/` ve çalışma raporları `.gitignore` kapsamındadır. `.gitignore` daha önce Git'e eklenmiş bir dosyayı geçmişten çıkarmaz. Akış JSON'larını paylaşırken içine yazılmış iş verileri ve sabit metinler de dışa aktarılacağından dosyanın içeriğini inceleyin.
+
+## Masaüstü kurulum paketleri
+
+`.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Windows `.exe` kurulum paketi ve macOS `.app` arşivi **Artifacts** olarak üretilir; otomatik Release yayımlanmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).

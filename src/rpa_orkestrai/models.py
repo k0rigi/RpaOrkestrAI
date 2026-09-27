@@ -96,3 +96,13 @@ class Run(Model):
 
 class RunRequest(Model):
     dry_run: bool = False
+
+
+class FavoriteRequest(Model):
+    favorite: bool = Field(strict=True)
+
+
+class WindowCheckRequest(Model):
+    application: str = Field(default="", max_length=200)
+    title: str = Field(min_length=1, max_length=500)
+    match: Literal["exact", "contains"] = "exact"
