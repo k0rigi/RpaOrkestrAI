@@ -92,6 +92,8 @@ font-size:14px}}footer{{border-top:1px solid #dce5de;margin-top:36px;padding-top
 yayımlanan yeni sürümler uygulama açıldığında otomatik kontrol edilsin.</p>
 <span class="version">Sürüm {html.escape(version)}</span></header>
 <section class="downloads" aria-label="Bilgisayarınıza uygun sürümü indirin">{''.join(cards)}</section>
+<p class="note"><strong>Uygulama orkestrai.net kullanıcı adınız ve şifrenizle açılır.</strong>
+Kullanım için firmanızda ve hesabınızda RpaOrkestrAI lisansı tanımlı olmalıdır; lisans için firma yöneticinize başvurun.</p>
 <p class="note">Python veya sanal ortam kurmanız gerekmez. Uygulama terminal açmadan çalışır.
 Windows için Microsoft Edge WebView2 gerekir; eksikse kurulum yönlendirmesini izleyin.
 Mac'te ERP pencerelerini tanımak ve kontrol etmek için Ekran Kaydı ve Erişilebilirlik izinleri gerekir.</p>

@@ -157,7 +157,7 @@ python -m pytest
 python -m ruff check .
 ```
 
-GitHub Actions, macOS ve Windows üzerinde Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar, paket tutarlılığını ve yerel pencere motorunun yüklenmesini doğrular, testleri çalıştırır. Bu testler canlı ERP oturumu, veritabanı hesabı veya Google anahtarı gerektirmez. Gerçek masaüstü, OCR, sürücü ve ağ bağlantıları hedef bilgisayarda ayrıca doğrulanmalıdır; CI bunların yerini tutmaz.
+GitHub Actions her push'ta macOS ve Windows üzerinde paketlenen Python 3.12 için; **Actions → Python checks → Run workflow** ile elle başlatıldığında Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar, paket tutarlılığını ve yerel pencere motorunun yüklenmesini doğrular, testleri çalıştırır. Bu testler canlı ERP oturumu, veritabanı hesabı veya Google anahtarı gerektirmez. Gerçek masaüstü, OCR, sürücü ve ağ bağlantıları hedef bilgisayarda ayrıca doğrulanmalıdır; CI bunların yerini tutmaz.
 
 Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle internete veya ortak ağa açmayın. Masaüstü robotu çalışırken hedef pencere odağı ve ekran düzeni korunmalıdır. İptal isteği bir sonraki denetim noktasında uygulanır; tamamlanmış dış işlemleri geri almaz.
 

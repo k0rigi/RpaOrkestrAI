@@ -52,7 +52,7 @@ git commit -m "Add ERP workflow support"
 git push -u origin feature/yeni-erp-akisi
 ```
 
-`.github/workflows/tests.yml`, pull request ve push olaylarında macOS/Windows üzerinde Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar. `pip check`, yerel pencere motorunun gerçekten yüklenmesi, testler ve kod kontrolleri çalışır. İşletim sistemi ekran izinleri ve gerçek ERP/veritabanı/Sheets erişimleri bu otomatik testlerden ayrı doğrulanır.
+`.github/workflows/tests.yml`, pull request ve push olaylarında macOS/Windows üzerinde paketlenen Python 3.12 için; **Run workflow** ile elle başlatıldığında Python 3.11, 3.12, 3.13 ve 3.14 için tam `native`/`automation` bağımlılıklarını kurar. GitHub Actions dakikaları sınırlıdır (macOS dakikası 10, Windows dakikası 2 kat sayılır); tam matris yayın öncesinde bir kez çalıştırılır. `pip check`, yerel pencere motorunun gerçekten yüklenmesi, testler ve kod kontrolleri çalışır. İşletim sistemi ekran izinleri ve gerçek ERP/veritabanı/Sheets erişimleri bu otomatik testlerden ayrı doğrulanır.
 
 `.env`, servis hesabı anahtarları, veritabanı bağlantı klasörleri, yerel `data/` ve çalışma raporları `.gitignore` kapsamındadır. `.gitignore` daha önce Git'e eklenmiş bir dosyayı geçmişten çıkarmaz. Akış JSON'larını paylaşırken içine yazılmış iş verileri ve sabit metinler de dışa aktarılacağından dosyanın içeriğini inceleyin.
 

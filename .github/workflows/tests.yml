@@ -1,8 +1,11 @@
 name: Python checks
 
+# GitHub Actions minutes are limited (macOS counts 10x, Windows 2x). Pushes check
+# the packaged Python 3.12 on both platforms; run the full matrix manually before a release.
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["3.11", "3.12", "3.13", "3.14"]' || '["3.12"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
