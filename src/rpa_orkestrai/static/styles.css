@@ -1058,10 +1058,19 @@ label.field-label {
 .window-target-tools .help { margin: 0; }
 .dialog-backdrop.target-picker-dialog {
   width: min(1100px, calc(100vw - 32px));
+  overflow: hidden;
 }
+.dialog-backdrop.target-picker-dialog[open] { display: flex; flex-direction: column; }
+.target-picker-dialog .dialog-head { flex-shrink: 0; }
 .target-picker-dialog .dialog-body {
   padding: 18px 22px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
+.target-picker-dialog .dialog-body > * { flex-shrink: 0; }
+.target-picker-dialog .dialog-body > .target-picker-frame { flex-shrink: 1; }
 .target-picker-dialog .pane-caption {
   font-size: 12px;
   margin-bottom: 12px;
@@ -1111,6 +1120,31 @@ label.field-label {
 }
 .target-picker-actions .primary { margin-left: auto; }
 .target-picker-status .note { margin: 10px 0; }
+.target-picker-preparation {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f6f9f3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.target-picker-preparation .field { margin: 0; min-width: 140px; }
+.target-picker-preparation .help { flex-basis: 100%; margin: 0; }
+.target-picker-preparation[hidden],
+.target-picker-frame[hidden],
+.target-picker-actions[hidden],
+.target-picker-selection[hidden],
+.target-picker-dialog .button[hidden] { display: none; }
+.column-mapping { display: grid; gap: 9px; }
+.column-mapping-field { padding: 0; border: 0; min-width: 0; }
+.column-mapping-row { display: flex; gap: 7px; align-items: center; }
+.column-mapping-row input { width: 0; flex: 1; min-width: 0; }
+.column-mapping-row input.column-letter { max-width: 64px; flex: .45; }
+.column-mapping-row .icon-button { flex-shrink: 0; }
+.column-mapping-hint { margin: 0; }
 @media (max-width: 600px) {
   .target-picker-dialog .dialog-body { padding: 14px; }
   .target-picker-dialog .dialog-head { padding: 16px 14px; }

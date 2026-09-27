@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.3.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.3.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.4.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.4.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemeler **Actions → Build desktop apps → Artifacts** bölümünde bulunur. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
@@ -44,7 +44,11 @@ GitHub indirmesi `.venv` içermez; Python ortamı her bilgisayarda yeniden kurul
 
 Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka bir terminalden çalıştıracaksanız önce proje klasörüne geçip sanal ortamı etkinleştirin.
 
-Studio’nun adım havuzu pencere tanıma, tıklama, **Alanı doldur**, tuş gönderme, görsel bekleme, Sheets hücresi/sütunu okuma, hücreye yazma, satır döngüsü, bekleme ve koşul adımlarından oluşur. **Alanı doldur**, ERP görüntüsünde seçilen X/Y noktasını veya görsel referansı kullanarak doğru alanı hedefler. B2, B3, B4 değerlerini sırayla kullanmak için [Sheets satır döngüsü rehberini](docs/sheets-satir-dongusu.md) izleyin. İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
+Studio’nun adım havuzu pencere tanıma, tıklama, **Alanı doldur**, tuş gönderme, görsel bekleme, Sheets hücresi/satırları okuma, hücreye yazma, satır döngüsü, sınırlı koşul döngüsü, bekleme ve koşul adımlarından oluşur. **Sheets satırlarını oku** ile B sütununa `form_id`, C sütununa `status` adı verin; döngüde `${row.form_id}` ve `${row.status}` kullanın. Durumu **boş veya Bekliyor** olanları koşulla seçebilir, her dalın içine işlem veya başka bir döngü ekleyebilirsiniz. **Koşul sürdükçe tekrarla**, tekrar ve süre sınırlarıyla çalışır. [Sheets satır ve koşul rehberi](docs/sheets-satir-dongusu.md).
+
+**Alanı doldur → Ekranda seç**, 3/5/10 saniyelik geri sayım sonunda fare konumunu alır; görsel yöntemde ekranın alınmış görüntüsü üzerinde fareyle alan kırpıp hedef noktayı seçersiniz. Önizlemeyi kontrol ederek **Hedefi kaydet** ile onaylayın; **Esc** seçimden vazgeçirir. **Görüntü üzerinde seç** aynı seçimi Studio içindeki görüntüde yapar ve tarayıcıdan kullanımda da çalışır. Her iki yöntemde ERP penceresi **ana ekranda ve tamamen görünür** olmalıdır. macOS ekran kaydı ve erişilebilirlik izinleri, Windows pencere odağı ve yetkileri [pencere tanıtma rehberinde](docs/pencere-tanitma.md) açıklanır.
+
+İlk açılışta örnek akış oluşturulmaz. Mevcut akışlar düzenlenebilir ve çalıştırılabilir; eski **Sheets sütununu oku** / `${row.value}` ve odaktaki alana yazma adımları korunur. Kütüphaneye eklenen adımları yıldızlayarak en üstteki **Sık kullanılanlar** bölümüne taşıyabilirsiniz; favoriler uygulama yeniden açıldığında korunur. Gerçek otomasyon bağlantıları olmadan terminal demosu da çalışır:
 
 ```bash
 rpa-studio demo
@@ -69,10 +73,10 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
 | Veritabanı | PostgreSQL / SQL Server tablolarını izin listesi ve parametreli filtrelerle okuma |
-| Masaüstü | Koordinata veya görsel şablona tıklama, metin yazma ve platforma uygun kısayollar |
+| Masaüstü | Geri sayımla fare konumu alma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
 | ERP listeleri | Bilinen değerler veya OCR ile toplanan dropdown seçenekleri üzerinde döngü |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
-| Google Sheets | Hücre ve aralık okuma/yazma; servis katmanında satır ekleme |
+| Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
 | Web | Playwright ile headless Chromium işlemleri |
 
 Bu sürüm tek bilgisayarda uygulama sahibi tarafından kullanılır. Departman alanı raporları ve akışları sınıflandırır; kullanıcı hesabı veya erişim yetkisi oluşturmaz. Merkezi çok kullanıcılı sunucu, uzak robot yönetimi ve zamanlayıcı bu sürümün kapsamı dışındadır.
@@ -161,7 +165,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 - [Otomatik güncelleme ve yeni sürüm yayımlama](docs/guncelleme-mimarisi.md)
 - [Kurulum, macOS/Windows izinleri ve bağlantılar](docs/kurulum.md)
 - [ERP penceresini tanıtma ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
-- [Sheets B2, B3, B4 satır döngüsü ve FormID alanını doldurma](docs/sheets-satir-dongusu.md)
+- [Sheets satırları, boş/Bekliyor koşulu ve iç içe döngüler](docs/sheets-satir-dongusu.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
 - [Salt okunur veritabanı hesabı](docs/veritabani.md)
 - [Mimari ve genişletme](docs/mimari.md)

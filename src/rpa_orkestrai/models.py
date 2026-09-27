@@ -48,7 +48,7 @@ class WorkflowInput(Model):
                 if len(seen) > 200:
                     raise ValueError("Bir akışta en fazla 200 adım olabilir.")
                 if step.children or step.otherwise:
-                    if step.action not in {"control.for_each", "control.if"}:
+                    if step.action not in {"control.for_each", "control.if", "control.while"}:
                         raise ValueError("Yalnız döngü ve koşul adımları alt adım içerebilir.")
                     if step.otherwise and step.action != "control.if":
                         raise ValueError("Değilse dalı yalnız koşullarda kullanılabilir.")
@@ -114,3 +114,14 @@ class TemplateCropRequest(Model):
     y: int = Field(ge=0, strict=True)
     width: int = Field(ge=8, le=4000, strict=True)
     height: int = Field(ge=8, le=4000, strict=True)
+
+
+class DesktopPickRequest(WindowCheckRequest):
+    mode: Literal["coordinates", "image", "image_only"] = "coordinates"
+    delay: int = Field(default=5, ge=3, le=10, strict=True)
+
+    @model_validator(mode="after")
+    def supported_delay(self):
+        if self.delay not in {3, 5, 10}:
+            raise ValueError("Geri sayım 3, 5 veya 10 saniye olmalıdır.")
+        return self

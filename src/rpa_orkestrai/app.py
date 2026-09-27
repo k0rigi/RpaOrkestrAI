@@ -20,6 +20,7 @@ from .engine import RunManager, WorkflowError, validate_workflow
 from .instance import identity
 from .locking import WorkspaceLock
 from .models import (
+    DesktopPickRequest,
     FavoriteRequest,
     RunRequest,
     TemplateCropRequest,
@@ -36,9 +37,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     store = Store(settings.data_dir)
     manager = RunManager(settings, store)
+    from .desktop.pick_jobs import PickJobs
     from .desktop.targets import CaptureStore
 
     captures = CaptureStore()
+    picks = PickJobs(manager, captures)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -47,11 +50,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 yield
             finally:
+                picks.close()
                 manager.close()
 
     app = FastAPI(title="RpaOrkestrAI Studio", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
     app.state.store, app.state.manager, app.state.settings = store, manager, settings
+    app.state.picks = picks
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
     @app.middleware("http")
@@ -169,6 +174,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return WindowService().find(body.application, body.title, body.match, on_missing="continue")
         except WindowError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/desktop/pick/capabilities")
+    def picker_capabilities():
+        return {"native": picks.available()}
+
+    @app.post("/api/desktop/pick", status_code=202)
+    def start_desktop_pick(body: DesktopPickRequest):
+        from .desktop.windows import WindowError
+
+        try:
+            return picks.start(body.model_dump(include={"application", "title", "match"}), body.mode, body.delay)
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/desktop/pick/{pick_id}")
+    def desktop_pick_status(pick_id: str):
+        return picks.status(pick_id)
+
+    @app.delete("/api/desktop/pick/{pick_id}", status_code=204)
+    def cancel_desktop_pick(pick_id: str):
+        picks.cancel(pick_id)
+        return Response(status_code=204)
 
     @app.post("/api/desktop/capture-window")
     def capture_desktop_window(body: WindowCheckRequest):

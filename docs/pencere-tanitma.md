@@ -1,6 +1,6 @@
 # ERP penceresini ve alanını tanıtma
 
-Bu rehber 0.3.0 için geliştirilen pencere ve satır döngüsü adımlarını anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini sırayla işlemek için [satır döngüsü rehberini](sheets-satir-dongusu.md) kullanın.
+Bu rehber 0.4.0 sürümündeki pencere tanıma ve fareyle hedef seçimini anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini durum sütununa göre işlemek için [satır ve koşul rehberini](sheets-satir-dongusu.md) kullanın.
 
 ## Pencereyi tanı
 
@@ -22,27 +22,43 @@ Pencere tanıma uygulama adı ve başlığını denetler. Aynı başlık altınd
 **Alanı doldur**, hedef alanı bulur, tıklar ve değeri yazar. Bu işlem için ayrıca **Pencerede tıkla** eklemek gerekmez.
 
 - **Pencere değişkeni:** `${erp_window}`.
-- **Yazılacak değer:** tek hücre okuduysanız `${cell_value}`, satır döngüsündeyseniz `${row.value}`.
+- **Yazılacak değer:** tek hücre okuduysanız `${cell_value}`; **Sheets satırlarını oku** adımında B sütununa `form_id` adını verdiyseniz `${row.form_id}`. Eski **Sheets sütununu oku** akışlarında `${row.value}` geçerlidir.
 - **Önce alandaki mevcut değeri temizle:** açık bırakın. Önceki satırın değeri temizlenip yenisi yazılır; kapatırsanız mevcut değere ekleme yapılır.
 
-### Pencere içi X / Y
+### Fare konumunu geri sayımla al
 
-**Hedefi bulma yöntemi** olarak **Pencere içi X / Y** seçin. **ERP ekranından hedef seç** düğmesine basın. Açılan pencere görüntüsünde FormID yazı kutusunun içine tıklayıp **Hedefi kaydet** seçin; X/Y değerleri doldurulur. X/Y'yi elle de girebilirsiniz. Seçmeniz gereken yer `FormID` etiketi değil, yanındaki yazı kutusudur.
+**Hedefi bulma yöntemi** olarak **Pencere içi X / Y** seçin:
+
+1. **Ekranda seç** düğmesine basın ve **Konum** yöntemini seçin.
+2. **Hazırlık süresi** olarak 3, 5 veya 10 saniye seçin; varsayılan 5 saniyedir.
+3. **Tamam, geri sayımı başlat** düğmesine basın. ERP penceresi öne gelir.
+4. Fareyi FormID yazı kutusunun içine götürün ve geri sayım bitene kadar orada tutun. Tıklamanız gerekmez; süre sonunda farenin konumu alınır.
+5. Studio'ya dönen önizlemede işaretlenen yeri kontrol edin. **Hedefi kaydet** ile X/Y'yi adıma aktarın. **Yeniden ekranda seç** ile geri sayımı tekrar hazırlayabilirsiniz.
+
+Seçmeniz gereken yer `FormID` etiketi değil, yanındaki yazı kutusudur. Seçim işlemi ERP’ye tıklama veya metin göndermez. **Esc**, **Seçimi iptal et** veya seçim penceresini kapatma mevcut hedefi değiştirmeden vazgeçirir. X/Y'yi sağ panelden elle de düzenleyebilirsiniz.
 
 Koordinatlar başlık çubuğu dahil pencerenin sol üst köşesine göredir. Pencere taşınırsa yeni konumu kullanılır. Pencere boyutu, uygulama düzeni, tema veya ekran ölçeği değişirse hedefi yeniden seçin. ERP penceresini ana ekranda ve tamamen görünür tutun.
 
-### Referans görsel
+### Fareyle görsel alanını kırp
 
-**ERP ekranından hedef seç** düğmesine basıp açılan araçta **Görsel referans** seçin. Hedefi iki aşamada belirleyin:
+**Ekranda seç** düğmesine basıp **Görsel referans** yöntemini seçin. Hazırlık süresini belirleyip **Tamam, geri sayımı başlat** seçin. Süre sonunda ERP penceresinin görüntüsü üzerinde seçim aracı açılır:
 
-1. Pencere görüntüsünde **FormID etiketini ve hemen çevresini** kapsayan küçük bir dikdörtgen çizin.
-2. Ardından değerin yazılacağı **yazı kutusunun içine tıklayın** ve **Hedefi kaydet** seçin. Yazı kutusu çizdiğiniz referansın dışında olabilir.
+1. Fareyi basılı tutup sürükleyerek **FormID etiketini ve hemen çevresini** kapsayan küçük bir dikdörtgen çizin. Bu, ekranın o anda alınmış görüntüsüdür; ERP üzerinde sürükleme yapılmaz.
+2. Ardından değerin yazılacağı **yazı kutusunun içine tıklayın**. Yazı kutusu çizdiğiniz referansın dışında olabilir.
+3. **Seçimi kullan** ile Studio'daki önizlemeye dönün. Araç çubuğu hedefi kapatıyorsa **H** ile taşıyabilir; seçimi **R** ile sıfırlayabilirsiniz.
+4. Önizlemede hem kırpılacak alanı hem hedef noktayı kontrol edip **Hedefi kaydet** seçin. Önizleme üzerinde hedefi değiştirebilir; **Seçimi temizle** ile dikdörtgeni yeniden çizebilirsiniz.
 
-Referans görsel kaydedilir; görselin merkezi ile seçtiğiniz yazı kutusu arasındaki X/Y farkı otomatik hesaplanır. Gerekirse **Görsel merkezinden sağa / sola** ve **aşağı / yukarı** değerlerini sonradan elle düzeltebilirsiniz. **Pencerede görseli bekle** adımında yalnız referans dikdörtgeni seçilir; tıklanacak alan gerekmez.
+Yalnız seçilen küçük referans görsel kaydedilir; tüm pencere görüntüsü akışa eklenmez. Görselin merkezi ile seçtiğiniz yazı kutusu arasındaki X/Y farkı otomatik hesaplanır. Gerekirse **Görsel merkezinden sağa / sola** ve **aşağı / yukarı** değerlerini sonradan elle düzeltebilirsiniz. **Pencerede görseli bekle** adımında yalnız referans dikdörtgeni seçilir; tıklanacak alan gerekmez. Önizleme onaylanmadan adımın hedefi değiştirilmez.
 
 Kutunun içindeki değişen fatura/form numarasını referansa dahil etmeyin; sonraki satırda bu içerik değişecektir. Aynı etiket birden fazla yerde görünüyorsa çevresindeki sabit ayrıntıları da seçerek hedefi ayırt edin.
 
 Arama yalnız tanıtılan pencerenin içinde yapılır. Görsel süre içinde bulunamazsa işlem durur. Eşleşme eşiği varsayılan olarak `0.9`'dur. Tema, ölçek veya yazı tipi değişirse referansı yeniden alın; yalnızca eşiği düşürmek benzer bir öğenin seçilmesine yol açabilir.
+
+### Studio içindeki görüntüden seçme
+
+**Görüntü üzerinde seç**, geri sayım kullanmadan ERP pencere görüntüsünü Studio'da açar. Konum için görüntüye tıklayın; görsel için fareyle dikdörtgen çizip hedef noktayı işaretleyin. **Hedefi kaydet** ile uygulayın. Bu yöntem Studio tarayıcıda çalışırken de kullanılabilir; **Ekranda seç** ise yerel masaüstü uygulaması gerektirir.
+
+Her iki yöntem de bu sürümde ERP penceresinin **ana ekranda ve tamamı görünür** olmasını gerektirir. Ekran ölçeği, pencere düzeni veya tema değiştiğinde hedefi yeniden tanıtın. Seçim sırasında ERP penceresi taşınır/kapanırsa veya başlığı değişirse seçim hata ile durur; doğru pencereyi açıp tekrar seçin. Seçim sürerken akış başlatılamaz; akış çalışırken de hedef seçimi başlatılamaz.
 
 ## Tıklama, doldurma ve tuş adımlarının farkı
 
@@ -65,6 +81,6 @@ Her giriş adımı hedef pencereyi öne getirip odağı doğrular. Pencere kapan
 - **Windows:** pencere listeleme Windows API'sini kullanır. ERP farklı bir oturumda veya yükseltilmiş yetkiyle çalışıyorsa giriş engellenebilir. Odağın doğrulanamadığı durumda adım durur.
 - Temizleme kısayolu Windows'ta **Ctrl+A**, macOS'ta **Command+A** kullanır. İki işletim sisteminde ERP uygulama adı, pencere başlığı, görünüm veya koordinatlar farklıysa hedefleri o bilgisayarda yeniden seçin.
 
-**Deneme modu**, akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **ERP ekranından hedef seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın.
+**Deneme modu**, akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **Ekranda seç**, **Görüntü üzerinde seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın.
 
 Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne taşıyabilirsiniz.

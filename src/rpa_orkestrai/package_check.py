@@ -34,6 +34,7 @@ def run_check(report: Path) -> int:
             from . import __version__
             from .app import create_app
             from .config import Settings
+            from .desktop.picker import LivePicker, overlay_html
             from .desktop.targets import CaptureStore
             from .desktop.vision import Vision
             from .desktop.windows import WindowInfo
@@ -51,6 +52,15 @@ def run_check(report: Path) -> int:
             matched = Vision.match_template(screen, root / "templates" / cropped["template"], require_unique=True)
             if matched is None or (matched.x, matched.y) != (70, 40):
                 raise RuntimeError("Paket içindeki görsel hedef seçimi doğrulanamadı.")
+
+            # Validate the frozen native overlay code without opening a desktop
+            # window or requesting screen/input permissions in the build runner.
+            fixture = WindowInfo(1, 1, "Test", "ERP fixture", 0, 0, 200, 120)
+            overlay = overlay_html(fixture, captured["image"], "image", (200, 120))
+            if "pywebview" not in overlay or "canvas" not in overlay:
+                raise RuntimeError("Paket içindeki fareyle hedef seçimi doğrulanamadı.")
+            if not callable(LivePicker.pick):
+                raise RuntimeError("Canlı hedef seçimi yüklenemedi.")
 
             sock = socket.socket()
             sock.bind(("127.0.0.1", 0))
@@ -72,7 +82,7 @@ def run_check(report: Path) -> int:
                         raise RuntimeError(f"Paket kaynağı doğrulanamadı: {route}")
             result = {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
                       "version": __version__, "platform": current_platform_key(),
-                      "checks": ["native-import", "automation-imports", "target-crop-and-match", "http-api", "bundled-static-files"]}
+                      "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay", "http-api", "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

@@ -8,6 +8,7 @@ import math
 import operator
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -83,7 +84,10 @@ def has_unknown(value: Any) -> bool:
 
 
 def active_fields(action: str, parameters: dict) -> list[dict]:
-    return [f for f in BY_TYPE[action]["fields"] if all(
+    return [f for f in BY_TYPE[action]["fields"] if not (
+        action in {"control.if", "control.while"} and f["name"] == "right"
+        and parameters.get("operator") in ("empty", "not_empty", "truthy")
+    ) and all(
         parameters.get(key) == value for key, value in f.get("visible_when", {}).items()
     )]
 
@@ -136,6 +140,19 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
 
 
 def compare(left: Any, op: str, right: Any) -> bool:
+    if not isinstance(op, str):
+        raise WorkflowError("Karşılaştırma işleci geçerli bir metin olmalıdır.")
+    empty = left is None or isinstance(left, str) and not left.strip()
+    if op == "empty":
+        return empty
+    if op == "not_empty":
+        return not empty
+    if op == "empty_or_eq":
+        return empty or left == right
+    if op == "one_of":
+        if not isinstance(right, list) or len(right) > 1000:
+            raise WorkflowError("Listedeki değerlerden biri karşılaştırması için en fazla 1000 değerlik liste kullanın.")
+        return left in right
     if op == "contains":
         return str(right).casefold() in str(left).casefold()
     if op == "truthy":
@@ -173,10 +190,13 @@ class Executor:
         self._database: Any = None
         self._sheets: dict[tuple[str, str], Any] = {}
         self.executed = 0
+        self._deadlines: list[float] = []
 
     def check_cancelled(self) -> None:
         if self.cancel.is_set():
             raise Cancelled()
+        if self._deadlines and time.monotonic() >= min(self._deadlines):
+            raise WorkflowError("Koşullu döngünün süre sınırı doldu; işlem durduruldu.")
 
     def log(self, message: str, *, level: str = "info", step_id: str | None = None) -> None:
         # Never persist configured credentials, even when accidentally used in a log step.
@@ -223,6 +243,8 @@ class Executor:
                 continue
             # Resolve selectors first; inactive target fields may contain old expressions.
             selectors = {key for f in BY_TYPE[step.action]["fields"] for key in f.get("visible_when", {})}
+            if step.action in {"control.if", "control.while"}:
+                selectors.add("operator")
             selected = {**raw, **{key: resolve(raw[key], self.variables) for key in selectors}}
             p = resolve({f["name"]: selected[f["name"]] for f in active_fields(step.action, selected)}, self.variables)
             if has_unknown(p):
@@ -232,8 +254,10 @@ class Executor:
                 continue
             if step.action == "control.for_each":
                 self.for_each(step, p)
+            elif step.action == "control.while":
+                self.while_loop(step, raw, p)
             elif step.action == "control.if":
-                verdict = compare(p["left"], p["operator"], p["right"])
+                verdict = compare(p["left"], p["operator"], p.get("right"))
                 self.log("Koşul: " + ("Evet" if verdict else "Değilse"), step_id=step.id)
                 self.steps(step.children if verdict else step.otherwise)
             else:
@@ -265,6 +289,48 @@ class Executor:
                     self.variables.pop(key, None)
                 else:
                     self.variables[key] = old
+
+    def while_loop(self, step: Step, raw: dict, p: dict) -> None:
+        limit, seconds = p["max_iterations"], p["max_seconds"]
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise WorkflowError("Koşullu döngü tekrar sınırı 1–1000 arasında tam sayı olmalıdır.")
+        if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                or not math.isfinite(seconds) or not 1 <= seconds <= 3600):
+            raise WorkflowError("Koşullu döngü süre sınırı 1–3600 saniye olmalıdır.")
+        deadline, index = time.monotonic() + seconds, 0
+        sentinel = object()
+        old_index = self.variables.get("loop_index", sentinel)
+        self._deadlines.append(deadline)
+        try:
+            while True:
+                self.check_cancelled()
+                if time.monotonic() >= deadline:
+                    raise WorkflowError("Koşullu döngünün süre sınırı doldu; işlem durduruldu.")
+                operator_value = resolve(raw["operator"], self.variables)
+                left = resolve(raw["left"], self.variables)
+                right = None if operator_value in ("empty", "not_empty", "truthy") else resolve(raw["right"], self.variables)
+                if has_unknown([left, right, operator_value]):
+                    self.mark_unknown(step, raw)
+                    self.log("Önizleme: döngü koşulu için gerçek bağlantı verisi gerekiyor.",
+                             level="warning", step_id=step.id)
+                    return
+                if not compare(left, operator_value, right):
+                    return
+                if index >= limit:
+                    raise WorkflowError("Koşullu döngünün tekrar sınırına ulaşıldı; koşul hâlâ doğru.")
+                self.executed += 1
+                if self.executed > 10000:
+                    raise WorkflowError("Bir çalışma en fazla 10.000 adım çalıştırabilir.")
+                self.variables["loop_index"] = index
+                self.log(f"Koşullu döngü: {index + 1}/{limit}", step_id=step.id)
+                self.steps(step.children)
+                index += 1
+        finally:
+            self._deadlines.pop()
+            if old_index is sentinel:
+                self.variables.pop("loop_index", None)
+            else:
+                self.variables["loop_index"] = old_index
 
     def browser(self) -> Any:
         if self._browser is None:
@@ -433,8 +499,21 @@ class Executor:
             if action == "sheets.read_cell":
                 value = self._sheets[key].get_cell(p["cell"])
                 if value is None or value == "":
+                    if p.get("allow_empty") is True:
+                        return ""
                     raise WorkflowError("Sheets hücresi boş. Hücre adresini ve veriyi kontrol edin.")
                 return value
+            if action == "sheets.read_rows":
+                try:
+                    rows = self._sheets[key].get_rows(start_row=p["start_row"], max_rows=p["max_rows"],
+                                                     columns=p["columns"], key=p["key"], empty_policy=p["empty_policy"])
+                except ValueError as exc:
+                    raise WorkflowError("Satır sınırını, sütun eşleştirmelerini ve ana alanı kontrol edin. "
+                                        "1–32 benzersiz alan, en fazla 64 sütun genişliği kullanılabilir.") from exc
+                if not rows:
+                    raise WorkflowError("Ana alanı dolu kayıt bulunamadı. Başlangıç satırını ve sütunları kontrol edin.")
+                self.log(f"Sheets: {len(rows)} kayıt okundu.")
+                return rows
             if action == "sheets.read_column":
                 try:
                     rows = self._sheets[key].get_column(p["start_cell"], p["max_rows"], p["empty_policy"])
@@ -486,19 +565,36 @@ class RunManager:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rpa-worker")
         self._lock = threading.RLock()
         self._active: tuple[str, threading.Event] | None = None
+        self._setup_cancel: threading.Event | None = None
         self._closed = False
+
+    def reserve_desktop(self, cancel: threading.Event | None = None) -> threading.Event:
+        with self._lock:
+            if self._closed or self._active or self._setup_cancel is not None:
+                raise RuntimeError("Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya durdurun.")
+            token = cancel if cancel is not None else threading.Event()
+            self._setup_cancel = token
+            return token
+
+    def release_desktop(self, token: threading.Event) -> None:
+        with self._lock:
+            if self._setup_cancel is token:
+                self._setup_cancel = None
 
     @contextmanager
     def desktop_setup(self):
-        """Keep setup captures from stealing focus during a running ERP flow."""
-        with self._lock:
-            if self._closed or self._active:
-                raise RuntimeError("Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya durdurun.")
+        """Reserve without holding the lock, so run/cancel requests return promptly."""
+        token = self.reserve_desktop()
+        try:
             yield
+        finally:
+            self.release_desktop(token)
 
     def start(self, workflow: Workflow, *, dry_run: bool = False) -> Run:
         validate_workflow(workflow)
         with self._lock:
+            if self._setup_cancel is not None:
+                raise RuntimeError("Bir hedef seçimi devam ediyor. Tamamlanmasını bekleyin veya iptal edin.")
             if self._closed or self._active:
                 raise RuntimeError("Zaten bir akış çalışıyor. Tamamlanmasını bekleyin veya durdurun.")
             run = Run(workflow_id=workflow.id, workflow_name=workflow.name,
@@ -554,4 +650,6 @@ class RunManager:
             self._closed = True
             if self._active:
                 self._active[1].set()
+            if self._setup_cancel is not None:
+                self._setup_cancel.set()
         self.pool.shutdown(wait=True, cancel_futures=False)

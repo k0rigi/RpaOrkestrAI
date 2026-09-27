@@ -1,79 +1,97 @@
-# Sheets B2, B3, B4 değerlerini ERP'de sırayla kullanma
+# Sheets satırları, durum koşulları ve ERP işlemleri
 
-Bu akış 0.3.0 için geliştirilen adımları kullanır. **Sheets sütununu oku**, B2'den başlayan değerleri bir kez listeye alır. **Her satır için**, bu listedeki her değer için kendi içine eklediğiniz ERP adımlarını çalıştırır. B3 ve B4 için ayrı okuma adımı eklemeniz veya hücreyi elle artırmanız gerekmez.
+0.4.0'da **Sheets satırlarını oku** adımı, FormID ve durum gibi sütunları aynı kayıtta okur. **Her satır için** döngüsüne **Koşul** ekleyerek yalnız durumu boş veya `Bekliyor` olan kayıtları işleyebilirsiniz. Koşulun dallarına başka koşullar ve döngüler de eklenebilir.
 
-## Önce bağlantıyı ve ERP hedefini hazırlayın
+## Bağlantıyı ve ERP hedefini hazırlayın
 
 **Bağlantılar ve ayarlar** bölümünde Google servis hesabının JSON dosyasını seçin/yolunu tanımlayın. Google Sheets tablosunu servis hesabının e-posta adresiyle paylaşın. Okuma için görüntüleme; sonuçları tabloya yazmak için düzenleme izni gerekir. Servis hesabı dosyası çalışmanın yapıldığı bilgisayarda bulunmalıdır.
 
 **Google Sheets adresi veya kimliği** alanına tablonun tam `https://docs.google.com/spreadsheets/d/.../edit` bağlantısını yapıştırabilirsiniz. Yalnız tablo kimliği de kabul edilir. **Sayfa adı**, alt sekmenin tam adıdır; örneğin `Sayfa1`.
 
-ERP'de FormID alanının bulunduğu ekranı açın. [Pencere ve hedef seçimi rehberine](pencere-tanitma.md) göre pencereyi tanıtın ve alanı seçin.
+ERP'de FormID alanının bulunduğu ekranı açın. [Pencere ve hedef seçimi rehberine](pencere-tanitma.md) göre pencereyi tanıtın ve alanı fareyle seçin.
 
-## Akışı kurun
+## B sütunundaki FormID'yi C sütunundaki duruma göre işle
 
 | Sıra | Adım | Ayarlar |
 | --- | --- | --- |
-| 1 | **Pencereyi tanı** | ERP penceresini seçin; çıktı `erp_window`; bulunamazsa **Akışı durdur**. |
-| 2 | **Sheets sütununu oku** | Tablo adresi, `Sayfa1`, başlangıç `B2`, azami satır `100`, boş hücrede **Okumayı bitir**, çıktı `sheet_rows`. |
-| 3 | **Her satır için** | Satır listesi `${sheet_rows}`, geçerli satır değişkeni `row`. |
-| 3.1 | **Alanı doldur** — döngünün içinde | Pencere `${erp_window}`, seçtiğiniz FormID hedefi, yazılacak değer `${row.value}`, mevcut değeri temizleme açık. |
+| 1 | **Pencereyi tanı** | ERP penceresi; çıktı `erp_window`; bulunamazsa **Akışı durdur**. |
+| 2 | **Sheets satırlarını oku** | Tablo adresi, `Sayfa1`, başlangıç satırı `2`, ilk denemede azami satır `1`. |
+| 2 — sütun ayarları | **Okunacak sütunlar** | `B → form_id`, `C → status`; ana alan `form_id`; çıktı `sheet_rows`. |
+| 3 | **Her satır için** | Satır listesi `${sheet_rows}`; geçerli satır değişkeni `row`. |
+| 3.1 — döngünün içinde | **Koşul** | Sol değer `${row.status}`; karşılaştırma **Boş veya eşittir**; sağ değer `Bekliyor`. |
+| 3.1.1 — Evet dalında | **Alanı doldur** | Pencere `${erp_window}`; seçtiğiniz FormID hedefi; metin `${row.form_id}`; mevcut değeri temizleme açık. |
+| 3.2 — Değilse dalı | Boş bırakın | Örneğin `Tamamlandı` olan kaydı atlar ve sonraki satıra geçer. |
 
-**Alanı doldur** adımını ana akışın sonuna değil, **Her satır için** kutusunun içine ekleyin. Yalnızca alan doldurulan ilk örnekte döngü sonunda son satırın değeri görünür; her satır için arama veya başka işlem yapılacaksa o adımları da döngünün içine ekleyin.
+Sütun eşleştirmelerini arayüzdeki satırlarla düzenleyin; JSON yazmanız gerekmez. Alan adları harf, rakam ve alt çizgi kullanır; boşluk içermez. `row_number` fiziksel satır numarası için ayrılmıştır. Aynı sütunu iki farklı alana eşleştirmeyin.
 
-Örneğin B2=`000142`, B3=`000143`, B4=`000144` ise FormID alanına sırayla bu değerler yazılır. Baştaki sıfırlar Sheets'te görüntülendiği biçimde korunur. Hücre Sheets'te zaten `142` görünüyorsa uygulama kendiliğinden `000142` üretmez; sütunun biçimini Sheets'te ayarlayın.
+Örneğin tablo şöyle olsun:
 
-| Değişken | İlk turda | Sonraki turda |
-| --- | --- | --- |
-| `${row.value}` | `000142` | `000143` |
-| `${row.cell}` | `B2` | `B3` |
-| `${row.row_number}` | `2` | `3` |
+| Sheets satırı | B: FormID | C: durum | Koşulun sonucu |
+| --- | --- | --- | --- |
+| 2 | `000142` | boş | ERP adımları çalışır. |
+| 3 | `000143` | `Tamamlandı` | Atlanır. |
+| 4 | `000144` | `Bekliyor` | ERP adımları çalışır. |
 
-### Boş hücreler ve okuma sınırı
+`${row.form_id}` FormID'yi, `${row.status}` aynı kaydın durumunu, `${row.row_number}` gerçek Sheets satır numarasını verir. Baştaki sıfırlar Sheets'te görüntülendiği biçimde korunur. Hücre Sheets'te zaten `142` görünüyorsa uygulama kendiliğinden `000142` üretmez.
 
-- **Okumayı bitir:** ilk boş hücrede liste sona erer. B3 boşsa B2 işlenir; B4 işlenmez.
-- **Atla ve devam et:** okuma sınırı içindeki boş hücreler atlanır. B3 boşsa B2'den sonra B4 işlenir; B4'ün `row_number` değeri yine `4` olur.
-- Yalnız boşluk içeren hücreler boş sayılır. `0` değeri boş değildir ve işlenir.
-- Varsayılan sınır **100**, izin verilen sınır **1–1000 fiziksel satır**dır. B2'den 100 satır, **B2:B101** aralığı demektir. Boş satırları atlamak bu aralığı aşağı doğru uzatmaz.
-- Liste akış başında bir kez okunur. Çalışma sırasında Sheets'te yapılan değişiklikler mevcut listeyi değiştirmez. Döngü liste bittiğinde sona erer.
-- Her yeni çalıştırma tekrar B2'den başlar. Otomatik kaldığı yerden devam etme veya daha önce işlendi işaretlerini kendiliğinden atlama yoktur. C sütununa sonuç yazılması tek başına sonraki çalıştırmada tekrar işlemeyi engellemez.
+**Alanı doldur** adımını ana akışın sonuna değil, döngüdeki koşulun **Evet** dalına ekleyin. Yalnız alan doldurulan örnekte son işlenen satırın değeri ekranda kalır. Arama veya başka ERP işlemleri yapılacaksa o adımları da aynı dala ekleyin.
 
-## Döngüye gerektiğinde eklenebilecek işlemler
+## Boş değerler ve karşılaştırmalar
 
-**Pencerede tuşa bas**, alan doldurulduktan sonra Enter veya Tab gönderebilir. ERP'nizde bu tuşun işlevini doğrulayın. Örnek dosya Enter, kaydet veya fatura onaylama işlemi içermez.
+- **Boş:** değer yoksa, boş metinse veya yalnız boşluk içeriyorsa doğrudur. `0` ve `false` boş sayılmaz.
+- **Boş değil:** yukarıdaki kontrolün tersidir.
+- **Boş veya eşittir:** boş değerleri ve sağdaki değere tam eşit olanları seçer. `Bekliyor` ile `bekliyor` farklıdır.
+- **Listedeki değerlerden biri:** sağdaki listedeki tam değerlerden birine eşitliği denetler; kısmi metin eşleşmesi yapmaz.
+- **İçerir (harf duyarsız):** metnin bir bölümünü harf büyüklüğünü ayırt etmeden arar.
 
-**Pencerede görseli bekle**, sonraki işleme geçmeden önce doğru ekranın veya sonucun hazır olmasını kontrol eder. Yükleniyor işaretinin kaybolmasını, ardından beklenen sonuç işaretinin görünmesini bekletebilirsiniz. Önceki kayıttan kalan ve zaten görünür olan bir işaret yeni kaydın başarılı işlendiğini kanıtlamaz; işaretin ilgili işleme ait olduğunu ve beklenen geçişi doğrulayın.
+**Sheets hücresini oku** adımındaki **Boş hücreyi hata vermeden oku** seçeneği açıkken boş hücre boş metin olur. Sonrasında **Koşul → Boş** ile karar verebilirsiniz. Seçenek kapalıysa önceki sürümlerde olduğu gibi boş hücrede hata verilir.
 
-**Pencerede tıkla**, ayrıca basılması gereken arama butonu gibi bir öğe içindir. **Alanı doldur** zaten kendi hedef alanına tıkladığından aynı hedef için ikinci tıklama adımı gerekmez.
+Tablo okuma adımında yalnız **ana alan** satırın varlığını belirler. `form_id` dolu olduğu sürece `status` boş olan kayıt korunur. Ana alan boşsa:
 
-**Sheets hücresine yaz** ile doğrulanmış sonucu aynı satıra kaydedebilirsiniz:
+- **Okumayı bitir:** ilk boş ana alanda okuma sona erer.
+- **Satırı atla, devam et:** okuma sınırı içindeki boş ana alanlı satırlar atlanır. Fiziksel satır numaraları değişmez.
+
+Azami satır **1–1000 fiziksel satır**dır. Başlangıç 2, sınır 100 ve sütunlar B/C ise **B2:C101** okunur. Boşları atlamak aralığı aşağı doğru uzatmaz. 1–32 farklı alan eşleştirilebilir; seçili sütunların ilkinden sonuncusuna uzaklığı en fazla 64 sütun olabilir.
+
+Liste çalışma başında bir kez okunur. Çalışma sırasında Sheets'te yapılan değişiklikler mevcut listeyi değiştirmez. Her yeni çalıştırma başlangıç satırından tekrar okur; durum koşulu yeni okunan `Tamamlandı` kayıtlarını atlar. Bu davranış otomatik kaldığı yerden devam etme veya birden fazla bilgisayar arasında kayıt kilitleme değildir.
+
+## Koşul sürdükçe tekrar et
+
+**Her satır için**, bir listedeki kayıtları dolaşır. **Koşul sürdükçe tekrarla**, karşılaştırmayı her turdan önce yeniden değerlendirir ve doğru kaldığı sürece içindeki adımları çalıştırır.
+
+Örneğin bir hücrenin `Tamamlandı` olmasını sınırlı süre boyunca kontrol etmek için:
+
+1. **Sheets hücresini oku** ile ilk değeri `status` değişkenine alın; boş hücreye izin verin.
+2. **Koşul sürdükçe tekrarla** ekleyin: sol `${status}`, karşılaştırma **Eşit değildir**, sağ `Tamamlandı`.
+3. İçine **Bekle** ve ardından aynı hücreyi tekrar `status` değişkenine okuyan adımı ekleyin.
+4. **En fazla tekrar** ve **Toplam süre sınırı** belirleyin.
+
+Sütun okuma listesindeki eski değeri tekrar karşılaştırmak dışarıdaki değişikliği okumaz; bu nedenle örnekte hücre döngünün içinde yeniden okunur. Koşul ilk kontrolde yanlışsa içerideki adımlar hiç çalışmaz.
+
+Tekrar sınırı **1–1000**, süre sınırı **1–3600 saniye**dir. Sınıra ulaşıldığında koşul hâlâ doğruysa akış hata ile durur. Süre adımlar arasında kontrol edilir; devam eden tek bir ağ/ERP işlemini anında kesmez. İç işlemlerin kendi zaman aşımı değerlerini de uygun ayarlayın. **Durdur** komutu yeni bir tura veya sonraki adıma geçilmesini engeller.
+
+Koşulları ve döngüleri iç içe yerleştirebilirsiniz. `${loop_index}` içinde bulunulan döngünün sıfırdan başlayan sayacıdır; iç döngü bittiğinde dış döngünün sayacı geri gelir.
+
+## ERP işlemini doğruladıktan sonra sonuç yaz
+
+**Pencerede tuşa bas**, FormID doldurulduktan sonra Enter veya Tab gönderebilir. ERP'nizde bu tuşun işlevini doğrulayın. **Pencerede tıkla** ayrıca basılacak arama butonu gibi bir öğe içindir; **Alanı doldur** zaten kendi hedefine tıklar.
+
+**Pencerede görseli bekle**, beklenen ekranın veya sonucun hazır olmasını kontrol eder. Gerekiyorsa yükleniyor işaretinin kaybolmasını ve ardından beklenen sonucun görünmesini bekleyin. Önceki kayıttan kalan, zaten görünür bir işaret yeni kaydın başarıyla işlendiğini tek başına kanıtlamaz.
+
+Doğrulanmış sonucu aynı satıra yazmak için koşulun **Evet** dalının sonuna **Sheets hücresine yaz** ekleyin:
 
 - Tablo ve sayfa: okuma adımındaki tablo ve sayfa.
-- Yazılacak hücre: `C${row.row_number}`.
-- Yazılacak değer: örneğin `Tamamlandı`.
+- Hücre: `C${row.row_number}`.
+- Değer: `Tamamlandı`.
 
-Bu yazma adımını, **ERP işleminin başarıyla tamamlandığını doğrulayan adımlardan sonra**, döngünün içine koyun. Yalnız FormID alanının dolması faturanın işlendiği anlamına gelmez. Başarı doğrulaması hata verirse akış durur ve sonraki sonuç yazma adımı çalışmaz. Hücreye formül çalıştırmadan metin olarak yazılır.
+Yalnız FormID alanının dolması faturanın işlendiği anlamına gelmez. Bu yazma adımı ERP'deki başarıyı doğrulayan adımlardan sonra gelmelidir. Doğrulama hata verirse akış durur ve sonraki sonuç yazma adımı çalışmaz. Yazılan değer metindir; formül çalıştırılmaz.
 
-## Kütüphanedeki adımların ayrı görevleri
+## İlk doğrulama ve eski akışlar
 
-| Adım | Kullanım amacı |
-| --- | --- |
-| **Pencereyi tanı** | Açık ERP penceresini bulur ve pencere değişkeni oluşturur. |
-| **Pencerede tıkla** | Seçilen buton veya öğeye tıklar. |
-| **Alanı doldur** | Seçilen yazı alanını bulur, gerekiyorsa temizler ve değer yazar. |
-| **Pencerede tuşa bas** | Enter, Tab veya klavye kısayolu gönderir. |
-| **Pencerede görseli bekle** | Görselin görünmesini ya da kaybolmasını bekler. |
-| **Sheets hücresini oku** | Tek bir hücreyi bir kez okur; döngü listesi oluşturmaz. |
-| **Sheets sütununu oku** | Belirlenen sütun aralığını satır bilgileriyle listeye alır. |
-| **Sheets hücresine yaz** | Tek bir hücreye sonuç veya başka bir değer yazar. |
-| **Her satır için** | Listedeki her satırda kendi içindeki adımları tekrarlar. |
-| **Bekle** | Belirli süre bekler; ekranı veya sonucu denetlemez. |
-| **Koşul** | Bir karşılaştırmanın sonucuna göre Evet veya Değilse dalını çalıştırır. |
+[sheets-pending-formids.json](../examples/sheets-pending-formids.json) yeni koşullu düzeni içerir. Tablo kimliğini ve ERP başlığını değiştirin; FormID hedefini fareyle belirleyin. Hedef koordinatları bilerek boştur; hedef seçilmeden deneme modu da çalıştırma doğrulamasını geçmez. Örnek **1 fiziksel satır** okur, yalnız alan doldurur; Enter, fatura kaydı veya sonuç yazma işlemi içermez.
 
-## Örnek dosya ve ilk doğrulama
+Deneme modu Sheets'e bağlanmaz veya ERP'ye yazmaz; gerçek kayıtları ve görsel eşleşmesini sınamaz. İlk gerçek doğrulamayı azami satır 1 ile yapın. FormID hedefini doğruladıktan sonra satır sınırını artırıp ERP'ye özgü işlemleri ekleyin.
 
-[sheets-formid-loop.json](../examples/sheets-formid-loop.json) bu temel düzeni içerir. Tablo kimliği ve ERP başlığı örnektir; FormID koordinatları bilerek boş bırakılmıştır. Önce kendi tablonuzu, pencerenizi ve hedefinizi seçin. Yapılandırılmamış hedef, deneme modunda da çalıştırma doğrulamasına takılır.
+Eski **Sheets sütununu oku** adımı ve [sheets-formid-loop.json](../examples/sheets-formid-loop.json) çalışmaya devam eder. Bu adımın çıktısı `${row.value}`, `${row.cell}`, `${row.row_number}` alanlarıdır. Yeni kütüphanede çok sütunlu **Sheets satırlarını oku** kullanılır; mevcut akışlar ve değişken adları kendiliğinden dönüştürülmez.
 
-Deneme modu Sheets'e bağlanmaz veya ERP'ye yazmaz; gerçek satır değerlerini ve ekran eşleşmesini sınamaz. İlk gerçek doğrulamayı **azami satır 1** ile yapın. FormID hedefinin doğru olduğunu gördükten sonra satır sınırını artırıp ERP'ye özgü arama/sonuç kontrolü adımlarını ekleyin. Bu örnek kendi başına fatura kaydetmez, onaylamaz veya işlenmiş kabul etmez.
-
-Akış biçimi Windows ve macOS'ta aynıdır; uygulama başlığı, izinler, ekran ölçeği ve görsel hedefler her bilgisayarda doğrulanmalıdır. Kullanıcının ERP ortamına bağlanılarak canlı işlem testi yapılmış olduğu varsayılmaz.
+Akış biçimi Windows ve macOS'ta aynıdır. Pencere başlığı, izinler, ekran ölçeği ve görsel hedefler her bilgisayarda doğrulanmalıdır.

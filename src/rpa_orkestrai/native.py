@@ -26,11 +26,17 @@ def open_window(webview, url: str) -> None:
         print("Masaüstü penceresi hazır.", flush=True)
 
     window.events.loaded += on_loaded
-    # pywebview requires the GUI loop on the main thread on both platforms.
-    if platform.system() == "Windows":
-        webview.start(gui="edgechromium")
-    else:
-        webview.start()
+    from .desktop.picker import register_native_host, unregister_native_host
+
+    register_native_host(webview, window)
+    try:
+        # pywebview requires the GUI loop on the main thread on both platforms.
+        if platform.system() == "Windows":
+            webview.start(gui="edgechromium")
+        else:
+            webview.start()
+    finally:
+        unregister_native_host(window)
 
 
 def serve_native(settings: Settings, *, auto_port: bool = False) -> None:

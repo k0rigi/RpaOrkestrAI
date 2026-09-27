@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
@@ -159,6 +159,74 @@ class SheetsService:
                 continue
             row_number = first_row + offset
             records.append({"row_number": row_number, "cell": f"{column}{row_number}", "value": value})
+        return records
+
+    def get_rows(
+        self, *, start_row: int = 2, max_rows: int = 100,
+        columns: Mapping[str, str] | None = None, key: str = "form_id",
+        empty_policy: str = "stop",
+    ) -> list[dict[str, int | str]]:
+        """Read a bounded snapshot with named fields and optional blank values.
+
+        Only the key field decides whether a row is empty. Other fields retain
+        blank cells, allowing workflows to branch on a missing status without
+        discarding the source record. Physical row numbers remain unchanged.
+        """
+        if type(start_row) is not int or not 1 <= start_row <= 1_000_000:
+            raise ValueError("start_row must be an integer between 1 and 1000000.")
+        if type(max_rows) is not int or not 1 <= max_rows <= 1000:
+            raise ValueError("max_rows must be an integer between 1 and 1000.")
+        last_row = start_row + max_rows - 1
+        if last_row > 1_000_000:
+            raise ValueError("The requested range must end at or before row 1000000.")
+        if empty_policy not in ("stop", "skip"):
+            raise ValueError("empty_policy must be 'stop' or 'skip'.")
+        if columns is None:
+            columns = {"form_id": "B", "status": "C"}
+        if not isinstance(columns, Mapping) or not 1 <= len(columns) <= 32:
+            raise ValueError("Map between 1 and 32 named fields to Sheets columns.")
+
+        column_names: dict[str, str] = {}
+        column_numbers: dict[str, int] = {}
+        for field, column in columns.items():
+            if (
+                not isinstance(field, str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", field)
+                or field in {"row_number", "__proto__", "prototype", "constructor"}
+            ):
+                raise ValueError("Use unique field names such as form_id or status; row_number is reserved.")
+            if not isinstance(column, str) or not re.fullmatch(r"\$?[A-Za-z]{1,3}", column):
+                raise ValueError("Map each field to a column letter such as B, C or AA.")
+            normalized = column.lstrip("$").upper()
+            if normalized in column_names.values():
+                raise ValueError("Map each Sheets column only once.")
+            column_names[field] = normalized
+            number = 0
+            for letter in normalized:
+                number = number * 26 + ord(letter) - ord("A") + 1
+            column_numbers[field] = number
+
+        if not isinstance(key, str) or key not in column_names:
+            raise ValueError("The key must name one of the mapped fields.")
+        first_field = min(column_numbers, key=column_numbers.__getitem__)
+        last_field = max(column_numbers, key=column_numbers.__getitem__)
+        first_column = column_numbers[first_field]
+        if column_numbers[last_field] - first_column >= 64:
+            raise ValueError("Keep mapped columns within a span of 64 columns.")
+        a1 = f"{column_names[first_field]}{start_row}:{column_names[last_field]}{last_row}"
+        rows = self.get_range(a1)
+        records: list[dict[str, int | str]] = []
+        for offset, row in enumerate(rows[:max_rows]):
+            record: dict[str, int | str] = {"row_number": start_row + offset}
+            for field, number in column_numbers.items():
+                index = number - first_column
+                value = row[index] if index < len(row) else None
+                record[field] = "" if value is None else str(value)
+            if not str(record[key]).strip():
+                if empty_policy == "stop":
+                    break
+                continue
+            records.append(record)
         return records
 
     def update_range(self, a1: str, values: Sequence[Sequence[Any]], *, raw: bool = True) -> Any:

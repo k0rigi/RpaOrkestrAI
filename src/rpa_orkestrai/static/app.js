@@ -232,7 +232,7 @@
     if (/database|sql|query/.test(type)) return "database";
     if (/sheet/.test(type)) return "sheet";
     if (/browser|web|playwright/.test(type)) return "globe";
-    if (/for_each|loop|dropdown/.test(type)) return "loop";
+    if (/for_each|while|loop|dropdown/.test(type)) return "loop";
     if (/control\.if|^if$|condition|decision|branch/.test(type)) return "branch";
     if (/ocr|vision|detect|screen/.test(type)) return "eye";
     if (/desktop|click|type|hotkey/.test(type)) return "desktop";
@@ -544,7 +544,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.3.0"}`),
+      node("span", "version", `v${state.version || "0.4.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1083,15 +1083,16 @@
     if (!state.target)
       target.append(node("span", "", "Eklenecek yer: Ana akışın sonu"));
     pane.append(target);
-    if (state.catalog.some((spec) => spec.type === "sheets.read_column")) {
+    if (state.catalog.some((spec) => spec.type === "sheets.read_rows")) {
       const guide = node("details", "flow-recipe");
       guide.append(node("summary", "", "Sheets satırlarını ERP’ye işle"));
       const steps = node("ol");
       [
         "ERP penceresini tanıt.",
-        "Sheets sütununu B2’den başlayarak oku.",
+        "Sheets satırlarını oku: başlangıç satırı 2; FormID için B, durum için C sütunu.",
         "Her satır için adımında listeyi ${sheet_rows} seç.",
-        "Döngünün içine Alanı doldur ekle; değer olarak ${row.value} kullan. Gerekli tıklama ve tuşları da içine ekle.",
+        "Döngüye Koşul ekle: ${row.status} boş veya Bekliyor ise işle.",
+        "Koşulun doğru dalına Alanı doldur ekle; değer olarak ${row.form_id} kullan. İşlem sonucunu doğruladıktan sonra durum hücresini güncelle.",
       ].forEach((text) => steps.append(node("li", "", text)));
       guide.append(steps);
       pane.append(guide);
@@ -1190,6 +1191,15 @@
       if (f.default !== undefined && f.default !== null)
         params[f.name] = clone(f.default);
     });
+    if (spec.type === "desktop.window_fill" && state.target) {
+      const loop = (enclosingSteps(state.target.id) || []).reverse().find((step) => step.action === "control.for_each");
+      const producer = loop && loopDataSource(loop);
+      if (producer?.action === "sheets.read_rows") {
+        const key = parameterValue(producer, "key");
+        const item = parameterValue(loop, "item_name");
+        if (key && item) params.text = "${" + item + "." + key + "}";
+      }
+    }
     const step = {
       id: uid(),
       title: spec.label,
@@ -1366,7 +1376,7 @@
           branch === "otherwise"
             ? "DEĞİLSE"
             : container === "loop"
-              ? "HER SATIR İÇİN · İÇ ADIMLAR"
+              ? step.action === "control.while" ? "KOŞUL SÜRDÜKÇE · İÇ ADIMLAR" : "HER SATIR İÇİN · İÇ ADIMLAR"
               : "KOŞUL DOĞRUYSA";
         const head = node("div", "branch-heading");
         head.append(
@@ -1378,7 +1388,7 @@
           const placeholder = node(
             "button",
             "branch-placeholder",
-            container === "loop" ? "Her satırda yapılacak işlemi ekle" : "Bu dala adım ekle",
+            container === "loop" ? step.action === "control.while" ? "Her tekrarda yapılacak işlemi ekle" : "Her satırda yapılacak işlemi ekle" : "Bu dala adım ekle",
           );
           placeholder.addEventListener("click", () => setTarget(step, branch));
           group.append(placeholder);
@@ -1554,9 +1564,20 @@
       : specFor(step.action).fields?.find((field) => field.name === name)?.default;
   }
   function fieldVisible(step, definition) {
+    if (["control.if", "control.while"].includes(step.action) && definition.name === "right" &&
+        ["empty", "not_empty", "truthy"].includes(parameterValue(step, "operator"))) return false;
     return Object.entries(definition.visible_when || {}).every(
       ([name, expected]) => parameterValue(step, name) === expected,
     );
+  }
+  function enclosingSteps(id, steps = state.workflow?.steps || [], parents = []) {
+    for (const step of steps) {
+      if (step.id === id) return [...parents, step];
+      const found = enclosingSteps(id, step.children || [], [...parents, step]) ||
+        enclosingSteps(id, step.otherwise || [], [...parents, step]);
+      if (found) return found;
+    }
+    return null;
   }
   function precedingSteps(id, steps = state.workflow?.steps || [], inherited = []) {
     const previous = [...inherited];
@@ -1590,17 +1611,33 @@
   function windowTargetTools(step) {
     const tools = node("div", "window-target-tools");
     const recognized = recognizedWindowFor(step);
-    const target = button("ERP ekranından hedef seç", "eye", () => pickWindowTarget(step));
-    target.disabled = !recognized;
-    tools.append(target);
+    const busy = state.runs.some((run) => ["queued", "running"].includes(run.status));
+    const target = button("Ekranda seç", "desktop", () => pickWindowTarget(step, "native"));
+    const snapshot = button("Görüntü üzerinde seç", "eye", () => pickWindowTarget(step, "snapshot"), "small");
+    target.disabled = true;
+    snapshot.disabled = !recognized || busy;
+    const availability = node("p", "help");
+    tools.append(target, snapshot);
     if (recognized) {
-      tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekran görüntüsünde alanı işaretleyin.`));
+      tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekranda seç ile geri sayımdan sonra fare konumunu alın veya görsel alanını sürükleyerek seçin.`));
     } else {
       tools.append(node("p", "help", "Önce bu adımın önüne Pencereyi tanıt ekleyin. Pencere alanında onun çıktısını kullanın; örneğin ${erp_window}."));
     }
+    tools.append(availability);
+    if (busy) availability.textContent = "Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya akışı durdurun.";
+    else if (recognized) {
+      availability.textContent = "Ekrandan seçim desteği kontrol ediliyor…";
+      api("/api/desktop/pick/capabilities").then((capabilities) => {
+        if (!tools.isConnected) return;
+        target.disabled = !capabilities.native;
+        availability.textContent = capabilities.native ? "" : "Ekranda seçim bu oturumda kullanılamıyor. Masaüstü uygulamasını açın veya Görüntü üzerinde seç yöntemini kullanın.";
+      }).catch(() => {
+        if (tools.isConnected) availability.textContent = "Ekranda seçim desteği doğrulanamadı. Görüntü üzerinde seç yöntemini kullanabilirsiniz.";
+      });
+    }
     return tools;
   }
-  function pickWindowTarget(step) {
+  function pickWindowTarget(step, source = "native") {
     const workflow = state.workflow;
     const recognized = recognizedWindowFor(step);
     if (!recognized) {
@@ -1622,16 +1659,33 @@
       let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") || "coordinates";
       let capture = null, rectangle = null, point = null, drag = null, image = null;
       let loading = false, saving = false, epoch = 0;
+      let session = null, polling = null, nativeBusy = false, nativeStatus = null;
       const discard = (id) => {
-        if (id) api(`/api/desktop/captures/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+        if (id) api(`/api/desktop/captures/${encodeURIComponent(id)}`, { method: "DELETE", keepalive: true }).catch(() => {});
       };
       const current = () => d.isConnected && state.workflow === workflow && findStep(step.id)?.step === step;
-      const intro = node("p", "pane-caption", "ERP penceresi görüntü alınırken öne gelir. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün. Seçimi aşağıdaki görüntü üzerinde yapın.");
+      const intro = node("p", "pane-caption", source === "native"
+        ? "Önce süreyi seçip geri sayımı başlatın. ERP penceresi öne gelir; seçiminiz bitince burada kontrol edip kaydedebilirsiniz. Seçim sırasında ERP’ye tıklama veya metin gönderilmez."
+        : "ERP penceresinin görüntüsü alınır. Konum için görüntüye tıklayın; görsel referans için fareyle bir dikdörtgen çizin. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün.");
+      intro.append(" Bu sürümde ERP penceresini ana ekranda, tamamı görünür olacak şekilde tutun.");
       const toolbar = node("div", "target-picker-toolbar");
       const modeLabel = node("span", "field-label", "Hedef yöntemi");
       const coordinates = button("Konum", "desktop", () => changeMode("coordinates"), "small");
       const visual = button("Görsel referans", "eye", () => changeMode("image"), "small");
       if (!referenceOnly) toolbar.append(modeLabel, coordinates, visual);
+      const preparation = node("div", "target-picker-preparation");
+      const delay = node("select");
+      for (const seconds of [3, 5, 10]) {
+        const option = node("option", "", `${seconds} saniye`);
+        option.value = seconds;
+        delay.append(option);
+      }
+      delay.value = "5";
+      const begin = button("Tamam, geri sayımı başlat", "clock", startNative, "primary");
+      const cancelPick = button("Seçimi iptal et", "cross", cancelNative, "small");
+      const preparationHelp = node("p", "help");
+      preparation.append(field("Hazırlık süresi", delay), begin, cancelPick, preparationHelp);
+      preparation.hidden = source !== "native";
       const instruction = node("p", "target-picker-instruction");
       instruction.setAttribute("aria-live", "polite");
       const status = node("div", "target-picker-status");
@@ -1645,39 +1699,97 @@
       const selection = node("p", "target-picker-selection mono");
       const actions = node("div", "target-picker-actions");
       const refresh = button("Görüntüyü yenile", "refresh", load, "small");
+      const repick = button("Yeniden ekranda seç", "desktop", () => {
+        clearCapture();
+        status.replaceChildren();
+        draw();
+        begin.focus();
+      }, "small");
       const reset = button("Seçimi temizle", "cross", () => {
         rectangle = point = drag = null;
         draw();
       }, "small");
       const save = button("Hedefi kaydet", "check", commit, "primary");
-      actions.append(refresh, reset, save);
-      body.append(intro, toolbar, instruction, status, frame, selection, actions);
-      d.addEventListener("close", () => {
+      actions.append(source === "native" ? repick : refresh, reset, save);
+      body.append(intro, toolbar, preparation, instruction, status, frame, selection, actions);
+      const unload = () => {
         epoch += 1;
+        clearTimeout(polling);
+        discardSession(session);
+        discard(capture?.id);
+      };
+      window.addEventListener("pagehide", unload);
+      d.addEventListener("close", () => {
+        window.removeEventListener("pagehide", unload);
+        epoch += 1;
+        clearTimeout(polling);
+        discardSession(session);
+        session = null;
         discard(capture?.id);
         if (image) image.src = "";
         image = capture = null;
         canvas.width = canvas.height = 1;
       });
       function changeMode(next) {
-        if (loading || saving) return;
+        if (loading || saving || nativeBusy) return;
         mode = next;
         rectangle = point = drag = null;
+        if (source === "native") clearCapture();
         draw();
       }
       function viewState() {
+        const busy = loading || saving || nativeBusy;
         coordinates.setAttribute("aria-pressed", String(mode === "coordinates"));
         visual.setAttribute("aria-pressed", String(mode === "image"));
-        coordinates.disabled = visual.disabled = loading || saving;
-        refresh.disabled = loading || saving;
-        reset.disabled = loading || saving || (!point && !rectangle);
-        save.disabled = loading || saving || !capture ||
+        coordinates.disabled = visual.disabled = busy;
+        refresh.disabled = repick.disabled = busy;
+        repick.hidden = !capture;
+        delay.disabled = busy;
+        begin.disabled = busy;
+        begin.hidden = Boolean(capture) || nativeBusy;
+        cancelPick.hidden = !nativeBusy;
+        preparation.hidden = source !== "native" || Boolean(capture);
+        frame.hidden = !capture;
+        selection.hidden = !capture;
+        actions.hidden = !capture;
+        reset.disabled = busy || (!point && !rectangle);
+        save.disabled = busy || !capture ||
           (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !point));
-        if (loading) instruction.textContent = "ERP penceresinin görüntüsü alınıyor…";
+        preparationHelp.textContent = mode === "coordinates"
+          ? "Süre dolmadan fareyi ERP’deki hedef alanın üzerine getirin ve orada tutun. Süre bittiğindeki konum alınır; tıklamanız gerekmez. Esc ile iptal edebilirsiniz."
+          : `Süre bitince ERP görüntüsünde sabit bir etiketi (ör. FormID) fareyle sürükleyerek seçin.${referenceOnly ? "" : " Ardından işlem yapılacak alanın ortasına tıklayın."} Seçimi kullan ile önizlemeye dönün. Esc ile iptal edebilirsiniz.`;
+        if (nativeBusy) {
+          const countdown = nativeStatus?.countdown;
+          instruction.textContent = nativeStatus?.status === "countdown"
+            ? `Hazırlanın${Number.isFinite(countdown) ? ` · ${Math.max(0, Math.ceil(countdown))} saniye` : ""}. ${mode === "coordinates" ? "Fareyi hedef alanın üzerinde tutun." : "Görsel alanını seçmek için bekleyin."}`
+            : nativeStatus?.message || "Ekranda seçim hazırlanıyor…";
+        } else if (loading) instruction.textContent = "ERP penceresinin görüntüsü alınıyor…";
+        else if (source === "native" && !capture) instruction.textContent = "Hedef yöntemini ve hazırlık süresini seçin. Hazır olduğunuzda geri sayımı başlatın.";
         else if (mode === "coordinates") instruction.textContent = "Yazılacak veya tıklanacak alanın ortasına tıklayın.";
         else if (!rectangle) instruction.textContent = "Sabit ve ayırt edici bir etiketi (ör. Form ID) çevreleyen dikdörtgen çizin. Değişen alan değerlerini referansa dahil etmeyin.";
         else if (!referenceOnly && !point) instruction.textContent = "Şimdi işlem yapılacak alanın ortasına tıklayın. Alan, seçtiğiniz referansın dışında olabilir.";
         else instruction.textContent = referenceOnly ? "Beklenecek görsel referans hazır. Kaydedebilirsiniz." : "Görsel referans ve işlem yapılacak alan hazır. Kaydedebilirsiniz.";
+      }
+      function discardSession(id) {
+        if (id) api(`/api/desktop/pick/${encodeURIComponent(id)}`, { method: "DELETE", keepalive: true }).catch(() => {});
+      }
+      function clearCapture() {
+        discard(capture?.id);
+        if (image) image.src = "";
+        image = capture = rectangle = point = drag = null;
+        canvas.hidden = true;
+        canvas.width = canvas.height = 1;
+      }
+      function cancelNative() {
+        epoch += 1;
+        clearTimeout(polling);
+        discardSession(session);
+        session = null;
+        clearCapture();
+        nativeBusy = loading = false;
+        nativeStatus = null;
+        status.replaceChildren(note("Seçim iptal edildi. Adımın kayıtlı hedefi değiştirilmedi."));
+        draw();
       }
       function draw() {
         viewState();
@@ -1727,7 +1839,7 @@
           width: Math.abs(start.x - end.x), height: Math.abs(start.y - end.y) };
       }
       canvas.addEventListener("pointerdown", (event) => {
-        if (loading || saving || !capture || event.button !== 0) return;
+        if (loading || saving || nativeBusy || !capture || event.button !== 0) return;
         event.preventDefault();
         const position = location(event);
         if (mode === "image" && !rectangle) {
@@ -1757,40 +1869,132 @@
         if (drag) rectangle = drag = null;
         draw();
       });
+      async function showCapture(found, request, selection = {}) {
+        if (!current() || epoch !== request) {
+          discard(found?.id);
+          return;
+        }
+        if (typeof found?.id !== "string" || !/^data:image\/png;base64,/.test(found.image || "") ||
+            !(found.width > 0 && found.height > 0 && found.window?.width > 0 && found.window?.height > 0)) {
+          discard(found?.id);
+          throw new Error("ERP pencere görüntüsü okunamadı. Yeniden deneyin.");
+        }
+        capture = found;
+        const loadedImage = new Image();
+        image = loadedImage;
+        const loaded = new Promise((resolve, reject) => {
+          loadedImage.onload = resolve;
+          loadedImage.onerror = () => reject(new Error("Pencere görüntüsü açılamadı. Yeniden deneyin."));
+        });
+        loadedImage.src = found.image;
+        await loaded;
+        if (!current() || epoch !== request) return;
+        if (loadedImage.naturalWidth !== found.width || loadedImage.naturalHeight !== found.height)
+          throw new Error("Görüntü boyutu doğrulanamadı. Yeniden deneyin.");
+        const within = (p) => p && Number.isInteger(p.x) && Number.isInteger(p.y) &&
+          p.x >= 0 && p.y >= 0 && p.x < found.width && p.y < found.height;
+        if (selection.point && !within(selection.point)) throw new Error("Seçilen konum pencerenin dışında. Yeniden seçin.");
+        const rect = selection.rectangle;
+        if (rect && (!within(rect) || !Number.isInteger(rect.width) || !Number.isInteger(rect.height) ||
+            rect.width < 8 || rect.height < 8 || rect.x + rect.width > found.width || rect.y + rect.height > found.height))
+          throw new Error("Görsel alanı doğrulanamadı. Yeniden seçin.");
+        if (source === "native" && (mode === "coordinates" ? !selection.point : !rect || (!referenceOnly && !selection.point)))
+          throw new Error("Hedef seçimi tamamlanmadı. Yeniden seçin.");
+        rectangle = rect || null;
+        point = selection.point || null;
+        canvas.width = found.width;
+        canvas.height = found.height;
+        canvas.hidden = false;
+      }
+      async function startNative() {
+        if (loading || saving || nativeBusy || !current()) return;
+        clearTimeout(polling);
+        discardSession(session);
+        session = null;
+        clearCapture();
+        const request = ++epoch;
+        nativeBusy = true;
+        nativeStatus = { status: "starting" };
+        status.replaceChildren();
+        draw();
+        const startedAt = Date.now();
+        let failures = 0;
+        const fail = (error) => {
+          if (!current() || epoch !== request) return;
+          clearCapture();
+          discardSession(session);
+          session = null;
+          nativeBusy = false;
+          nativeStatus = null;
+          status.replaceChildren(note(error.message || "Ekranda seçim tamamlanamadı. Yeniden deneyin."));
+          draw();
+        };
+        const accept = async (job) => {
+          if (!current() || epoch !== request) {
+            discardSession(job.id);
+            discard(job.result?.capture?.id);
+            return;
+          }
+          nativeStatus = job;
+          if (job.status === "completed") {
+            await showCapture(job.result?.capture, request, job.result || {});
+            if (!current() || epoch !== request) return;
+            nativeBusy = false;
+            status.replaceChildren(note("Seçimi kontrol edin. Hedefi kaydet dediğinizde adıma aktarılır; gerekirse görüntü üzerinde düzeltebilirsiniz.", "info", "check"));
+            draw();
+          } else if (job.status === "cancelled") {
+            nativeBusy = false;
+            status.replaceChildren(note("Seçim iptal edildi. Adımın kayıtlı hedefi değiştirilmedi."));
+            draw();
+          } else if (job.status === "error") {
+            nativeBusy = false;
+            throw new Error(job.message || "Ekranda seçim tamamlanamadı. Yeniden deneyin.");
+          } else if (["starting", "countdown", "selecting"].includes(job.status)) {
+            draw();
+            polling = setTimeout(poll, 400);
+          } else throw new Error("Seçim durumu doğrulanamadı. Yeniden deneyin.");
+        };
+        const poll = async () => {
+          if (!current() || epoch !== request || !session) return;
+          if (Date.now() - startedAt > 180000) {
+            fail(new Error("Seçim süresi doldu. Hazır olduğunuzda yeniden başlatın."));
+            return;
+          }
+          try {
+            const job = await api(`/api/desktop/pick/${encodeURIComponent(session)}`);
+            failures = 0;
+            await accept(job);
+          } catch (error) {
+            if (!current() || epoch !== request) return;
+            if (++failures < 3 && nativeBusy) polling = setTimeout(poll, 700);
+            else fail(error);
+          }
+        };
+        try {
+          const job = await api("/api/desktop/pick", {
+            method: "POST", body: JSON.stringify({ ...selector,
+              mode: referenceOnly ? "image_only" : mode, delay: Number(delay.value) }),
+          });
+          if (!current() || epoch !== request) {
+            discardSession(job.id);
+            discard(job.result?.capture?.id);
+            return;
+          }
+          if (typeof job.id !== "string" || !job.id) throw new Error("Seçim başlatılamadı. Yeniden deneyin.");
+          session = job.id;
+          await accept(job);
+        } catch (error) { fail(error); }
+      }
       async function load() {
-        if (loading || saving) return;
+        if (loading || saving || nativeBusy) return;
         const request = ++epoch;
         loading = true;
-        discard(capture?.id);
-        capture = rectangle = point = drag = null;
-        canvas.hidden = true;
+        clearCapture();
         status.replaceChildren();
         draw();
         try {
           const found = await api("/api/desktop/capture-window", { method: "POST", body: JSON.stringify(selector) });
-          if (!current() || epoch !== request) {
-            discard(found.id);
-            return;
-          }
-          if (typeof found.id !== "string" || !/^data:image\/png;base64,/.test(found.image || "") ||
-              !(found.width > 0 && found.height > 0 && found.window?.width > 0 && found.window?.height > 0)) {
-            discard(found.id);
-            throw new Error("ERP pencere görüntüsü okunamadı. Görüntüyü yenileyin.");
-          }
-          capture = found;
-          image = new Image();
-          const loaded = new Promise((resolve, reject) => {
-            image.onload = resolve;
-            image.onerror = () => reject(new Error("Pencere görüntüsü açılamadı. Yeniden deneyin."));
-          });
-          image.src = found.image;
-          await loaded;
-          if (!current() || epoch !== request) return;
-          if (image.naturalWidth !== found.width || image.naturalHeight !== found.height)
-            throw new Error("Görüntü boyutu doğrulanamadı. Görüntüyü yenileyin.");
-          canvas.width = found.width;
-          canvas.height = found.height;
-          canvas.hidden = false;
+          await showCapture(found, request);
         } catch (error) {
           if (current() && epoch === request) {
             discard(capture?.id);
@@ -1837,8 +2041,96 @@
         }
       }
       viewState();
-      queueMicrotask(load);
+      if (source === "snapshot") queueMicrotask(load);
     });
+  }
+  function columnMappingField(step, definition) {
+    const key = `${step.id}:${definition.name}`;
+    const mapping = parameterValue(step, definition.name);
+    let rows = state.drafts.get(key)?.mode === "columns"
+      ? clone(state.drafts.get(key).value)
+      : Object.entries(mapping && typeof mapping === "object" && !Array.isArray(mapping) ? mapping : {});
+    if (!rows.length) rows = [["", ""]];
+    const wrap = node("fieldset", "field column-mapping-field");
+    wrap.append(node("legend", "field-label", definition.label));
+    const list = node("div", "column-mapping");
+    const error = node("div", "field-error");
+    error.setAttribute("role", "status");
+    const add = button("Sütun ekle", "plus", () => {
+      if (rows.length >= 32) return;
+      rows.push(["", ""]);
+      update();
+      render();
+      list.lastElementChild?.querySelector("input")?.focus();
+    }, "small");
+    function update(mark = true) {
+      const pairs = rows.map(([name, column]) => [name.trim(), column.trim().replace(/^\$/, "").toUpperCase()]);
+      const names = pairs.map(([name]) => name);
+      const columns = pairs.map(([, column]) => column);
+      const columnNumber = (column) => [...column].reduce((n, char) => n * 26 + char.charCodeAt(0) - 64, 0);
+      let message = "";
+      if (names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(name) || ["row_number", "__proto__", "prototype", "constructor"].includes(name)))
+        message = "Alan adında harf, rakam ve alt çizgi kullanın; harf veya alt çizgiyle başlayın. Örnek: form_id.";
+      else if (new Set(names).size !== names.length) message = "Her alanın adı farklı olmalıdır.";
+      else if (columns.some((column) => !/^[A-Z]{1,3}$/.test(column))) message = "Sütunu harfle belirtin: B, C veya AA gibi.";
+      else if (new Set(columns).size !== columns.length) message = "Her sütunu yalnızca bir kez ekleyin.";
+      else if (Math.max(...columns.map(columnNumber)) - Math.min(...columns.map(columnNumber)) >= 64)
+        message = "Seçilen sütunları en fazla 64 sütunluk bir aralık içinde tutun.";
+      error.textContent = message;
+      wrap.classList.toggle("invalid", Boolean(message));
+      if (message) {
+        state.fieldErrors.add(key);
+        state.drafts.set(key, { mode: "columns", value: clone(rows) });
+      } else {
+        state.fieldErrors.delete(key);
+        state.drafts.delete(key);
+        step.params[definition.name] = Object.fromEntries(pairs);
+      }
+      if (mark) markDirty();
+    }
+    function render() {
+      list.replaceChildren();
+      rows.forEach((entry, index) => {
+        const line = node("div", "column-mapping-row");
+        const name = textInput(entry[0], "form_id");
+        name.maxLength = 64;
+        name.setAttribute("aria-label", `Alan adı ${index + 1}`);
+        const column = textInput(entry[1], "B");
+        column.classList.add("column-letter");
+        column.maxLength = 4;
+        column.setAttribute("aria-label", `Sütun ${index + 1}`);
+        name.addEventListener("input", () => { entry[0] = name.value; update(); });
+        column.addEventListener("input", () => { entry[1] = column.value; update(); });
+        const remove = iconButton(`Sütun eşlemesini kaldır ${index + 1}`, "trash", () => {
+          rows.splice(index, 1);
+          update();
+          render();
+        });
+        remove.disabled = rows.length <= 1;
+        line.append(name, node("span", "muted", "←"), column, remove);
+        list.append(line);
+      });
+      add.disabled = rows.length >= 32;
+    }
+    wrap.append(node("p", "help column-mapping-hint", "Alan adı ← Sheets sütunu"), list, add, error);
+    if (definition.help) wrap.append(node("p", "help", definition.help));
+    render();
+    update(false);
+    return wrap;
+  }
+  function loopDataSource(step) {
+    const reference = String(parameterValue(step, "items") || "").match(/^\$\{([^}.]+)\}$/);
+    return reference && (precedingSteps(step.id) || []).reverse().find(
+      (previous) => parameterValue(previous, "output") === reference[1]);
+  }
+  function loopVariableNames(step) {
+    if (step.action !== "control.for_each") return [];
+    const item = parameterValue(step, "item_name") || "row";
+    const producer = loopDataSource(step);
+    const columns = producer?.action === "sheets.read_rows" ? parameterValue(producer, "columns") : null;
+    const fields = columns && typeof columns === "object" && !Array.isArray(columns)
+      ? Object.keys(columns) : ["value", "cell"];
+    return [item, `${item}.row_number`, ...fields.map((name) => `${item}.${name}`)];
   }
   function renderInspector() {
     const pane = document.getElementById("inspector");
@@ -1923,19 +2215,25 @@
       );
       pane.append(conversion);
     }
-    if (step.action === "control.for_each") {
+    if (["control.for_each", "control.while"].includes(step.action)) {
       const help = node("div", "loop-help");
+      const conditional = step.action === "control.while";
       help.append(
-        note("Listedeki her satır için İç adımlar sırayla çalışır. ERP’ye yazma, tıklama ve tuş adımlarını döngünün içine ekleyin."),
-        button("Her satırda yapılacak adımı ekle", "plus", () => setTarget(step, "children"), "small"),
+        note(conditional ? "Koşul her turdan önce kontrol edilir. İç adımlarda koşulu etkileyen değeri yeniden okuyun veya değiştirin. Tekrar ve süre sınırına ulaşılırsa akış hata ile durur." : "Listedeki her satır için İç adımlar sırayla çalışır. Koşul veya başka bir döngü de ekleyebilirsiniz."),
+        button(conditional ? "Her tekrarda yapılacak adımı ekle" : "Her satırda yapılacak adımı ekle", "plus", () => setTarget(step, "children"), "small"),
       );
       pane.append(help);
     }
     if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
+    if (step.action === "sheets.read_rows") pane.append(note("FormID ve durum birlikte okunur. Durum boş olsa da FormID doluysa kayıt korunur. Döngünün içindeki Koşul adımında ${row.status} değerini kontrol edin."));
     (spec.fields || []).forEach((f) => {
       const key = `${step.id}:${f.name}`;
       if (!fieldVisible(step, f)) {
         state.fieldErrors.delete(key);
+        return;
+      }
+      if (f.type === "columns") {
+        pane.append(columnMappingField(step, f));
         return;
       }
       let control, jsonMode;
@@ -2099,7 +2397,8 @@
         }
         markDirty();
         if (f.name === "output") renderCanvas();
-        if ((spec.fields || []).some((definition) => Object.hasOwn(definition.visible_when || {}, f.name)))
+        if ((spec.fields || []).some((definition) => Object.hasOwn(definition.visible_when || {}, f.name)) ||
+            (f.name === "operator" && ["control.if", "control.while"].includes(step.action)))
           renderInspector();
       };
       if (jsonMode) {
@@ -2150,12 +2449,7 @@
             ["core.set", "data.append"].includes(s.action)
               ? s.params?.name
               : null,
-            ...(s.action === "control.for_each" ? [
-              parameterValue(s, "item_name") || "row",
-              `${parameterValue(s, "item_name") || "row"}.value`,
-              `${parameterValue(s, "item_name") || "row"}.cell`,
-              `${parameterValue(s, "item_name") || "row"}.row_number`,
-            ] : []),
+            ...loopVariableNames(s),
           ])
           .filter(Boolean),
       ),
