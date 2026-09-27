@@ -77,7 +77,7 @@ def main() -> None:
     if system == "Darwin":
         # Re-sign after editing Info.plist; distribution signing/notarization is separate.
         finalize_mac_bundle(destination / "RpaOrkestrAI.app")
-    print("Paket hazır:", destination)
+    print("Package ready:", destination)
 
 
 if __name__ == "__main__":
