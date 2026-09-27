@@ -37,7 +37,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sys
 import tarfile
 import tempfile
@@ -103,7 +102,20 @@ def inspect_root():
     return {'ok': True, 'action': 'inspect', 'exists': ROOT.exists(),
             'readable': os.access(ROOT if ROOT.exists() else ROOT.parent, os.R_OK),
             'writable': os.access(ROOT if ROOT.exists() else ROOT.parent, os.W_OK),
-            'current_version': current_version()}
+            'current_version': current_version(),
+            'python_version': '.'.join(str(part) for part in sys.version_info[:3])}
+
+def utc_timestamp(value):
+    # The publisher emits UTC Z timestamps. strptime also works on Python 3.6,
+    # unlike datetime.fromisoformat which was introduced in Python 3.7.
+    if not isinstance(value, str) or not re.fullmatch(
+            r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z', value):
+        raise ValueError('Manifest dates are not valid.')
+    pattern = '%Y-%m-%dT%H:%M:%S.%fZ' if '.' in value else '%Y-%m-%dT%H:%M:%SZ'
+    try:
+        return datetime.strptime(value, pattern).replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise ValueError('Manifest dates are not valid.')
 
 def unpack_verified(bundle, staging, version):
     known = {}
@@ -147,8 +159,8 @@ def unpack_verified(bundle, staging, version):
     if data.get('schema') != 1 or data.get('channel') != 'stable' or data.get('version') != version:
         raise ValueError('Manifest does not describe the requested stable version.')
     now = datetime.now(timezone.utc)
-    published = datetime.fromisoformat(data['published_at'].replace('Z', '+00:00'))
-    expires = datetime.fromisoformat(data['expires_at'].replace('Z', '+00:00'))
+    published = utc_timestamp(data.get('published_at'))
+    expires = utc_timestamp(data.get('expires_at'))
     if (published.tzinfo is None or expires.tzinfo is None or published > now + timedelta(minutes=10)
             or expires <= now or expires <= published):
         raise ValueError('Manifest dates are not valid.')
@@ -217,7 +229,10 @@ def publish(version, expected_hash, token):
             os.replace(staging / 'stable.manifest', ROOT / 'stable.manifest')
         return {'ok': True, 'action': 'publish', 'version': version, 'package_count': len(expected_names)}
     finally:
-        bundle.unlink(missing_ok=True)
+        try:
+            bundle.unlink()
+        except FileNotFoundError:
+            pass
 
 def main():
     action = sys.argv[1]
@@ -238,7 +253,7 @@ if __name__ == '__main__':
     except Exception as error:
         # Do not expose arbitrary environment values, server paths or tracebacks.
         message = str(error) if isinstance(error, ValueError) else type(error).__name__
-        print(json.dumps({'ok': False, 'error': message}))
+        print(json.dumps({'ok': False, 'error_type': type(error).__name__, 'error': message}))
         raise SystemExit(1)
 '''
 
@@ -313,6 +328,26 @@ def validate_local_bundle(bundle: Path, version: str) -> None:
             raise ValueError("Bundle publisher signature did not verify.") from exc
 
 
+def remote_failure_diagnostic(action: str, result: dict) -> None:
+    allowed_types = {
+        "AttributeError", "TypeError", "FileNotFoundError", "PermissionError", "FileExistsError",
+        "ValueError", "OSError", "RuntimeError", "JSONDecodeError", "ReadError", "EOFError",
+        "UnicodeDecodeError", "KeyError", "IndexError", "NotADirectoryError", "IsADirectoryError", "Error",
+    }
+    error_type = result.get("error_type")
+    diagnostic = {
+        "action": action if action in {"inspect", "prepare", "publish"} else "operation",
+        "error_type": error_type if error_type in allowed_types else "RemoteError",
+    }
+    # Only literal messages from our trusted remote source may reach logs;
+    # never forward arbitrary server strings, environment values or URLs.
+    allowed_reasons = set(re.findall(r"raise ValueError\('([^']+)'\)", REMOTE_CODE))
+    reason = result.get("error")
+    if error_type == "ValueError" and isinstance(reason, str) and reason in allowed_reasons:
+        diagnostic["reason"] = reason
+    print("Scoped server failure: " + json.dumps(diagnostic), file=sys.stderr)
+
+
 def remote(client, action: str, *arguments: str) -> dict:
     command = "python3 -c " + shlex.quote(REMOTE_CODE) + " " + " ".join(
         shlex.quote(value) for value in (action, *arguments)
@@ -327,6 +362,7 @@ def remote(client, action: str, *arguments: str) -> dict:
         raise RuntimeError("Unexpected server response size.")
     result = json.loads(raw.decode("utf-8"))
     if status or not isinstance(result, dict) or result.get("ok") is not True:
+        remote_failure_diagnostic(action, result if isinstance(result, dict) else {})
         raise RuntimeError("Scoped publication did not complete; inspect /rpa before retrying.")
     return result
 

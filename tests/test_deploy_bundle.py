@@ -4,7 +4,9 @@ import importlib.util
 import io
 import json
 import tarfile
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -101,6 +103,7 @@ def test_read_only_inspection_does_not_create_rpa(publication):
     _, _, namespace = publication
     result = namespace["inspect_root"]()
     assert result["exists"] is False and result["current_version"] is None
+    assert result["python_version"].count(".") == 2
     assert not namespace["ROOT"].exists()
 
 
@@ -112,7 +115,7 @@ def test_manifest_with_changed_payload_and_same_length_signature_is_rejected(pub
             return data
         envelope = json.loads(data)
         payload = json.loads(base64.b64decode(envelope["payload"]))
-        payload["published_at"] = payload["published_at"].replace("T", " ")
+        payload["release_notes"] = "Unsigned added field"
         envelope["payload"] = base64.b64encode(json.dumps(payload).encode()).decode()
         return json.dumps(envelope).encode()
 
@@ -172,3 +175,43 @@ def test_dispatch_input_url_is_read_without_shell_interpolation_or_logging(tmp_p
     monkeypatch.delenv("RPA_BUNDLE_URL", raising=False)
     assert deploy.settings()["bundle_url"] == url
     assert capsys.readouterr().out == ""
+
+
+def test_remote_publication_uses_python36_compatible_date_and_cleanup_apis(publication, monkeypatch):
+    archive, _, namespace = publication
+    # Older server datetime has no fromisoformat, and Path.unlink has no
+    # missing_ok keyword. Exercise actual extraction, publication and cleanup.
+    namespace["datetime"] = SimpleNamespace(now=datetime.now, strptime=datetime.strptime)
+    original_unlink = Path.unlink
+
+    def old_unlink(self):
+        return original_unlink(self)
+
+    monkeypatch.setattr(Path, "unlink", old_unlink)
+    digest, token = upload_to_fixture(archive, namespace)
+    assert namespace["publish"]("0.2.0", digest, token)["ok"]
+    assert not list(namespace["ROOT"].glob(".upload-*"))
+
+
+@pytest.mark.parametrize("error_type,reason,expected_reason", [
+    ("ValueError", "Uploaded bundle checksum does not match.", "Uploaded bundle checksum does not match."),
+    ("AttributeError", "secret_url=https://private.example/?password=hidden", None),
+    ("ValueError", "PASSWORD=hidden", None),
+    ("PasswordIsHidden", "hidden", None),
+])
+def test_remote_failure_diagnostics_include_only_safe_metadata(error_type, reason, expected_reason, capsys):
+    result = {"ok": False, "error_type": error_type, "error": reason}
+    stdout = io.BytesIO(json.dumps(result).encode())
+    stdout.channel = SimpleNamespace(recv_exit_status=lambda: 1)
+    client = SimpleNamespace(exec_command=lambda *args, **kwargs: (io.BytesIO(), stdout, io.BytesIO()))
+    with pytest.raises(RuntimeError, match="inspect /rpa"):
+        deploy.remote(client, "publish")
+    output = capsys.readouterr().err
+    assert '"action": "publish"' in output
+    assert "hidden" not in output and "https://private.example" not in output
+    if expected_reason:
+        assert expected_reason in output
+    elif error_type == "AttributeError":
+        assert "AttributeError" in output
+    else:
+        assert '"reason"' not in output
