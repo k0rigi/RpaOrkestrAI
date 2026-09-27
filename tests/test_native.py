@@ -120,6 +120,7 @@ def test_native_window_enables_report_downloads():
 
 
 def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(monkeypatch, tmp_path):
+    import socket
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.request import ProxyHandler, build_opener
 
@@ -163,7 +164,10 @@ def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(mon
     try:
         serve_native(settings, auto_port=True)
         assert len(windows) == 2 and windows[0] == windows[1]
-        assert not existing_instance(windows[0], settings.data_dir)
+        # Windows may time out rather than refuse a connection to a closed port.
+        with socket.socket() as closed_probe:
+            closed_probe.settimeout(0.5)
+            assert closed_probe.connect_ex(("127.0.0.1", settings.port)) != 0
         with opener.open(f"http://127.0.0.1:{original_port}/api/instance", timeout=5) as response:
             assert json.load(response) == other_identity
     finally:
