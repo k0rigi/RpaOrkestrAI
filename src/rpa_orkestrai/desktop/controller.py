@@ -118,6 +118,56 @@ class DesktopController:
             gui.moveTo(x, y)
         gui.scroll(amount)
 
+    def _on_screen(self, x: float, y: float) -> tuple[int, int]:
+        x, y = self._point(x, y)
+        width, height = self._gui().size()
+        if not 0 <= x < width or not 0 <= y < height:
+            raise ValueError("Point lies outside the primary display.")
+        return x, y
+
+    def position(self) -> tuple[int, int]:
+        point = self._gui().position()
+        return int(point.x), int(point.y)
+
+    def move(self, x: float, y: float, *, duration: float = 0) -> None:
+        if not 0 <= duration <= 10:
+            raise ValueError("Move duration must be between 0 and 10 seconds.")
+        x, y = self._on_screen(x, y)
+        self._gui().moveTo(x, y, duration=duration)
+
+    def drag(self, from_x: float, from_y: float, to_x: float, to_y: float, *,
+             button: str = "left", duration: float = 0.5) -> None:
+        if button not in {"left", "right", "middle"} or not 0 <= duration <= 10:
+            raise ValueError("Invalid drag button or duration.")
+        start, end = self._on_screen(from_x, from_y), self._on_screen(to_x, to_y)
+        gui = self._gui()
+        gui.moveTo(*start)
+        gui.mouseDown(button=button)
+        try:
+            # Small steps let applications see a real drag rather than a jump.
+            gui.moveTo(*end, duration=max(duration, 0.1))
+        finally:
+            gui.mouseUp(button=button)
+
+    def hscroll(self, amount: int, *, x: int | None = None, y: int | None = None) -> None:
+        if type(amount) is not int or not -100 <= amount <= 100:
+            raise ValueError("Scroll amount must be an integer between -100 and 100.")
+        gui = self._gui()
+        if x is not None and y is not None:
+            gui.moveTo(*self._on_screen(x, y))
+        gui.hscroll(amount)
+
+    def key_down(self, key: str) -> None:
+        self._gui().keyDown(self.modifier if key == "mod" else key)
+
+    def key_up(self, key: str) -> None:
+        self._gui().keyUp(self.modifier if key == "mod" else key)
+
+    def pixel(self, x: float, y: float) -> tuple[int, int, int]:
+        x, y = self._on_screen(x, y)
+        color = self.screenshot((x, y, 1, 1)).convert("RGB").getpixel((0, 0))
+        return int(color[0]), int(color[1]), int(color[2])
+
     def screenshot(self, region: Region | None = None) -> Any:
         gui = self._gui()
         gui.failSafeCheck()

@@ -373,7 +373,7 @@ def test_while_stops_preview_when_child_makes_next_condition_unknown(runner):
 
 
 @pytest.mark.parametrize("params", [
-    {"max_iterations": 0}, {"max_iterations": 1001}, {"max_iterations": True},
+    {"max_iterations": 0}, {"max_iterations": 100001}, {"max_iterations": True},
     {"max_iterations": 1.5}, {"max_seconds": 0}, {"max_seconds": 3601},
     {"max_seconds": True}, {"max_seconds": float("inf")}, {"max_seconds": float("nan")},
 ])

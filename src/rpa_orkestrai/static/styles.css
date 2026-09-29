@@ -25,6 +25,9 @@
 * {
   box-sizing: border-box;
 }
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -2347,4 +2350,127 @@ textarea:disabled {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ----- drag and drop ------------------------------------------------------ */
+.step-card[draggable="true"] {
+  cursor: grab;
+}
+.step-card.drag-source {
+  opacity: 0.4;
+}
+.step-grip {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  color: #a8b6b1;
+  cursor: grab;
+}
+.step-grip svg {
+  width: 14px;
+  height: 14px;
+}
+.step-card.drop-before {
+  box-shadow: 0 -3px 0 0 var(--teal);
+}
+.step-card.drop-after {
+  box-shadow: 0 3px 0 0 var(--teal);
+}
+.branch.drop-inside,
+.flow-empty.drop-inside,
+.canvas-add.drop-inside {
+  outline: 2px dashed var(--teal);
+  outline-offset: 3px;
+  background: var(--teal-tint);
+}
+.dragging-step .branch-placeholder {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+}
+.branch.branch-error {
+  border-color: #efc9c3;
+  background: #fdf6f4;
+}
+.library-action[draggable="true"] {
+  cursor: grab;
+}
+.library-search {
+  width: 100%;
+  margin: 6px 0 12px;
+}
+
+/* ----- inspector tools ---------------------------------------------------- */
+.step-test-button {
+  margin-top: 8px;
+  width: 100%;
+  justify-content: center;
+}
+.step-extra-tools {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.step-extra-tools .button {
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+}
+.path-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.path-row .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ----- step test dialog --------------------------------------------------- */
+.step-test-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+.step-test-dialog h3 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+}
+.step-test-result {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+.step-test-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.step-test-log {
+  margin: 0;
+  padding: 10px 12px 10px 30px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf7;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.step-test-log .level-error {
+  color: var(--red);
+}
+.step-test-log .level-warning {
+  color: var(--amber);
+}
+.step-test-values {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 12px;
+}
+.step-test-values dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
 }

@@ -69,6 +69,7 @@ def main() -> None:
                "--add-data", f"{ROOT / 'src' / 'rpa_orkestrai' / 'static'}:rpa_orkestrai/static",
                "--collect-data", "webview", "--collect-data", "certifi",
                "--collect-submodules", "uvicorn", "--collect-submodules", "rpa_orkestrai",
+               "--collect-submodules", "openpyxl",
                "--hidden-import", "sqlalchemy.dialects.postgresql.psycopg",
                "--hidden-import", "sqlalchemy.dialects.mssql.pyodbc",
                "--exclude-module", "PyQt5", "--exclude-module", "PyQt6",
@@ -77,11 +78,12 @@ def main() -> None:
         command += ["--exclude-module", "pyodbc"]
     if system == "Darwin":
         command += ["--osx-bundle-identifier", "com.rpaorkestrai.studio",
-                    "--hidden-import", "webview.platforms.cocoa", "--hidden-import", "ApplicationServices"]
+                    "--hidden-import", "webview.platforms.cocoa", "--hidden-import", "ApplicationServices",
+                    "--hidden-import", "Vision"]
     else:
         # comtypes generates the UI Automation wrapper at run time; bundle its code generator.
         command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",
-                    "--collect-submodules", "comtypes"]
+                    "--collect-submodules", "comtypes", "--collect-all", "winrt"]
     command += [str(ROOT / "launch_gui.pyw")]
     subprocess.run(command, cwd=ROOT, check=True)
     if system == "Darwin":

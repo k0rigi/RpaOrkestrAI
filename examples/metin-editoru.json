@@ -1,0 +1,182 @@
+{
+  "name": "Metin editörüne yaz (Windows / Mac)",
+  "department": "Genel",
+  "description": "Windows'ta Not Defteri'ni, Mac'te TextEdit'i açar ve Türkçe metin yazar. Klavye/fare adımlarını denemek için.",
+  "steps": [
+    {
+      "id": "platform",
+      "title": "İşletim sistemine göre aç",
+      "action": "control.if",
+      "params": {
+        "left": "${sistem.isletim_sistemi}",
+        "operator": "eq",
+        "right": "Windows"
+      },
+      "children": [
+        {
+          "id": "notepad",
+          "title": "Not Defteri'ni aç",
+          "action": "system.open",
+          "params": {
+            "target": "notepad.exe",
+            "arguments": "",
+            "wait": 2
+          }
+        }
+      ],
+      "otherwise": [
+        {
+          "id": "textedit",
+          "title": "TextEdit'i aç",
+          "action": "system.open",
+          "params": {
+            "target": "TextEdit",
+            "arguments": "",
+            "wait": 2
+          }
+        },
+        {
+          "id": "yeni",
+          "title": "Yeni belge",
+          "action": "input.hotkey",
+          "params": {
+            "keys": "mod+n"
+          }
+        },
+        {
+          "id": "bekle",
+          "title": "Belgenin açılmasını bekle",
+          "action": "core.wait",
+          "params": {
+            "seconds": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "saat",
+      "title": "Saati al",
+      "action": "data.date",
+      "params": {
+        "operation": "now",
+        "format": "%H:%M",
+        "output": "saat"
+      }
+    },
+    {
+      "id": "yaz1",
+      "title": "Türkçe metin yaz",
+      "action": "input.type",
+      "params": {
+        "text": "Merhaba! Bugün ${sistem.bugun}, saat ${saat}. Çağrı, Şule, Ömür, İğdır.",
+        "method": "auto",
+        "interval": 0.02
+      }
+    },
+    {
+      "id": "enter",
+      "title": "Alt satıra geç",
+      "action": "input.press",
+      "params": {
+        "key": "enter",
+        "presses": 2,
+        "interval": 0.05
+      }
+    },
+    {
+      "id": "tekrar",
+      "title": "Üç satır yaz",
+      "action": "control.repeat",
+      "params": {
+        "count": 3
+      },
+      "children": [
+        {
+          "id": "satir",
+          "title": "Satır no hesapla",
+          "action": "data.calculate",
+          "params": {
+            "expression": "loop_index + 1",
+            "output": "no"
+          }
+        },
+        {
+          "id": "yaz2",
+          "title": "Satırı yaz",
+          "action": "input.type",
+          "params": {
+            "text": "Satır ${no}",
+            "method": "auto",
+            "interval": 0.02
+          }
+        },
+        {
+          "id": "enter2",
+          "title": "Enter",
+          "action": "input.press",
+          "params": {
+            "key": "enter",
+            "presses": 1,
+            "interval": 0.05
+          }
+        }
+      ]
+    },
+    {
+      "id": "tumunu",
+      "title": "Tümünü seç ve kopyala",
+      "action": "input.hotkey",
+      "params": {
+        "keys": "mod+a"
+      }
+    },
+    {
+      "id": "kopyala",
+      "title": "Kopyala",
+      "action": "input.hotkey",
+      "params": {
+        "keys": "mod+c"
+      }
+    },
+    {
+      "id": "pano",
+      "title": "Panoyu oku",
+      "action": "clipboard.get",
+      "params": {
+        "output": "metin"
+      }
+    },
+    {
+      "id": "say",
+      "title": "Satırları say",
+      "action": "text.transform",
+      "params": {
+        "text": "${metin}",
+        "operation": "lines",
+        "output": "satirlar"
+      }
+    },
+    {
+      "id": "adet",
+      "title": "Satır sayısı",
+      "action": "data.list",
+      "params": {
+        "list": "${satirlar}",
+        "operation": "length",
+        "output": "satir_sayisi"
+      }
+    },
+    {
+      "id": "sonuc",
+      "title": "Sonucu göster",
+      "action": "ui.message",
+      "params": {
+        "title": "RpaOrkestrAI",
+        "text": "Editöre ${satir_sayisi} satır yazıldı. Belgeyi kaydetmeden kapatabilirsiniz.",
+        "buttons": "ok",
+        "timeout": 0,
+        "output": "answer"
+      }
+    }
+  ]
+}

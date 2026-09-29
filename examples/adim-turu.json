@@ -1,0 +1,150 @@
+{
+  "name": "Adım turu (Excel, hesap, döngü)",
+  "department": "Genel",
+  "description": "ERP gerektirmez. Liste üzerinde döngü, hesaplama, Excel'e yazıp geri okuma, toplama ve mesaj kutusu.",
+  "steps": [
+    {
+      "id": "tarih",
+      "title": "Bugünün tarihi",
+      "action": "data.date",
+      "params": {
+        "operation": "now",
+        "format": "%d.%m.%Y",
+        "output": "bugun"
+      }
+    },
+    {
+      "id": "urunler",
+      "title": "Örnek satırlar",
+      "action": "core.set",
+      "params": {
+        "name": "urunler",
+        "value": [
+          {
+            "Urun": "Çay",
+            "Adet": 3,
+            "Fiyat": "12,50"
+          },
+          {
+            "Urun": "Şeker",
+            "Adet": 5,
+            "Fiyat": "8"
+          },
+          {
+            "Urun": "Kahve",
+            "Adet": 2,
+            "Fiyat": "95,90"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sonuclar",
+      "title": "Sonuç listesi",
+      "action": "core.set",
+      "params": {
+        "name": "sonuclar",
+        "value": []
+      }
+    },
+    {
+      "id": "dongu",
+      "title": "Her ürün için",
+      "action": "control.for_each",
+      "params": {
+        "items": "${urunler}",
+        "item_name": "row"
+      },
+      "children": [
+        {
+          "id": "tutar",
+          "title": "Tutarı hesapla",
+          "action": "data.calculate",
+          "params": {
+            "expression": "round(row.Adet * number(row.Fiyat), 2)",
+            "output": "tutar"
+          }
+        },
+        {
+          "id": "buyuk",
+          "title": "Ürün adını büyük harf yap",
+          "action": "text.transform",
+          "params": {
+            "text": "${row.Urun}",
+            "operation": "upper",
+            "turkish": true,
+            "output": "ad"
+          }
+        },
+        {
+          "id": "ekle",
+          "title": "Sonuca ekle",
+          "action": "data.append",
+          "params": {
+            "name": "sonuclar",
+            "value": {
+              "Ürün": "${ad}",
+              "Adet": "${row.Adet}",
+              "Tutar": "${tutar}",
+              "Tarih": "${bugun}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "yaz",
+      "title": "Excel'e yaz",
+      "action": "file.write_table",
+      "params": {
+        "rows": "${sonuclar}",
+        "path": "${sistem.masaustu}/rpa-adim-turu.xlsx",
+        "sheet": "Satışlar",
+        "mode": "overwrite"
+      }
+    },
+    {
+      "id": "oku",
+      "title": "Excel'den geri oku",
+      "action": "file.read_table",
+      "params": {
+        "path": "${sistem.masaustu}/rpa-adim-turu.xlsx",
+        "sheet": "Satışlar",
+        "header_row": 1,
+        "max_rows": 10000,
+        "output": "okunan"
+      }
+    },
+    {
+      "id": "toplam",
+      "title": "Toplamı hesapla",
+      "action": "data.list",
+      "params": {
+        "list": "${okunan}",
+        "operation": "sum",
+        "field": "Tutar",
+        "output": "toplam"
+      }
+    },
+    {
+      "id": "not",
+      "title": "Günlüğe yaz",
+      "action": "core.log",
+      "params": {
+        "message": "Toplam: ${toplam} TL"
+      }
+    },
+    {
+      "id": "mesaj",
+      "title": "Sonucu göster",
+      "action": "ui.message",
+      "params": {
+        "title": "RpaOrkestrAI",
+        "text": "Toplam tutar: ${toplam} TL\nDosya masaüstünde: rpa-adim-turu.xlsx",
+        "buttons": "ok",
+        "timeout": 0,
+        "output": "answer"
+      }
+    }
+  ]
+}

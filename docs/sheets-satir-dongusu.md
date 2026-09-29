@@ -90,7 +90,7 @@ Yalnız FormID alanının dolması faturanın işlendiği anlamına gelmez. Bu y
 
 [sheets-pending-formids.json](../examples/sheets-pending-formids.json) yeni koşullu düzeni içerir. Tablo kimliğini ve ERP başlığını değiştirin; FormID hedefini fareyle belirleyin. Hedef koordinatları bilerek boştur; hedef seçilmeden deneme modu da çalıştırma doğrulamasını geçmez. Örnek **1 fiziksel satır** okur, yalnız alan doldurur; Enter, fatura kaydı veya sonuç yazma işlemi içermez.
 
-Deneme modu Sheets'e bağlanmaz veya ERP'ye yazmaz; gerçek kayıtları ve görsel eşleşmesini sınamaz. İlk gerçek doğrulamayı azami satır 1 ile yapın. FormID hedefini doğruladıktan sonra satır sınırını artırıp ERP'ye özgü işlemleri ekleyin.
+Önizleme seçeneği Sheets'e bağlanmaz veya ERP'ye yazmaz; gerçek kayıtları ve görsel eşleşmesini sınamaz. İlk gerçek doğrulamayı azami satır 1 ile yapın. FormID hedefini doğruladıktan sonra satır sınırını artırıp ERP'ye özgü işlemleri ekleyin.
 
 Eski **Sheets sütununu oku** adımı ve [sheets-formid-loop.json](../examples/sheets-formid-loop.json) çalışmaya devam eder. Bu adımın çıktısı `${row.value}`, `${row.cell}`, `${row.row_number}` alanlarıdır. Yeni kütüphanede çok sütunlu **Sheets satırlarını oku** kullanılır; mevcut akışlar ve değişken adları kendiliğinden dönüştürülmez.
 

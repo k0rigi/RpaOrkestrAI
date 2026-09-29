@@ -48,10 +48,13 @@ class WorkflowInput(Model):
                 if len(seen) > 200:
                     raise ValueError("Bir akışta en fazla 200 adım olabilir.")
                 if step.children or step.otherwise:
-                    if step.action not in {"control.for_each", "control.if", "control.while"}:
-                        raise ValueError("Yalnız döngü ve koşul adımları alt adım içerebilir.")
-                    if step.otherwise and step.action != "control.if":
-                        raise ValueError("Değilse dalı yalnız koşullarda kullanılabilir.")
+                    from .catalog import CONTAINERS
+
+                    branches = CONTAINERS.get(step.action, ())
+                    if not branches:
+                        raise ValueError("Yalnız döngü, koşul ve hata yakalama adımları alt adım içerebilir.")
+                    if step.otherwise and "otherwise" not in branches:
+                        raise ValueError("İkinci dal yalnız koşul ve hata yakalama adımlarında kullanılabilir.")
                     walk(step.children, depth + 1)
                     walk(step.otherwise, depth + 1)
 
@@ -92,9 +95,25 @@ class Run(Model):
     events: list[Event] = Field(default_factory=list)
     artifacts: list[Artifact] = Field(default_factory=list)
     error: str | None = None
+    # A single-step test records the step and the variables it left behind.
+    test_step_id: str | None = None
+    variables: dict[str, Any] | None = None
 
 
 class RunRequest(Model):
+    dry_run: bool = False
+
+
+class PointerRequest(Model):
+    delay: int = Field(default=3, ge=1, le=10, strict=True)
+
+
+class PathRequest(Model):
+    kind: Literal["open", "folder", "save"] = "open"
+
+
+class StepTestRequest(Model):
+    variables: dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
 
 

@@ -346,6 +346,82 @@ class WindowService:
             self._guard(target, window)
         desktop.write(text)
 
+    def _identified(self, target: dict) -> dict:
+        if not isinstance(target, dict) or target.get("found") is not True:
+            raise WindowError("Önce Pencereyi tanı adımının bulunan pencere sonucunu seçin.")
+        if target.get("platform") != platform.system():
+            raise WindowError("Pencere başka bir işletim sisteminde tanınmış. Bu bilgisayarda yeniden tanıtın.")
+        return target
+
+    def activate(self, target: dict) -> dict:
+        return self.focus(target).result()
+
+    def set_state(self, target: dict, state: str) -> None:
+        if state not in {"maximize", "minimize", "restore"}:
+            raise WindowError("Pencere işlemi büyüt, küçült veya geri yükle olmalıdır.")
+        self._check()
+        # Minimized windows are not listed; the saved identity addresses them directly.
+        self.backend.set_state(self._identified(target), state)
+
+    def move_resize(self, target: dict, x: int, y: int, width: int, height: int) -> dict:
+        if any(type(value) is not int for value in (x, y, width, height)) or width < 100 or height < 60 \
+                or not -10_000 <= x <= 20_000 or not -10_000 <= y <= 20_000 or width > 20_000 or height > 20_000:
+            raise WindowError("Konum tam sayı, genişlik en az 100, yükseklik en az 60 piksel olmalıdır.")
+        window = self.current(target)
+        self._check()
+        self.backend.move_resize(window, x, y, width, height)
+        self.cancel.wait(0.2)
+        return self.current(target).result()
+
+    def close(self, target: dict) -> None:
+        window = self.current(target)
+        self._check()
+        self.backend.close(window)
+
+    def wait_closed(self, target: dict, timeout: float) -> None:
+        self._identified(target)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 <= timeout <= 3600:
+            raise WindowError("Bekleme süresi 0–3600 saniye olmalıdır.")
+        deadline = time.monotonic() + timeout
+        while any(window.window_id == target.get("window_id") and window.pid == target.get("pid")
+                  for window in self.list_windows()):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WindowError("Pencere bekleme süresi içinde kapanmadı.")
+            if self.cancel.wait(min(0.25, remaining)):
+                self._check()
+
+    def read_field(self, target: dict, desktop: Any, **targeting: Any) -> str:
+        """Accessibility value for field identities; otherwise select-all + copy (clipboard restored)."""
+        if targeting.get("target_mode") == "element":
+            from .elements import validate_locator
+
+            timeout = targeting.get("timeout", 10)
+            self._numbers(timeout)
+            validate_locator(targeting.get("element"))
+            found = self.elements.find(self.current(target), targeting.get("element"), timeout=timeout)
+            return found.value
+        import pyperclip
+
+        previous = pyperclip.paste()
+        marker = f"rpa-orkestrai-empty-{time.monotonic_ns()}"
+        try:
+            pyperclip.copy(marker)
+            window, point = self._resolve_target(target, desktop, **targeting)
+            self._guard(target, window)
+            desktop.click(*point, clicks=1, button="left")
+            self._guard(target, window)
+            desktop.hotkey("mod", "a")
+            desktop.hotkey("mod", "c")
+            deadline = time.monotonic() + 1.5
+            value = pyperclip.paste()
+            while value == marker and time.monotonic() < deadline:
+                self.cancel.wait(0.1)
+                value = pyperclip.paste()
+            return "" if value == marker else value
+        finally:
+            pyperclip.copy(previous)
+
     def press_key(self, target: dict, key: str, modifier: str, desktop: Any) -> None:
         if (not isinstance(key, str) or not isinstance(modifier, str)
                 or key not in SUPPORTED_KEYS or modifier not in SUPPORTED_MODIFIERS):
@@ -410,6 +486,58 @@ end run'''
             raise WindowError("Pencere öne getirilemedi. macOS Erişilebilirlik ve Otomasyon izinlerini kontrol edin; "
                               "aynı uygulamada aynı başlıklı iki pencere varsa birini kapatın.") from exc
 
+    _WINDOW_SCRIPT = '''on run argv
+    set targetPID to (item 1 of argv) as integer
+    set targetTitle to item 2 of argv
+    set operation to item 3 of argv
+    tell application "System Events"
+        set targetProcess to first application process whose unix id is targetPID
+        tell targetProcess
+            set candidates to every window whose name is targetTitle
+            if (count of candidates) is not 1 then error "Ambiguous or missing window"
+            set targetWindow to item 1 of candidates
+            if operation is "minimize" then
+                set value of attribute "AXMinimized" of targetWindow to true
+            else if operation is "restore" then
+                set value of attribute "AXMinimized" of targetWindow to false
+                set frontmost to true
+                perform action "AXRaise" of targetWindow
+            else if operation is "frame" then
+                set value of attribute "AXMinimized" of targetWindow to false
+                set position of targetWindow to {(item 4 of argv) as integer, (item 5 of argv) as integer}
+                set size of targetWindow to {(item 6 of argv) as integer, (item 7 of argv) as integer}
+            else if operation is "close" then
+                click (first button of targetWindow whose subrole is "AXCloseButton")
+            end if
+        end tell
+    end tell
+end run'''
+
+    def _window_script(self, pid: int, title: str, operation: str, *numbers: int) -> None:
+        # Titles are script arguments, never interpolated into AppleScript source.
+        try:
+            subprocess.run(["/usr/bin/osascript", "-e", self._WINDOW_SCRIPT, str(pid), title, operation,
+                            *map(str, numbers)], check=True, capture_output=True, timeout=10)
+        except (subprocess.SubprocessError, OSError) as exc:
+            raise WindowError("Pencere işlemi yapılamadı. macOS Erişilebilirlik iznini kontrol edin; aynı "
+                              "başlıklı iki pencere varsa birini kapatın.") from exc
+
+    def set_state(self, target: dict, state: str) -> None:
+        if state == "maximize":
+            screen = self.appkit.NSScreen.screens()[0]
+            frame, visible = screen.frame(), screen.visibleFrame()
+            top = round(frame.size.height - (visible.origin.y + visible.size.height))
+            self._window_script(target["pid"], target["title"], "frame", round(visible.origin.x), top,
+                                round(visible.size.width), round(visible.size.height))
+        else:
+            self._window_script(target["pid"], target["title"], state)
+
+    def move_resize(self, window: WindowInfo, x: int, y: int, width: int, height: int) -> None:
+        self._window_script(window.pid, window.title, "frame", x, y, width, height)
+
+    def close(self, window: WindowInfo) -> None:
+        self._window_script(window.pid, window.title, "close")
+
     def is_active(self, window: WindowInfo) -> bool:
         front = self.appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
         if front is None or front.processIdentifier() != window.pid:
@@ -444,6 +572,10 @@ class Win32Windows:
             "GetWindowRect": ([w.HWND, ctypes.POINTER(w.RECT)], w.BOOL),
             "SetForegroundWindow": ([w.HWND], w.BOOL),
             "GetForegroundWindow": ([], w.HWND),
+            "IsWindow": ([w.HWND], w.BOOL),
+            "ShowWindow": ([w.HWND, ctypes.c_int], w.BOOL),
+            "SetWindowPos": ([w.HWND, w.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, w.UINT], w.BOOL),
+            "PostMessageW": ([w.HWND, w.UINT, w.WPARAM, w.LPARAM], w.BOOL),
         }
         for name, (args, result) in signatures.items():
             function = getattr(self.user, name)
@@ -510,7 +642,34 @@ class Win32Windows:
         return windows
 
     def activate(self, window: WindowInfo):
+        if self.user.IsIconic(window.window_id):
+            self.user.ShowWindow(window.window_id, 9)  # SW_RESTORE
         self.user.SetForegroundWindow(window.window_id)
+
+    def _owned(self, handle: int, pid: int) -> int:
+        owner = self.w.DWORD()
+        if not self.user.IsWindow(handle):
+            raise WindowError("Pencere kapanmış. Pencereyi yeniden tanıtın.")
+        self.user.GetWindowThreadProcessId(handle, self.c.byref(owner))
+        if owner.value != pid:
+            raise WindowError("Pencere kimliği değişmiş. Pencereyi yeniden tanıtın.")
+        return handle
+
+    def set_state(self, target: dict, state: str) -> None:
+        handle = self._owned(int(target["window_id"]), int(target["pid"]))
+        self.user.ShowWindow(handle, {"maximize": 3, "minimize": 6, "restore": 9}[state])
+
+    def move_resize(self, window: WindowInfo, x: int, y: int, width: int, height: int) -> None:
+        handle = self._owned(window.window_id, window.pid)
+        if self.user.IsZoomed(handle) or self.user.IsIconic(handle):
+            self.user.ShowWindow(handle, 9)
+        # SWP_NOZORDER | SWP_NOACTIVATE
+        if not self.user.SetWindowPos(handle, None, x, y, width, height, 0x0004 | 0x0010):
+            raise WindowError("Pencere taşınamadı veya boyutlandırılamadı.")
+
+    def close(self, window: WindowInfo) -> None:
+        # WM_CLOSE lets the application ask to save, like clicking its close button.
+        self.user.PostMessageW(self._owned(window.window_id, window.pid), 0x0010, 0, 0)
 
     def is_active(self, window: WindowInfo) -> bool:
         return self.user.GetForegroundWindow() == window.window_id

@@ -94,3 +94,37 @@ def test_ui_automation_works_from_worker_threads(win32_form):
     for thread in threads:
         thread.join(30)
     assert len(results) == 2 and all(count >= 1 for count in results)
+
+
+def test_ui_automation_reads_the_current_field_value(win32_form):
+    import ctypes
+    from ctypes import wintypes
+
+    window, _ = win32_form
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPCWSTR]
+    edit = user32.FindWindowExW(window.window_id, None, "EDIT", None)
+    user32.SendMessageW(edit, 0x000C, 0, "INV-2026-9")  # WM_SETTEXT
+    locator = {"platform": "Windows", "role": "Edit", "automation_id": str(EDIT_ID), "name": "", "index": 0}
+    assert ElementService(UiaElements()).find(window, locator, timeout=2).value == "INV-2026-9"
+
+
+def test_win32_window_move_state_and_close(win32_form):
+    import ctypes
+
+    from rpa_orkestrai.desktop.windows import Win32Windows, WindowService
+
+    window, _ = win32_form
+    service = WindowService(backend=Win32Windows())
+    target = service.find("", window.title)
+    moved = service.move_resize(target, 50, 60, 500, 300)
+    assert (moved["x"], moved["y"], moved["width"], moved["height"]) == (50, 60, 500, 300)
+    user32 = ctypes.WinDLL("user32")
+    service.set_state(target, "minimize")
+    assert user32.IsIconic(window.window_id)
+    service.set_state(target, "restore")
+    assert not user32.IsIconic(window.window_id)
+    service.close(target)
+    service.wait_closed(target, 5)

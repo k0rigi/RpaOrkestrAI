@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.5.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.5.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.6.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.6.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. Son doğrulamadan sonra internetsiz en fazla 7 gün çalışır. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -46,7 +46,19 @@ GitHub indirmesi `.venv` içermez; Python ortamı her bilgisayarda yeniden kurul
 
 Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka bir terminalden çalıştıracaksanız önce proje klasörüne geçip sanal ortamı etkinleştirin.
 
-Studio’nun adım havuzu pencere tanıma, tıklama, **Alanı doldur**, tuş gönderme, görsel bekleme, Sheets hücresi/satırları okuma, hücreye yazma, satır döngüsü, sınırlı koşul döngüsü, bekleme ve koşul adımlarından oluşur. **Sheets satırlarını oku** ile B sütununa `form_id`, C sütununa `status` adı verin; döngüde `${row.form_id}` ve `${row.status}` kullanın. Durumu **boş veya Bekliyor** olanları koşulla seçebilir, her dalın içine işlem veya başka bir döngü ekleyebilirsiniz. **Koşul sürdükçe tekrarla**, tekrar ve süre sınırlarıyla çalışır. [Sheets satır ve koşul rehberi](docs/sheets-satir-dongusu.md).
+**0.6.0 ile adım kütüphanesi 63 adıma çıktı.** Kütüphane şu grupları kapsar:
+- fare ve klavye: tıkla, sürükle, kaydır, yaz, kısayol, tuşu basılı tut
+- pencere: öne getir, büyüt/küçült, taşı, kapat, kapanmasını bekle, alanın değerini oku
+- ekran: görsel ara/tıkla, kurulum gerektirmeyen OCR ile metin oku/bekle, piksel rengi, ekran görüntüsü
+- uygulama ve sistem: uygulama/dosya/adres aç, uygulamayı kapat, komut çalıştır, pano
+- dosya ve Excel: .xlsx/CSV oku-yaz, dosya listele, kopyala/taşı/sil, indirmeyi bekle
+- veri: hesapla, metin, tarih, liste
+- akış: tekrarla, döngüden çık, hata olursa, başka akışı çalıştır, akışı bitir
+- etkileşim ve web: mesaj ve girdi kutusu, HTTP/API
+
+Adımlar tutup sürüklenerek yer değiştirir ve döngü, koşul veya hata bloklarının içine bırakılabilir. **Bu adımı test et**, seçili adımı örnek değerlerle tek başına çalıştırır. **Çalıştır** adımları gerçekten uygular; **Önizleme (ekranı kullanmadan)** seçeneği ekran, dosya ve bağlantı adımlarını atlar. Tüm adımlar, AutoHotkey karşılıkları ve örnekler [adım rehberindedir](docs/adimlar.md). İlk denemeler için [examples/adim-turu.json](examples/adim-turu.json) ve [examples/metin-editoru.json](examples/metin-editoru.json) akışlarını içe aktarabilirsiniz.
+
+Sheets adımları da kullanılabilir. **Sheets satırlarını oku** ile B sütununa `form_id`, C sütununa `status` adı verin; döngüde `${row.form_id}` ve `${row.status}` kullanın. Durumu **boş veya Bekliyor** olanları koşulla seçebilir, her dalın içine işlem veya başka bir döngü ekleyebilirsiniz. **Koşul sürdükçe tekrarla**, tekrar ve süre sınırlarıyla çalışır. [Sheets satır ve koşul rehberi](docs/sheets-satir-dongusu.md).
 
 **Alanı doldur → Ekranda seç**, 3/5/10 saniyelik geri sayım sonunda fare konumunu alır. Uygulama alana bir kimlik veriyorsa (Windows UI Automation, macOS Erişilebilirlik) **Alan kimliği** önerilir: alan, pencere boyutu veya ekran ölçeği değişse de kimliğiyle bulunur. Kimlik vermeyen uygulamalarda konum veya görsel yöntem kullanılır; görsel yöntemde ekranın alınmış görüntüsü üzerinde fareyle alan kırpıp hedef noktayı seçersiniz. Önizlemeyi kontrol ederek **Hedefi kaydet** ile onaylayın; **Esc** seçimden vazgeçirir. **Görüntü üzerinde seç** aynı seçimi Studio içindeki görüntüde yapar ve tarayıcıdan kullanımda da çalışır. Her iki yöntemde ERP penceresi **ana ekranda ve tamamen görünür** olmalıdır. macOS ekran kaydı ve erişilebilirlik izinleri, Windows pencere odağı ve yetkileri [pencere tanıtma rehberinde](docs/pencere-tanitma.md) açıklanır.
 
@@ -163,6 +175,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 ## Rehberler
 
+- [Adım rehberi: 63 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Kullanıcı girişi, lisans ve çevrimdışı kullanım](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)
 - [Otomatik güncelleme ve yeni sürüm yayımlama](docs/guncelleme-mimarisi.md)

@@ -352,3 +352,75 @@ def test_named_sheet_columns_and_nested_conditions_can_be_edited_without_json(tm
             assert loop["children"][1]["params"] == {"left": "${row.status}", "operator": "empty_or_eq", "right": "Bekliyor"}
             assert not errors, errors
             browser.close()
+
+
+def test_drag_drop_library_search_and_single_step_test(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Sürükle bırak", "steps": [
+            {"id": "count", "action": "core.set", "title": "Sayaç", "params": {"name": "sayac", "value": 1}},
+            {"id": "loop", "action": "control.repeat", "title": "Üç kez", "params": {"count": 3}},
+            {"id": "calc", "action": "data.calculate", "title": "Artır",
+             "params": {"expression": "${sayac} + adet", "output": "sonuc"}},
+        ]})
+        assert response.status_code == 201, response.text
+        workflow_id = response.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Sürükle bırak", exact=True).click()
+            playwright.expect(page.get_by_label("Önizleme (ekranı kullanmadan)")).not_to_be_checked()
+
+            # Move the calculation into the repeat block by dragging it onto the empty branch.
+            page.locator('[data-step-id="calc"]').drag_to(page.locator(".branch-placeholder").first)
+            playwright.expect(page.locator('.branch [data-step-id="calc"]')).to_have_count(1)
+            # Reorder: drag the counter below the loop block.
+            page.locator('[data-step-id="count"]').drag_to(page.locator(".canvas-add"))
+            order = page.locator(".flow-stack > .step-wrap > .step-card").evaluate_all(
+                "cards => cards.map(card => card.dataset.stepId)")
+            assert order == ["loop", "count"]
+            # A step cannot be dropped into its own block.
+            page.locator('[data-step-id="loop"]').drag_to(page.locator('.branch [data-step-id="calc"]'))
+            playwright.expect(page.locator(".toast.error")).to_contain_text("kendi içine")
+
+            # Library search and dragging a new step into the canvas.
+            page.get_by_label("Adım ara").fill("excel oku")
+            playwright.expect(page.locator(".library-row:visible").filter(has_text="Excel / CSV oku")).to_have_count(1)
+            playwright.expect(page.locator(".library-row:visible").filter(has_text="Tuşa bas")).to_have_count(0)
+            page.get_by_label("Adım ara").fill("")
+            page.locator(".library-action").filter(has_text="Metin işlemi").drag_to(page.locator(".canvas-add"))
+            playwright.expect(page.locator(".flow-stack > .step-wrap > .step-card")).to_have_count(3)
+
+            # Save, then test only the calculation with a sample value.
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            page.locator('[data-step-id="calc"]').click()
+            page.get_by_role("button", name="Bu adımı test et", exact=True).click()
+            dialog = page.locator("dialog.step-test-dialog")
+            playwright.expect(dialog.get_by_label("${sayac}")).to_be_visible()
+            dialog.get_by_label("${sayac}").fill("40")
+            dialog.get_by_label("${adet}").fill("2")
+            dialog.get_by_role("button", name="Testi çalıştır", exact=True).click()
+            playwright.expect(dialog.locator(".step-test-values")).to_contain_text("42")
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        assert [step["id"] for step in saved["steps"][0]["children"]] == ["calc"]
+    assert not errors

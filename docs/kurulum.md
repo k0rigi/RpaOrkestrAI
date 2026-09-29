@@ -57,7 +57,7 @@ ERP pencere tanıma/tıklama ve Sheets denemesi için Chromium indirmek gerekmez
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-**İlk test:** Studio açılınca yeni akışa `Pencereyi tanı` ekleyin, ERP'yi açın, `Açık pencerelerden seç` ve `Şimdi kontrol et` ile eşleşmeyi doğrulayın. Bu kontrol tıklama/yazma yapmaz. Adım listede yoksa indirdiğiniz kaynak sürümünün güncelliğini kontrol edin. Sonra küçük bir akışla devam edin; Deneme modu dış sistemlere erişmez.
+**İlk test:** Studio açılınca yeni akışa `Pencereyi tanı` ekleyin, ERP'yi açın, `Açık pencerelerden seç` ve `Şimdi kontrol et` ile eşleşmeyi doğrulayın. Bu kontrol tıklama/yazma yapmaz. Adım listede yoksa indirdiğiniz kaynak sürümünün güncelliğini kontrol edin. Sonra küçük bir akışla devam edin; her adımı **Bu adımı test et** ile tek başına deneyebilirsiniz. Önizleme seçeneği ekran ve bağlantı adımlarını atlar.
 
 **Başka bilgisayara taşıma:** kodu GitHub'dan alın ve ortamı o bilgisayarda kurun. `.venv` taşınabilir değildir. Akışları Studio'dan JSON dışa/içe aktarın; bağlantı bilgilerini ve Google servis hesabı dosyasını hedef bilgisayarda ayrıca tanımlayın. Güncellemede mevcut `data/` ve `.env` dosyalarını koruyun. Taşınmış/yarım kalmış `.venv` hata verirse uygulamayı kapatıp yalnız `.venv` klasörünü yeniden adlandırın ve kurulum betiğini çalıştırın. [Python sanal ortamlarının taşınabilirliği](https://docs.python.org/3/library/venv.html#how-venvs-work).
 

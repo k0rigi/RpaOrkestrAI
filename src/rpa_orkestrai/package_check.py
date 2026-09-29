@@ -27,6 +27,29 @@ def _check_accessibility() -> None:
         AxElements().ax.AXIsProcessTrusted()
 
 
+def _check_ocr_and_tables(folder: Path) -> None:
+    """System OCR on a generated image and an Excel round trip, inside the packaged app."""
+    import platform
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    from .actions.files import read_table, write_table
+    from .desktop.ocr import read_text
+
+    image = Image.new("RGB", (700, 120), "white")
+    try:
+        font = ImageFont.load_default(size=48)
+    except TypeError:
+        font = ImageFont.load_default()
+    ImageDraw.Draw(image).text((20, 30), "INVOICE 2026", fill="black", font=font)
+    if platform.system() in {"Darwin", "Windows"} and "INVOICE" not in read_text(image, engine="system").upper():
+        raise RuntimeError("Paket içindeki sistem OCR'ı metni okuyamadı.")
+    book = folder / "check.xlsx"
+    write_table(None, {"rows": [{"No": 1, "Ad": "Çağrı"}], "path": str(book)})
+    if read_table(None, {"path": str(book)})[0]["Ad"] != "Çağrı":
+        raise RuntimeError("Paket içindeki Excel okuma/yazma doğrulanamadı.")
+
+
 def _check_license_verification() -> None:
     """Sign with a throwaway key and verify with the packaged license code (no network)."""
     import base64
@@ -75,6 +98,7 @@ def run_check(report: Path) -> int:
 
             _check_license_verification()
             _check_accessibility()
+            _check_ocr_and_tables(root)
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -128,7 +152,8 @@ def run_check(report: Path) -> int:
             result = {"ok": True, "frozen": bool(getattr(sys, "frozen", False)),
                       "version": __version__, "platform": current_platform_key(),
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
-                                 "license-verification", "license-gate", "accessibility-backend", "http-api",
+                                 "license-verification", "license-gate", "accessibility-backend", "system-ocr",
+                                 "excel-tables", "http-api",
                                  "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

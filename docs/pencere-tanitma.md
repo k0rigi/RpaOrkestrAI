@@ -1,6 +1,6 @@
 # ERP penceresini ve alanını tanıtma
 
-Bu rehber 0.5.0 sürümündeki pencere tanıma, fareyle hedef seçimi ve alan kimliğiyle hedefleme yöntemlerini anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini durum sütununa göre işlemek için [satır ve koşul rehberini](sheets-satir-dongusu.md) kullanın.
+Bu rehber 0.6.0 sürümündeki pencere tanıma, fareyle hedef seçimi ve alan kimliğiyle hedefleme yöntemlerini anlatır. İade faturası ilk örnektir; aynı adımlar başka masaüstü uygulamalarında da kullanılabilir. Sheets'teki B2, B3, B4 değerlerini durum sütununa göre işlemek için [satır ve koşul rehberini](sheets-satir-dongusu.md) kullanın.
 
 ## Pencereyi tanı
 
@@ -103,6 +103,6 @@ Her giriş adımı hedef pencereyi öne getirip odağı doğrular. Pencere kapan
 - **Windows:** pencere listeleme Windows API'sini, alan kimliği UI Automation'ı kullanır. ERP farklı bir oturumda veya yükseltilmiş yetkiyle çalışıyorsa giriş engellenebilir. Odağın doğrulanamadığı durumda adım durur.
 - Temizleme kısayolu Windows'ta **Ctrl+A**, macOS'ta **Command+A** kullanır. İki işletim sisteminde ERP uygulama adı, pencere başlığı, görünüm veya koordinatlar farklıysa hedefleri o bilgisayarda yeniden seçin.
 
-**Deneme modu**, akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **Ekranda seç**, **Görüntü üzerinde seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın.
+**Önizleme (ekranı kullanmadan)** seçeneği akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **Ekranda seç**, **Görüntü üzerinde seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın. Tek bir pencere adımını, örneğin **Alanı doldur**, sağ paneldeki **Bu adımı test et** ile `${row.form_id}` için örnek değer girerek deneyebilirsiniz. Adım gerçekten tıklar ve yazar, akışın geri kalanı çalışmaz.
 
 Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne taşıyabilirsiniz.

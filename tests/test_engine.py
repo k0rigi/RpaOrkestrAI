@@ -94,8 +94,8 @@ def test_iteration_snapshots_source_and_has_bounds(tmp_path):
         Step(action="data.append", params={"name": "rows", "value": 3}),
     ])]))
     assert executor.variables["rows"] == [1, 2, 3, 3]
-    with pytest.raises(WorkflowError, match="1.000"):
-        executor.execute(Workflow(steps=[Step(action="control.for_each", params={"items": [1] * 1001})]))
+    with pytest.raises(WorkflowError, match="100.000"):
+        executor.execute(Workflow(steps=[Step(action="control.for_each", params={"items": [1] * 100_001})]))
 
 
 def test_single_run_lock_and_cancel_wait(tmp_path):

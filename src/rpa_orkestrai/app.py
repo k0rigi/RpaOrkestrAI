@@ -17,7 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import __version__
 from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
-from .engine import RunManager, WorkflowError, validate_workflow
+from .engine import ARTIFACT_TYPES, RunManager, WorkflowError, validate_workflow
 from .instance import identity
 from .licensing import OPEN_PATHS, LicenseError, LicenseService, LicenseUnavailable
 from .locking import WorkspaceLock
@@ -25,7 +25,10 @@ from .models import (
     DesktopPickRequest,
     FavoriteRequest,
     LicenseLoginRequest,
+    PathRequest,
+    PointerRequest,
     RunRequest,
+    StepTestRequest,
     TemplateCropRequest,
     WindowCheckRequest,
     Workflow,
@@ -276,6 +279,77 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         except Exception as exc:
             raise HTTPException(status_code=422, detail="Pencere görüntüsü alınamadı. Ekran izinlerini kontrol edin ve ERP'yi ana ekrana taşıyın.") from exc
 
+    def while_studio_hidden(delay: int, work):
+        """Hide the native Studio window during a countdown so the target app is visible."""
+        from .desktop.picker import _host, _host_lock
+
+        with _host_lock:
+            host = _host
+        studio = host[1] if host else None
+        if studio is not None:
+            studio.hide()
+        try:
+            import time
+
+            time.sleep(delay)
+            return work()
+        finally:
+            if studio is not None:
+                studio.show()
+
+    @app.post("/api/desktop/pointer")
+    def read_pointer(body: PointerRequest):
+        from .desktop.controller import DesktopController
+
+        try:
+            with manager.desktop_setup():
+                x, y = while_studio_hidden(body.delay, lambda: DesktopController().position())
+                return {"x": x, "y": y}
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail="Fare konumu şu anda alınamıyor. Çalışan akışı bekleyin.") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Fare konumu okunamadı. Ekran/erişilebilirlik izinlerini "
+                                                        "kontrol edin.") from exc
+
+    @app.post("/api/desktop/capture-screen")
+    def capture_screen(body: PointerRequest):
+        from .desktop.controller import DesktopController
+        from .desktop.windows import WindowError, WindowInfo
+
+        try:
+            with manager.desktop_setup():
+                def grab():
+                    desktop = DesktopController()
+                    image = desktop.screenshot()
+                    screen = WindowInfo(0, 0, "Ekran", "Ana ekran", 0, 0, image.width, image.height)
+                    return captures.add(screen, image)
+
+                return while_studio_hidden(body.delay, grab)
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail="Ekran görüntüsü şu anda alınamıyor. Çalışan akışı bekleyin.") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Ekran görüntüsü alınamadı. Ekran Kaydı iznini kontrol edin.") from exc
+
+    @app.post("/api/desktop/choose-path")
+    def choose_path(body: PathRequest):
+        from .desktop.picker import _host, _host_lock
+
+        with _host_lock:
+            host = _host
+        if host is None:
+            raise HTTPException(status_code=409, detail="Dosya seçme penceresi masaüstü uygulamasında kullanılabilir; "
+                                                        "tarayıcıda yolu elle yazın.")
+        webview, window = host
+        kinds = getattr(webview, "FileDialog", None)
+        dialog = {"open": getattr(kinds, "OPEN", 10), "folder": getattr(kinds, "FOLDER", 20),
+                  "save": getattr(kinds, "SAVE", 30)}[body.kind]
+        chosen = window.create_file_dialog(dialog)
+        if not chosen:
+            return {"path": None}
+        return {"path": chosen if isinstance(chosen, str) else chosen[0]}
+
     @app.post("/api/desktop/templates", status_code=201)
     def save_template(body: TemplateCropRequest):
         from .desktop.windows import WindowError
@@ -346,6 +420,13 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.post("/api/workflows/{workflow_id}/steps/{step_id}/test", status_code=202)
+    def test_step(workflow_id: str, step_id: str, body: StepTestRequest):
+        try:
+            return manager.start_step(store.workflow(workflow_id), step_id, body.variables, dry_run=body.dry_run)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/api/runs")
     def list_runs():
         return store.runs()
@@ -364,10 +445,11 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         artifact = next((a for a in run.artifacts if a.id == artifact_id), None)
         if artifact is None:
             raise HTTPException(status_code=404, detail="Çıktı bulunamadı.")
-        path = store.root / "artifacts" / run.id / f"{artifact.id}.csv"
-        if not path.is_file():
+        suffix = Path(artifact.name).suffix.lower()
+        path = store.root / "artifacts" / run.id / f"{artifact.id}{suffix}"
+        if suffix not in ARTIFACT_TYPES or not path.is_file():
             raise HTTPException(status_code=404, detail="Çıktı dosyası bulunamadı.")
-        return FileResponse(path, media_type="text/csv; charset=utf-8", filename=artifact.name)
+        return FileResponse(path, media_type=ARTIFACT_TYPES[suffix], filename=artifact.name)
 
     @app.get("/api/settings")
     def get_settings():

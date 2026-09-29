@@ -21,7 +21,10 @@
     selected: null,
     target: null,
     dirty: false,
-    dryRun: true,
+    dryRun: false,
+    drag: null,
+    librarySearch: "",
+    testValues: {},
     run: null,
     poll: null,
     pollEpoch: 0,
@@ -85,6 +88,13 @@
     refresh:
       "M20 7v5h-5 M4 17v-5h5 M19 12a7 7 0 0 0-12-6L4 9 M5 12a7 7 0 0 0 12 6l3-3",
     logout: "M15 4h4v16h-4 M10 16l-4-4 4-4 M6 12h10",
+    grip: "M9 5h.01 M9 12h.01 M9 19h.01 M15 5h.01 M15 12h.01 M15 19h.01",
+    mouse: "M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6z M12 3v6",
+    keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
+    window: "M3 4h18v16H3z M3 8h18",
+    shield2: "M12 2l8 3v7c0 5-8 10-8 10S4 17 4 12V5z",
+    message: "M4 4h16v12H8l-4 4z",
+    target: "M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 12h.01",
     key: "M14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M13 12l8 8 M17 16l2-2 M19 18l2-2",
   };
 
@@ -233,6 +243,15 @@
   }
   function actionIcon(action) {
     const type = String(action).toLowerCase();
+    if (/^input\.(mouse|drag|scroll)/.test(type)) return "mouse";
+    if (/^input\./.test(type)) return "keyboard";
+    if (/^window\.|find_window/.test(type)) return "window";
+    if (/^ui\./.test(type)) return "message";
+    if (/control\.try/.test(type)) return "shield2";
+    if (/control\.repeat/.test(type)) return "loop";
+    if (/^http\./.test(type)) return "globe";
+    if (/^data\.calculate|^text\.|^data\.date|^data\.list/.test(type)) return "code";
+    if (/^system\.|clipboard/.test(type)) return "terminal";
     if (/database|sql|query/.test(type)) return "database";
     if (/sheet/.test(type)) return "sheet";
     if (/browser|web|playwright/.test(type)) return "globe";
@@ -558,7 +577,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.5.0"}`),
+      node("span", "version", `v${state.version || "0.6.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -655,7 +674,7 @@
       [
         "Tamamlanan çalışma",
         actualRuns.filter((r) => r.status === "succeeded").length,
-        "Denemeler hariç",
+        "Önizlemeler hariç",
         "check",
       ],
       [
@@ -741,7 +760,7 @@
         node(
           "div",
           "activity-meta",
-          `${when(run.started_at)}${run.dry_run ? " · Deneme" : ""}`,
+          `${when(run.started_at)}${run.test_step_id ? " · Adım testi" : run.dry_run ? " · Önizleme" : ""}`,
         ),
       );
       const go = iconButton("Çalışmayı görüntüle", "chevron", () =>
@@ -1036,7 +1055,8 @@
     check.addEventListener("change", () => {
       state.dryRun = check.checked;
     });
-    dry.append(check, node("span", "", "Deneme modu"));
+    dry.append(check, node("span", "", "Önizleme (ekranı kullanmadan)"));
+    dry.title = "Açıkken fare, klavye, ekran, dosya ve bağlantı adımları atlanır; yalnız veri adımları hesaplanır.";
     actions.append(
       dry,
       iconButton("Akışı JSON olarak dışa aktar", "download", exportWorkflow),
@@ -1104,6 +1124,14 @@
       ));
       return;
     }
+    const search = textInput(state.librarySearch, "Adım ara: tıkla, excel, bekle, ocr…", "search");
+    search.className = "field-input library-search";
+    search.setAttribute("aria-label", "Adım ara");
+    search.addEventListener("input", () => {
+      state.librarySearch = search.value;
+      filterLibrary(pane);
+    });
+    pane.append(search);
     const favorites = new Set(state.favorites);
     const pinned = state.favorites
       .map((type) => state.catalog.find((spec) => spec.type === type))
@@ -1131,6 +1159,10 @@
           node("span", "add-symbol", "+"),
         );
         action.addEventListener("click", () => addStep(spec));
+        action.draggable = true;
+        action.addEventListener("dragstart", (event) => startDrag(event, { kind: "new", type: spec.type }));
+        action.addEventListener("dragend", endDrag);
+        row.dataset.search = searchText(`${spec.label} ${spec.description || ""} ${spec.category || ""} ${spec.type}`);
         const favorite = favorites.has(spec.type);
         const star = iconButton(
           `${spec.label}: ${favorite ? "Favorilerden çıkar" : "Favoriye ekle"}`,
@@ -1146,6 +1178,21 @@
       });
       pane.append(group);
     }
+    filterLibrary(pane);
+  }
+  function searchText(value) {
+    return String(value).replace(/[İIı]/g, "i").toLocaleLowerCase("tr");
+  }
+  function filterLibrary(pane) {
+    const words = searchText(state.librarySearch).split(/\s+/).filter(Boolean);
+    pane.querySelectorAll(".library-row").forEach((row) => {
+      row.hidden = !words.every((word) => row.dataset.search.includes(word));
+    });
+    pane.querySelectorAll(".library-group").forEach((group) => {
+      const rows = group.querySelectorAll(".library-row");
+      group.hidden = words.length > 0 && rows.length > 0 && [...rows].every((row) => row.hidden);
+      if (words.length && !rows.length) group.hidden = true;
+    });
   }
   async function toggleFavorite(type) {
     if (state.favoriteSaving) return;
@@ -1186,28 +1233,7 @@
     return null;
   }
   function addStep(spec) {
-    const params = {};
-    (spec.fields || []).forEach((f) => {
-      if (f.default !== undefined && f.default !== null)
-        params[f.name] = clone(f.default);
-    });
-    if (spec.type === "desktop.window_fill" && state.target) {
-      const loop = (enclosingSteps(state.target.id) || []).reverse().find((step) => step.action === "control.for_each");
-      const producer = loop && loopDataSource(loop);
-      if (producer?.action === "sheets.read_rows") {
-        const key = parameterValue(producer, "key");
-        const item = parameterValue(loop, "item_name");
-        if (key && item) params.text = "${" + item + "." + key + "}";
-      }
-    }
-    const step = {
-      id: uid(),
-      title: spec.label,
-      action: spec.type,
-      params,
-      children: [],
-      otherwise: [],
-    };
+    const step = buildStep(spec, state.target?.id);
     let list = state.workflow.steps;
     if (state.target) {
       const parent = findStep(state.target.id);
@@ -1217,6 +1243,9 @@
       }
     }
     list.push(step);
+    selectNewStep(step);
+  }
+  function selectNewStep(step) {
     state.selected = step.id;
     markDirty();
     renderCanvas();
@@ -1226,6 +1255,109 @@
         .querySelector(`[data-step-id="${CSS.escape(step.id)}"]`)
         ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
     );
+  }
+  function buildStep(spec, parentId) {
+    const params = {};
+    (spec.fields || []).forEach((f) => {
+      if (f.default !== undefined && f.default !== null)
+        params[f.name] = clone(f.default);
+    });
+    if (spec.type === "desktop.window_fill" && parentId) {
+      const loop = [...(enclosingSteps(parentId) || []), findStep(parentId)?.step].filter(Boolean).reverse()
+        .find((step) => step.action === "control.for_each");
+      const producer = loop && loopDataSource(loop);
+      if (producer?.action === "sheets.read_rows") {
+        const key = parameterValue(producer, "key");
+        const item = parameterValue(loop, "item_name");
+        if (key && item) params.text = "${" + item + "." + key + "}";
+      }
+    }
+    return {
+      id: uid(),
+      title: spec.label,
+      action: spec.type,
+      params,
+      children: [],
+      otherwise: [],
+    };
+  }
+  // ----- drag and drop -------------------------------------------------------
+  function subtreeDepth(step) {
+    const nested = [...(step.children || []), ...(step.otherwise || [])];
+    return 1 + (nested.length ? Math.max(...nested.map(subtreeDepth)) : 0);
+  }
+  function containsStep(root, id) {
+    return allSteps([root]).some((candidate) => candidate.id === id);
+  }
+  function clearDropMarks() {
+    document.querySelectorAll(".drop-before, .drop-after, .drop-inside").forEach((el) =>
+      el.classList.remove("drop-before", "drop-after", "drop-inside"));
+  }
+  function startDrag(event, payload) {
+    state.drag = payload;
+    event.dataTransfer.effectAllowed = payload.kind === "new" ? "copy" : "move";
+    // Firefox/WebKit need data to start a drag; the payload itself stays in memory.
+    event.dataTransfer.setData("text/plain", payload.kind === "new" ? payload.type : payload.id);
+    document.body.classList.add("dragging-step");
+  }
+  function endDrag() {
+    state.drag = null;
+    clearDropMarks();
+    document.body.classList.remove("dragging-step");
+  }
+  function dropInto(list, index, ownerId) {
+    const drag = state.drag;
+    endDrag();
+    if (!drag || !state.workflow) return;
+    const ownerDepth = ownerId ? (enclosingSteps(ownerId) || []).length + 1 : 0;
+    if (drag.kind === "new") {
+      const spec = state.catalog.find((item) => item.type === drag.type);
+      if (!spec) return;
+      if (ownerDepth + 1 > 12) return toast("Akış en fazla 12 seviye iç içe olabilir.", true);
+      const step = buildStep(spec, ownerId);
+      list.splice(Math.max(0, Math.min(index, list.length)), 0, step);
+      selectNewStep(step);
+      return;
+    }
+    const located = findStep(drag.id);
+    if (!located) return;
+    if (ownerId && containsStep(located.step, ownerId))
+      return toast("Bir adım kendi içine taşınamaz.", true);
+    if (ownerDepth + subtreeDepth(located.step) > 12)
+      return toast("Akış en fazla 12 seviye iç içe olabilir.", true);
+    let target = index;
+    if (located.list === list && located.index < index) target -= 1;
+    if (located.list === list && located.index === target) return;
+    located.list.splice(located.index, 1);
+    list.splice(Math.max(0, Math.min(target, list.length)), 0, located.step);
+    state.selected = located.step.id;
+    markDirty();
+    renderCanvas();
+    renderInspector();
+  }
+  function dropZone(el, resolve) {
+    // resolve(event) → {list, index, ownerId, mark: "before" | "after" | "inside", target}
+    el.addEventListener("dragover", (event) => {
+      if (!state.drag) return;
+      const place = resolve(event);
+      if (!place) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = state.drag.kind === "new" ? "copy" : "move";
+      clearDropMarks();
+      place.target.classList.add(`drop-${place.mark}`);
+    });
+    el.addEventListener("dragleave", (event) => {
+      if (!el.contains(event.relatedTarget)) el.classList.remove("drop-before", "drop-after", "drop-inside");
+    });
+    el.addEventListener("drop", (event) => {
+      if (!state.drag) return;
+      const place = resolve(event);
+      if (!place) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dropInto(place.list, place.index, place.ownerId);
+    });
   }
   function setTarget(step, branch) {
     state.target = { id: step.id, branch };
@@ -1267,6 +1399,7 @@
           "Soldaki kütüphaneden bir eylem seçin. Sonra parametrelerini sağ panelde düzenleyin.",
         ),
       );
+      dropZone(placeholder, () => ({ list: state.workflow.steps, index: 0, ownerId: null, mark: "inside", target: placeholder }));
       stack.append(placeholder);
     } else
       state.workflow.steps.forEach((step, index) => {
@@ -1285,6 +1418,9 @@
         ?.scrollTo({ top: 0, behavior: "smooth" });
       toast("Soldaki kütüphaneden bir adım seçin.");
     });
+    dropZone(add, () => ({ list: state.workflow.steps, index: state.workflow.steps.length, ownerId: null,
+      mark: "inside", target: add }));
+    add.title = "Kütüphaneden adım seçin veya bir adımı buraya sürükleyin.";
     stack.append(add, node("div", "flow-line"));
     const end = node("div", "flow-terminal");
     end.append(icon("check"), node("span", "", "Bitiş"));
@@ -1312,6 +1448,24 @@
       renderInspector();
     };
     card.addEventListener("click", select);
+    card.draggable = true;
+    card.addEventListener("dragstart", (event) => {
+      event.stopPropagation();
+      startDrag(event, { kind: "move", id: step.id });
+      requestAnimationFrame(() => card.classList.add("drag-source"));
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("drag-source");
+      endDrag();
+    });
+    dropZone(card, (event) => {
+      const bounds = card.getBoundingClientRect();
+      const after = event.clientY > bounds.top + bounds.height / 2;
+      const current = list.indexOf(step);
+      const owner = (enclosingSteps(step.id) || []).at(-1);
+      return { list, index: after ? current + 1 : current, ownerId: owner?.id || null,
+        mark: after ? "after" : "before", target: card };
+    });
     card.addEventListener("keydown", (event) => {
       if (event.target === card && ["Enter", " "].includes(event.key)) {
         event.preventDefault();
@@ -1319,7 +1473,11 @@
       }
     });
     const main = node("div", "step-card-main");
+    const grip = node("span", "step-grip");
+    grip.title = "Sürükleyerek taşıyın";
+    grip.append(icon("grip"));
     main.append(
+      grip,
       node("span", "step-number", String(index + 1).padStart(2, "0")),
     );
     const glyph = node("div", "step-icon");
@@ -1362,35 +1520,35 @@
           ? "condition"
           : null);
     if (container || step.children?.length || step.otherwise?.length) {
-      const branches =
-        container === "condition" || step.otherwise?.length
-          ? ["children", "otherwise"]
-          : ["children"];
+      const labels = spec.branches || (container === "condition"
+        ? { children: "KOŞUL DOĞRUYSA", otherwise: "DEĞİLSE" } : { children: "İÇ ADIMLAR" });
+      const branches = Object.keys(labels);
+      if (step.otherwise?.length && !branches.includes("otherwise")) branches.push("otherwise");
       branches.forEach((branch) => {
-        const children = step[branch] || [];
+        step[branch] ||= [];
+        const children = step[branch];
         const group = node(
           "div",
-          `branch${children.length ? "" : " empty-branch"}`,
+          `branch${children.length ? "" : " empty-branch"}${container === "try" && branch === "otherwise" ? " branch-error" : ""}`,
         );
-        const label =
-          branch === "otherwise"
-            ? "DEĞİLSE"
-            : container === "loop"
-              ? step.action === "control.while" ? "KOŞUL SÜRDÜKÇE · İÇ ADIMLAR" : "HER SATIR İÇİN · İÇ ADIMLAR"
-              : "KOŞUL DOĞRUYSA";
+        const label = labels[branch] || "DEĞİLSE";
         const head = node("div", "branch-heading");
         head.append(
           node("span", "", label),
           linkButton("Adım ekle", () => setTarget(step, branch), "plus"),
         );
         group.append(head);
+        dropZone(head, () => ({ list: children, index: 0, ownerId: step.id, mark: "inside", target: group }));
         if (!children.length) {
           const placeholder = node(
             "button",
             "branch-placeholder",
-            container === "loop" ? step.action === "control.while" ? "Her tekrarda yapılacak işlemi ekle" : "Her satırda yapılacak işlemi ekle" : "Bu dala adım ekle",
+            (container === "loop" ? "Her turda yapılacak işlemi ekle"
+              : container === "try" && branch === "otherwise" ? "Hata olursa yapılacak işlemi ekle"
+                : container === "try" ? "Denenecek adımları ekle" : "Bu dala adım ekle") + " · veya buraya sürükleyin",
           );
           placeholder.addEventListener("click", () => setTarget(step, branch));
+          dropZone(placeholder, () => ({ list: children, index: 0, ownerId: step.id, mark: "inside", target: group }));
           group.append(placeholder);
         }
         children.forEach((child, childIndex) => {
@@ -1454,6 +1612,348 @@
     renderInspector();
   }
 
+  // ----- screen tools: pointer, region and screen image ---------------------
+  function stepExists(step) {
+    return findStep(step.id)?.step === step;
+  }
+  function stepTools(step, spec) {
+    const tools = node("div", "step-extra-tools");
+    (spec.pointer || []).forEach(([xName, yName], index, all) => {
+      const label = all.length > 1 ? (index === 0 ? "Başlangıç konumunu al" : "Bitiş konumunu al") : "Fare konumunu al";
+      tools.append(button(`${label} (3 sn)`, "target", () => capturePointer(step, xName, yName), "small"));
+    });
+    if (spec.region) tools.append(button("Bölgeyi fareyle al (2 × 3 sn)", "target", () => captureRegion(step), "small"));
+    if (spec.template) tools.append(button("Ekrandan görsel seç", "eye", () => pickScreenTemplate(step), "small"));
+    if (!tools.children.length) return null;
+    tools.append(node("p", "help", "Düğmeye bastıktan sonra 3 saniye içinde fareyi hedefin üzerine götürün; tıklamanız gerekmez. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef pencereye geçin."));
+    return tools;
+  }
+  function readPointer(message) {
+    toast(message);
+    return api("/api/desktop/pointer", { method: "POST", body: JSON.stringify({ delay: 3 }) });
+  }
+  function capturePointer(step, xName, yName) {
+    return attempt(async () => {
+      const point = await readPointer("3 saniye içinde fareyi hedef noktaya götürün.");
+      if (!stepExists(step)) return;
+      applyStepParams(step, { [xName]: point.x, [yName]: point.y });
+      toast(`Konum alındı: X ${point.x}, Y ${point.y}`);
+    });
+  }
+  function captureRegion(step) {
+    return attempt(async () => {
+      const first = await readPointer("3 saniye içinde fareyi bölgenin SOL ÜST köşesine götürün.");
+      const second = await readPointer("Şimdi 3 saniye içinde SAĞ ALT köşeye götürün.");
+      let x = Math.min(first.x, second.x);
+      let y = Math.min(first.y, second.y);
+      const width = Math.abs(second.x - first.x);
+      const height = Math.abs(second.y - first.y);
+      if (width < 5 || height < 5) throw new Error("Bölge çok küçük; iki farklı köşe seçin.");
+      if (parameterValue(step, "relative_to") === "window") {
+        const recognized = recognizedWindowFor(step);
+        if (!recognized) throw new Error("Pencereye göre bölge için bu adımdan önce Pencereyi tanı ekleyin.");
+        const found = await api("/api/desktop/windows/check", {
+          method: "POST",
+          body: JSON.stringify({
+            application: parameterValue(recognized, "application") || "",
+            title: parameterValue(recognized, "title") || "",
+            match: parameterValue(recognized, "match") || "exact",
+          }),
+        });
+        if (!found.found) throw new Error("Tanıtılan pencere şu anda açık değil.");
+        x -= found.x;
+        y -= found.y;
+      }
+      if (!stepExists(step)) return;
+      applyStepParams(step, { region: [x, y, width, height] });
+      toast(`Bölge alındı: ${width} × ${height}`);
+    });
+  }
+  function pickScreenTemplate(step) {
+    const clickable = step.action === "screen.click_image";
+    dialog("Ekrandan görsel seç", (body, d) => {
+      d.classList.add("target-picker-dialog");
+      let capture = null, image = null, rect = null, point = null, drag = null, saved = false;
+      const delay = node("select");
+      for (const seconds of [3, 5, 10]) {
+        const option = node("option", "", `${seconds} saniye`);
+        option.value = seconds;
+        delay.append(option);
+      }
+      const start = button("Geri sayımı başlat ve ekranı yakala", "clock", grab, "primary");
+      const status = node("div", "target-picker-status");
+      status.setAttribute("role", "status");
+      const frame = node("div", "target-picker-frame");
+      const canvas = node("canvas", "target-picker-canvas");
+      canvas.hidden = true;
+      frame.append(canvas);
+      const info = node("p", "help", clickable
+        ? "Tıklanacak ikon veya düğmeyi çevreleyen küçük bir dikdörtgen sürükleyin. İsterseniz ardından tıklanacak noktaya tıklayın; boşsa görselin ortasına tıklanır."
+        : "Aranacak işareti çevreleyen küçük bir dikdörtgen sürükleyin. Değişen yazıları (tarih, sayı) dahil etmeyin.");
+      const reset = button("Seçimi temizle", "cross", () => { rect = point = null; draw(); }, "small");
+      const save = button("Görseli kaydet", "check", commit, "primary");
+      const actions = node("div", "target-picker-actions");
+      actions.append(reset, save);
+      body.append(
+        node("p", "pane-caption", "Süre dolunca ana ekranın görüntüsü alınır. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef uygulamaya geçin."),
+        field("Hazırlık süresi", delay), start, status, frame, info, actions,
+      );
+      d.addEventListener("close", () => {
+        if (capture && !saved) api(`/api/desktop/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" }).catch(() => {});
+      });
+      function position(event) {
+        const bounds = canvas.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(canvas.width - 1, Math.round((event.clientX - bounds.left) * canvas.width / bounds.width))),
+          y: Math.max(0, Math.min(canvas.height - 1, Math.round((event.clientY - bounds.top) * canvas.height / bounds.height))),
+        };
+      }
+      function draw() {
+        save.disabled = !capture || !rect;
+        reset.disabled = !rect && !point;
+        if (!capture || !image) return;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        context.lineWidth = Math.max(2, canvas.width / 600);
+        if (rect) {
+          context.strokeStyle = "#137c6b";
+          context.fillStyle = "#137c6b26";
+          context.fillRect(rect.x, rect.y, rect.width, rect.height);
+          context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        }
+        if (point) {
+          const radius = Math.max(7, canvas.width / 100);
+          context.strokeStyle = "#d16a17";
+          context.beginPath();
+          context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+          context.stroke();
+        }
+      }
+      canvas.addEventListener("pointerdown", (event) => {
+        if (!capture || event.button !== 0) return;
+        event.preventDefault();
+        const at = position(event);
+        if (!rect) {
+          drag = at;
+          canvas.setPointerCapture(event.pointerId);
+        } else if (clickable) {
+          point = at;
+          draw();
+        }
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        if (!drag) return;
+        const at = position(event);
+        rect = { x: Math.min(drag.x, at.x), y: Math.min(drag.y, at.y), width: Math.abs(drag.x - at.x), height: Math.abs(drag.y - at.y) };
+        draw();
+      });
+      canvas.addEventListener("pointerup", () => {
+        if (!drag) return;
+        drag = null;
+        if (!rect || rect.width < 8 || rect.height < 8) {
+          rect = null;
+          status.replaceChildren(note("En az 8 × 8 piksel bir alan seçin."));
+        } else status.replaceChildren();
+        draw();
+      });
+      async function grab() {
+        start.disabled = true;
+        status.replaceChildren(node("p", "help", `${delay.value} saniye içinde hedef ekranı hazırlayın…`));
+        try {
+          if (capture && !saved) api(`/api/desktop/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" }).catch(() => {});
+          capture = await api("/api/desktop/capture-screen", { method: "POST", body: JSON.stringify({ delay: Number(delay.value) }) });
+          const loaded = new Image();
+          await new Promise((resolve, reject) => {
+            loaded.onload = resolve;
+            loaded.onerror = () => reject(new Error("Ekran görüntüsü açılamadı."));
+            loaded.src = capture.image;
+          });
+          image = loaded;
+          canvas.width = capture.width;
+          canvas.height = capture.height;
+          canvas.hidden = false;
+          rect = point = null;
+          status.replaceChildren(note("Şimdi görüntü üzerinde görseli seçin.", "info", "check"));
+          draw();
+        } catch (error) {
+          status.replaceChildren(note(error.message));
+        } finally {
+          start.disabled = false;
+        }
+      }
+      async function commit() {
+        if (!capture || !rect || !stepExists(step)) return;
+        save.disabled = true;
+        try {
+          const stored = await api("/api/desktop/templates", {
+            method: "POST", body: JSON.stringify({ capture_id: capture.id, ...rect }),
+          });
+          saved = true;
+          const values = { template: stored.template };
+          if (clickable) {
+            const centerX = rect.x + Math.floor(rect.width / 2);
+            const centerY = rect.y + Math.floor(rect.height / 2);
+            Object.assign(values, point ? { offset_x: point.x - centerX, offset_y: point.y - centerY }
+              : { offset_x: 0, offset_y: 0 });
+          }
+          d.close();
+          applyStepParams(step, values);
+          toast("Referans görsel kaydedildi.");
+        } catch (error) {
+          status.replaceChildren(note(error.message));
+          save.disabled = false;
+        }
+      }
+      draw();
+    });
+  }
+  // ----- single step test -----------------------------------------------------
+  const EXPRESSION_WORDS = new Set(["and", "or", "not", "if", "else", "in", "is", "true", "false", "none",
+    "round", "abs", "min", "max", "int", "float", "number", "str", "len", "sum", "floor", "ceil", "doğru", "yanlış"]);
+  function referencedVariables(step) {
+    const produced = new Set(["sistem"]);
+    if (allSteps([step]).some((item) => ["control.for_each", "control.while", "control.repeat"].includes(item.action)))
+      produced.add("loop_index");
+    const found = new Set();
+    allSteps([step]).forEach((item) => {
+      ["output", "item_name", "error_name"].forEach((key) => {
+        const value = parameterValue(item, key);
+        if (typeof value === "string" && value) produced.add(value);
+      });
+    });
+    const scan = (value) => {
+      if (typeof value === "string") {
+        for (const match of value.matchAll(/\$\{([A-Za-z][A-Za-z0-9_]*)/g)) found.add(match[1]);
+      } else if (Array.isArray(value)) value.forEach(scan);
+      else if (value && typeof value === "object") Object.values(value).forEach(scan);
+    };
+    allSteps([step]).forEach((item) => {
+      scan(item.params || {});
+      if (item.action === "data.calculate") {
+        const expression = String(parameterValue(item, "expression") || "").replace(/\$\{[^}]*\}/g, " ")
+          .replace(/'[^']*'|"[^"]*"/g, " ");
+        for (const match of expression.matchAll(/(?<![\w.])([A-Za-zçğıöşüÇĞİÖŞÜ_][\wçğıöşüÇĞİÖŞÜ]*)/g))
+          if (!EXPRESSION_WORDS.has(match[1].toLowerCase())) found.add(match[1]);
+      }
+    });
+    return [...found].filter((name) => !produced.has(name));
+  }
+  function parseTestValue(raw) {
+    const text = raw.trim();
+    if (!text) return "";
+    if (/^[\[{"]/.test(text) || /^(true|false|null|-?\d+(\.\d+)?)$/.test(text)) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  }
+  async function openStepTest(step) {
+    if (!(await requireSaved())) return;
+    if (!stepExists(step)) return;
+    const workflowId = state.workflow.id;
+    const spec = specFor(step.action);
+    const external = allSteps([step]).some((item) =>
+      /^(desktop|input|window|screen|system|clipboard|file|ui|http|sheets|database|browser)\./.test(item.action));
+    const needed = referencedVariables(step);
+    dialog(`Adımı test et: ${step.title || spec.label}`, (body, d) => {
+      d.classList.add("step-test-dialog");
+      const inputs = new Map();
+      body.append(note(external
+        ? "Bu test gerçek işlem yapar: fare, klavye, ekran, dosya veya bağlantı adımları uygulanır. Hedef uygulamayı hazırlayın."
+        : "Bu adım yalnız veri işler; ekrana ve dosyalara dokunmaz.", external ? "warning" : "info"));
+      if (needed.length) {
+        body.append(node("h3", "", "Test değerleri"),
+          node("p", "help", "Adımın kullandığı değişkenler için örnek değer girin. Metin yazabilir veya JSON kullanabilirsiniz: {\"form_id\": \"INV-1\"}, [1, 2], 42."));
+        needed.forEach((name) => {
+          const input = node("textarea", "mono");
+          input.rows = 2;
+          input.value = state.testValues[name] ?? "";
+          inputs.set(name, input);
+          body.append(field("${" + name + "}", input));
+        });
+      }
+      const previewLabel = node("label", "checkbox-label");
+      const preview = node("input");
+      preview.type = "checkbox";
+      previewLabel.append(preview, node("span", "", "Önizleme olarak çalıştır (ekrana dokunmadan)"));
+      const result = node("div", "step-test-result");
+      result.setAttribute("aria-live", "polite");
+      const runButton = button("Testi çalıştır", "play", run, "primary");
+      const cancelButton = button("Durdur", "stop", async () => {
+        if (current) await api(`/api/runs/${encodeURIComponent(current)}/cancel`, { method: "POST" }).catch(() => {});
+      }, "small");
+      cancelButton.hidden = true;
+      const controls = node("div", "target-picker-actions");
+      controls.append(runButton, cancelButton);
+      body.append(previewLabel, controls, result);
+      let current = null, timer = null;
+      d.addEventListener("close", () => clearTimeout(timer));
+      async function run() {
+        runButton.disabled = true;
+        const variables = {};
+        inputs.forEach((input, name) => {
+          state.testValues[name] = input.value;
+          variables[name] = parseTestValue(input.value);
+        });
+        result.replaceChildren(node("p", "help", "Test başlatılıyor…"));
+        try {
+          const started = await api(`/api/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(step.id)}/test`, {
+            method: "POST", body: JSON.stringify({ variables, dry_run: preview.checked }),
+          });
+          current = started.id;
+          cancelButton.hidden = false;
+          poll();
+        } catch (error) {
+          result.replaceChildren(note(error.message));
+          runButton.disabled = false;
+        }
+      }
+      async function poll() {
+        try {
+          const test = await api(`/api/runs/${encodeURIComponent(current)}`);
+          show(test);
+          if (["queued", "running"].includes(test.status) && d.isConnected) {
+            timer = setTimeout(poll, 400);
+            return;
+          }
+          upsert(state.runs, test);
+        } catch (error) {
+          result.replaceChildren(note(error.message));
+        }
+        runButton.disabled = false;
+        cancelButton.hidden = true;
+        runButton.querySelector("span").textContent = "Tekrar test et";
+      }
+      function show(test) {
+        result.replaceChildren();
+        const head = node("div", "step-test-head");
+        head.append(badge(test.status), node("span", "muted", duration(test)));
+        result.append(head);
+        if (test.error) result.append(note(test.error, "error"));
+        const log = node("ol", "step-test-log mono");
+        (test.events || []).slice(-40).forEach((event) => {
+          const line = node("li", `level-${event.level}`, event.message);
+          log.append(line);
+        });
+        result.append(log);
+        const values = test.variables || {};
+        const shown = Object.keys(values).filter((name) => !inputs.has(name));
+        if (shown.length) {
+          result.append(node("h3", "", "Adımın ürettiği değerler"));
+          const list = node("dl", "step-test-values");
+          shown.forEach((name) => {
+            const value = values[name];
+            list.append(node("dt", "mono", "${" + name + "}"),
+              node("dd", "mono", typeof value === "string" ? value : JSON.stringify(value, null, 2)));
+          });
+          result.append(list);
+        }
+      }
+    });
+  }
   function windowRecognitionTools(step) {
     const tools = node("div", "window-recognition-tools");
     const result = node("div");
@@ -2196,6 +2696,8 @@
       (previous) => parameterValue(previous, "output") === reference[1]);
   }
   function loopVariableNames(step) {
+    if (["control.repeat", "control.while"].includes(step.action)) return ["loop_index"];
+    if (step.action === "control.try") return [parameterValue(step, "error_name") || "error_message"];
     if (step.action !== "control.for_each") return [];
     const item = parameterValue(step, "item_name") || "row";
     const producer = loopDataSource(step);
@@ -2228,7 +2730,7 @@
         blank,
         node("div", "inspector-divider"),
         note(
-          "Deneme modu, dış sistemlerde işlem yapmadan akışınızın yapısını kontrol eder.",
+          "Çalıştır, adımları gerçekten uygular. Önizleme seçeneği ekran, dosya ve bağlantı adımlarını atlar. Bir adımı tek başına denemek için adımı seçip Bu adımı test et düğmesini kullanın.",
         ),
       );
       return;
@@ -2247,10 +2749,18 @@
       markDirty();
       renderCanvas();
     });
-    pane.append(field("Adım adı", title), node("div", "inspector-divider"));
+    pane.append(field("Adım adı", title));
+    if (!["control.break", "control.continue"].includes(step.action)) {
+      const tester = button("Bu adımı test et", "play", () => openStepTest(step), "small step-test-button");
+      tester.title = "Yalnız bu adımı (iç adımlarıyla) örnek değerlerle çalıştırır.";
+      pane.append(tester);
+    }
+    pane.append(node("div", "inspector-divider"));
     step.params ||= {};
+    const extraTools = stepTools(step, spec);
+    if (extraTools) pane.append(extraTools);
     if (step.action === "desktop.find_window") pane.append(windowRecognitionTools(step));
-    const targetActions = ["desktop.window_click", "desktop.window_fill", "desktop.window_wait_image"];
+    const targetActions = ["desktop.window_click", "desktop.window_fill", "desktop.window_wait_image", "window.read_field"];
     let targetTools = targetActions.includes(step.action) ? windowTargetTools(step) : null;
     if (targetTools) pane.append(targetTools);
     if (step.action === "desktop.window_write" && state.catalog.some((item) => item.type === "desktop.window_fill")) {
@@ -2336,6 +2846,17 @@
           control.append(opt);
         });
         control.value = value ?? "";
+      } else if (f.type === "workflow") {
+        control = node("select");
+        const blank = node("option", "", "Akış seçin…");
+        blank.value = "";
+        control.append(blank);
+        state.workflows.filter((item) => item.id !== state.workflow.id).forEach((item) => {
+          const option = node("option", "", item.name);
+          option.value = item.id;
+          control.append(option);
+        });
+        control.value = value ?? "";
       } else if (f.type === "json") {
         control = node("textarea", "mono");
         control.rows = 3;
@@ -2393,6 +2914,24 @@
       }
       const wrap = field(f.label || f.name, control, f.help, f.required);
       if (jsonMode) wrap.insertBefore(jsonMode, control);
+      if (f.type === "path") {
+        const row = node("div", "path-row");
+        control.replaceWith(row);
+        const browse = button("Seç…", "folder", async () => {
+          const kind = f.name === "folder" ? "folder"
+            : ["file.write_text", "file.write_table"].includes(step.action) ? "save" : "open";
+          try {
+            const chosen = await api("/api/desktop/choose-path", { method: "POST", body: JSON.stringify({ kind }) });
+            if (chosen.path) {
+              control.value = chosen.path;
+              control.dispatchEvent(new Event("input"));
+            }
+          } catch (error) {
+            toast(error.message, true);
+          }
+        }, "small");
+        row.append(control, browse);
+      }
       if (f.type === "boolean") {
         const label = wrap.querySelector("label");
         label.className = "checkbox-label";
@@ -2497,7 +3036,7 @@
         });
       }
       control.addEventListener(
-        f.type === "select" || f.type === "boolean" ? "change" : "input",
+        ["select", "boolean", "workflow"].includes(f.type) ? "change" : "input",
         change,
       );
       pane.append(wrap);
@@ -2530,7 +3069,8 @@
           .filter(Boolean),
       ),
     ];
-    for (const name of ["item", "item.field"])
+    for (const name of ["sistem.masaustu", "sistem.indirilenler", "sistem.belgeler", "sistem.bugun",
+      "sistem.isletim_sistemi", "sistem.kullanici"])
       if (!names.includes(name)) names.push(name);
     names.forEach((name) => {
       const expression = "${" + name + "}";
@@ -2668,7 +3208,7 @@
       ["succeeded", "Tamamlananlar"],
       ["failed", "Hatalı çalışmalar"],
       ["running", "Aktif çalışmalar"],
-      ["dry", "Deneme çalışmaları"],
+      ["dry", "Önizleme çalışmaları"],
     ]) {
       const option = node("option", "", label);
       option.value = value;
@@ -2718,7 +3258,7 @@
           node(
             "div",
             "table-sub",
-            `${run.department || "Genel"}${run.dry_run ? " · Deneme modu" : ""}`,
+            `${run.department || "Genel"}${run.test_step_id ? " · Adım testi" : ""}${run.dry_run ? " · Önizleme" : ""}`,
           ),
         );
         const status = node("td");
@@ -2762,7 +3302,7 @@
     if (run.dry_run)
       page.append(
         note(
-          "Deneme modu: bu çalışma dış sistemlerde gerçek işlem yapmaz. Adım yapısı ve yönlendirme doğrulanır; örnek çıktılar gerçek departman verisi değildir.",
+          "Önizleme: bu çalışmada fare, klavye, ekran, dosya ve bağlantı adımları atlandı; yalnız veri adımları hesaplandı. Gerçek işlem için Önizleme seçeneği kapalıyken çalıştırın.",
           "warning",
         ),
       );
@@ -2779,7 +3319,7 @@
       ["Geçen süre", node("span", "", duration(run))],
       [
         "Çalışma türü",
-        node("span", "", run.dry_run ? "Deneme" : "Gerçek çalışma"),
+        node("span", "", run.test_step_id ? "Adım testi" : run.dry_run ? "Önizleme" : "Gerçek çalışma"),
       ],
     ].forEach(([title, value]) => {
       const item = node("dl");

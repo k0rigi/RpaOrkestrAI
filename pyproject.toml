@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rpa-orkestrai"
-version = "0.5.0"
+version = "0.6.0"
 description = "Yerel masaüstü ve web otomasyonu için görsel RPA Studio"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -18,13 +18,22 @@ dependencies = [
   "python-dotenv>=1.0,<2",
   "pandas>=2.3.3,<3",
   "SQLAlchemy>=2.0,<3",
+  "openpyxl>=3.1,<4",
 ]
 
 [project.optional-dependencies]
 automation = [
   "pyobjc-framework-Quartz>=12,<13; sys_platform == 'darwin'",
   "pyobjc-framework-ApplicationServices>=12,<13; sys_platform == 'darwin'",
+  "pyobjc-framework-Vision>=12,<13; sys_platform == 'darwin'",
   "comtypes>=1.4.8,<2; sys_platform == 'win32'",
+  "winrt-runtime>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Media.Ocr>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Graphics.Imaging>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Storage.Streams>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Globalization>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Foundation>=3.2,<4; sys_platform == 'win32'",
+  "winrt-Windows.Foundation.Collections>=3.2,<4; sys_platform == 'win32'",
   "pyautogui>=0.9.54,<1",
   "pyperclip>=1.9,<2",
   "opencv-python>=4.10,<5",

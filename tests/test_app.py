@@ -21,11 +21,16 @@ def test_studio_bootstrap_and_static(client):
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
     bootstrap = client.get("/api/bootstrap").json()
     assert bootstrap["workflows"] == []
-    assert {a["type"] for a in bootstrap["catalog"]} == {
+    types = {a["type"] for a in bootstrap["catalog"]}
+    assert {
         "desktop.find_window", "desktop.window_click", "desktop.window_fill", "desktop.window_key",
         "desktop.window_wait_image", "sheets.read_cell", "sheets.read_rows", "sheets.write_cell",
         "control.if", "control.for_each", "control.while", "core.wait",
-    }
+    } <= types
+    assert {"input.mouse_click", "input.hotkey", "screen.read_text", "file.read_table", "data.calculate",
+            "control.repeat", "control.try", "ui.message", "http.request"} <= types
+    categories = list(dict.fromkeys(a["category"] for a in bootstrap["catalog"]))
+    assert categories[:3] == ["Pencere", "Fare ve klavye", "Ekran ve görsel"]
     assert len({a["label"] for a in bootstrap["catalog"]}) == len(bootstrap["catalog"])
     assert any(a["type"] == "desktop.window_write" for a in bootstrap["action_definitions"])
     assert bootstrap["favorites"] == []
@@ -157,7 +162,7 @@ def test_favorites_persist_across_restart_without_changing_workflows(tmp_path, m
 def test_favorites_reject_unpublished_actions_and_invalid_requests(client, monkeypatch):
     from rpa_orkestrai import catalog
 
-    assert client.put("/api/favorites/core.log", json={"favorite": True}).status_code == 404
+    assert client.put("/api/favorites/desktop.click", json={"favorite": True}).status_code == 404
     assert client.put("/api/favorites/unknown", json={"favorite": True}).status_code == 404
     monkeypatch.setattr(catalog, "CATALOG", [catalog.BY_TYPE["core.log"]])
     for payload in ({}, {"favorite": "false"}, {"favorite": True, "extra": 1}):

@@ -20,9 +20,17 @@ Kullanıcının akışına adım eklemesi yereldir. **Yeni adım türü** ise ko
 - Pencere hedefli adımlar `WINDOW` ve `target_fields()` alanlarını yeniden kullanır.
 - Eski bir adım kütüphaneden kaldırılacaksa tanımını `ACTION_DEFINITIONS` listesine taşı. Kayıtlı akışlar açılmaya ve çalışmaya devam etmelidir.
 
-## 3. Motor (`src/rpa_orkestrai/engine.py`)
+## 3. Çalıştırıcı (`src/rpa_orkestrai/actions/`)
 
-- `perform()` içine yeni dalı ekle. Parametre türlerini ve aralıklarını doğrula, kullanıcıya Türkçe `WorkflowError` göster.
+- Yeni adımın çalıştırıcısını uygun modüle `@handler("tür")` ile ekle: `inputs` (fare/klavye), `windows`, `screen`, `system`, `files`, `data`, `dialogs`, `web`. İşlev `(ctx, p)` alır ve adımın sonucunu döndürür. `ctx` motordur: `desktop()`, `windows()`, `wait()`, `check_cancelled()`, `save_artifact()`, `variables` ve `config`.
+- Argümanları `actions/common.py` içindeki yardımcılarla doğrula: `number`, `integer`, `text`, `choice`, `path` ve `region`. Hata mesajı Türkçe `WorkflowError` olmalıdır.
+- Ekrana, dosyaya veya ağa dokunan adımın tür öneki `catalog.EXTERNAL_PREFIXES` içinde olmalıdır; önizleme bu adımları atlar.
+- Yeni blok adımları (alt adım içeren) `catalog.CONTAINERS` ve `LOOPS` ile tanımlanır; motordaki `steps()` dalına eklenir.
+- `tests/test_actions_data.py::test_every_library_step_has_a_handler` testi eksik çalıştırıcıyı yakalar.
+
+## 3b. Motor (`src/rpa_orkestrai/engine.py`)
+
+- Yalnız akış kontrolü motorda kalır; diğer adımlar `actions/` içine yazılır. Parametre türlerini ve aralıklarını doğrula, kullanıcıya Türkçe `WorkflowError` göster.
 - Yerel kütüphaneleri (pyobjc, comtypes, pyautogui, gspread…) fonksiyon içinde içe aktar. Pencere işlemleri `WindowService` üzerinden geçer. Bu servis odak, pencere kimliği ve ana ekran kontrollerini zaten yapar; bu kontrolleri atlama.
 - ERP'ye giriş gönderen adımlar tahmini konuma asla tıklamaz. Belirsizlikte hata verip durur.
 

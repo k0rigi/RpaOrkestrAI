@@ -35,8 +35,9 @@ Bağımlılık eklendiyse aynı ortama kur: `.bootstrap/bin/uv pip install -p "$
 | `src/rpa_orkestrai/app.py` | Yerel FastAPI uygulaması; kaynak kontrolü, lisans kapısı, Studio uçları |
 | `src/rpa_orkestrai/licensing.py` | orkestrai.net lisansı: imza doğrulama, cihaz bağlama, 7 gün çevrimdışı, yenileme |
 | `src/rpa_orkestrai/catalog.py` | Adım kütüphanesi ve form alanları (`CATALOG`, eski akışlar için `ACTION_DEFINITIONS`) |
-| `src/rpa_orkestrai/engine.py` | Akış doğrulama ve çalıştırma |
-| `src/rpa_orkestrai/desktop/` | Pencere (`windows.py`), alan kimliği (`elements.py`), hedef seçici (`picker.py`), görsel eşleştirme |
+| `src/rpa_orkestrai/engine.py` | Akış doğrulama, çalıştırma, akış kontrolü (tekrarla, döngüden çık, hata olursa, alt akış), tek adım testi |
+| `src/rpa_orkestrai/actions/` | Adım çalıştırıcıları: `inputs`, `windows`, `screen`, `system`, `files`, `data`, `dialogs`, `web`; `@handler("tür")` ile kaydolur |
+| `src/rpa_orkestrai/desktop/` | Pencere (`windows.py`), alan kimliği (`elements.py`), hedef seçici (`picker.py`), görsel eşleştirme, sistem OCR'ı (`ocr.py`: macOS Vision, Windows.Media.Ocr) |
 | `src/rpa_orkestrai/static/` | Studio arayüzü (derleme adımı yok) |
 | `src/rpa_orkestrai/updates.py`, `update_service.py` | İmzalı güncelleme bildirimi ve kurulum |
 | `scripts/` | Paket derleme, yayın hazırlama, hosting yayın betiği |

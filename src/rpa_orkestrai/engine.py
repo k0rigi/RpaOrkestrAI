@@ -14,19 +14,36 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
-from .catalog import BY_TYPE, EXTERNAL_PREFIXES, defaults
+from .catalog import BY_TYPE, EXTERNAL_PREFIXES, LOOPS, defaults
 from .config import Settings
 from .desktop.windows import WindowError, validate_selector
+from .errors import BreakLoop, Cancelled, ContinueLoop, StopWorkflow, WorkflowError
 from .models import Artifact, Event, Run, Step, Workflow, now
 from .storage import Store
 
+MAX_EXECUTED_STEPS = 1_000_000
+MAX_LOOP_ITEMS = 100_000
+SUB_WORKFLOW_DEPTH = 5
+CONTROL_SIGNALS = (BreakLoop, ContinueLoop, StopWorkflow, Cancelled, InterruptedError)
+ARTIFACT_TYPES = {".csv": "text/csv; charset=utf-8", ".png": "image/png", ".txt": "text/plain; charset=utf-8",
+                  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 
-class WorkflowError(ValueError):
-    """An actionable, public error that does not embed connection credentials."""
+
+def describe_error(exc: BaseException) -> str:
+    """User-facing text for a failed step; never includes stack traces or credentials."""
+    if isinstance(exc, (WorkflowError, WindowError)):
+        return str(exc)
+    if isinstance(exc, ImportError):
+        return ("Gerekli otomasyon paketi veya sistem sürücüsü yüklenemedi. "
+                "Kurulum rehberini ve rpa-studio doctor çıktısını kontrol edin.")
+    if isinstance(exc, TimeoutError):
+        return "İşlem zaman aşımına uğradı. Hedef öğeyi, bağlantıyı ve bekleme süresini kontrol edin."
+    if type(exc).__name__ == "FailSafeException":
+        return "Fare köşeye taşındı; PyAutoGUI acil durdurma devreye girdi."
+    return (f"İşlem tamamlanamadı ({type(exc).__name__}). Son başlayan adımın parametrelerini, "
+            "bağlantı ayarlarını ve sistem izinlerini kontrol edin.")
 
 
-class Cancelled(Exception):
-    pass
 
 
 class PreviewValue:
@@ -55,7 +72,8 @@ def resolve(value: Any, variables: dict[str, Any]) -> Any:
             elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
                 current = current[int(part)]
             else:
-                raise WorkflowError(f"Değişken bulunamadı: {path}")
+                raise WorkflowError(f"Değişken bulunamadı: {path}. Bu değeri üreten adım (ör. Değişken ata veya "
+                                    "bir okuma adımı) daha önce çalışmalı ya da adı doğru yazılmalıdır.")
         return current
 
     if isinstance(value, str):
@@ -97,7 +115,7 @@ def active_fields(action: str, parameters: dict) -> list[dict]:
 
 
 def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
-    def walk(steps: list[Step]) -> None:
+    def walk(steps: list[Step], in_loop: bool = False) -> None:
         for step in steps:
             if step.action not in BY_TYPE:
                 raise WorkflowError(f"Bilinmeyen adım türü: {step.action}")
@@ -127,6 +145,9 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
                         variable_name(parameters[key])
                 if parameters.get("item_name") == "loop_index":
                     raise WorkflowError("loop_index döngü sayacı için ayrılmıştır; başka bir öğe adı seçin.")
+                if step.action in {"control.break", "control.continue"} and not in_loop:
+                    raise WorkflowError(f"{step.title or BY_TYPE[step.action]['label']}: yalnız bir döngünün "
+                                        "(Her satır için, Tekrarla, Koşul sürdükçe) içinde kullanılabilir.")
                 if step.action == "desktop.find_window":
                     try:
                         validate_selector(parameters["application"], parameters["title"],
@@ -135,8 +156,9 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
                             raise WindowError("Pencere bulunamadığında yapılacak işlem geçersiz.")
                     except WindowError as exc:
                         raise WorkflowError(str(exc)) from exc
-            walk(step.children)
-            walk(step.otherwise)
+            nested = in_loop or step.action in LOOPS
+            walk(step.children, nested)
+            walk(step.otherwise, in_loop)
 
     walk(workflow.steps)
     if ready and not workflow.steps:
@@ -158,7 +180,9 @@ def compare(left: Any, op: str, right: Any) -> bool:
             raise WorkflowError("Listedeki değerlerden biri karşılaştırması için en fazla 1000 değerlik liste kullanın.")
         return left in right
     if op == "contains":
-        return str(right).casefold() in str(left).casefold()
+        from .actions.common import fold
+
+        return fold(right) in fold(left)
     if op == "truthy":
         return bool(left)
     operators = {"eq": operator.eq, "ne": operator.ne, "gt": operator.gt,
@@ -180,13 +204,37 @@ def csv_value(value: Any) -> Any:
     return value
 
 
+def snapshot(variables: dict[str, Any], limit: int = 200_000) -> dict[str, Any]:
+    """JSON-safe copy of variables for a step test; large values are shortened."""
+    from .actions.common import jsonable
+
+    result = {}
+    for name, value in variables.items():
+        if name == "sistem":
+            continue
+        if isinstance(value, PreviewValue):
+            result[name] = "(önizlemede bilinmiyor)"
+            continue
+        copied = jsonable(value)
+        encoded = json.dumps(copied, ensure_ascii=False)
+        result[name] = copied if len(encoded) <= limit // 4 else encoded[:2000] + " …"
+    return result
+
+
 class Executor:
     def __init__(self, settings: Settings, store: Store, run: Run, cancel: threading.Event,
-                 save: Callable[[], None]):
+                 save: Callable[[], None], variables: dict[str, Any] | None = None):
         self.settings, self.store, self.run = settings, store, run
-        self.cancel, self.save = cancel, save
+        self.cancel, self._save = cancel, save
         self.config = settings.snapshot()
-        self.variables: dict[str, Any] = {}
+        self.variables: dict[str, Any] = dict(variables or {})
+        if "sistem" not in self.variables:
+            from .actions.environment import system_variables
+
+            self.variables["sistem"] = system_variables()
+        self.held_keys: set[str] = set()
+        self.call_stack: list[str] = []
+        self._last_save = 0.0
         self.resources = ExitStack()
         self._browser: Any = None
         self._desktop: Any = None
@@ -211,12 +259,52 @@ class Executor:
         message = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
         self.run.events.append(Event(message=message[:2000], level=level, step_id=step_id))
         self.run.events = self.run.events[-1000:]
+        # Long loops log every step; keep the run file current without rewriting it each time.
+        if level != "info" or time.monotonic() - self._last_save >= 0.5:
+            self.save()
+
+    def save(self) -> None:
+        self._last_save = time.monotonic()
+        self._save()
+
+    def wait(self, seconds: float) -> None:
+        if seconds > 0 and self.cancel.wait(seconds):
+            raise Cancelled()
+
+    def save_artifact(self, name: str, data: bytes) -> Path:
+        """Store a file (e.g. a screenshot) among the run's downloadable outputs."""
+        suffix = Path(name).suffix.lower()
+        if suffix not in ARTIFACT_TYPES or not re.fullmatch(r"[^/\\\x00-\x1f<>:\"|?*]{1,120}", name):
+            raise WorkflowError("Çıktı dosya adı yol içermemeli ve .png, .csv, .txt veya .xlsx uzantılı olmalıdır.")
+        if len(self.run.artifacts) >= 100:
+            raise WorkflowError("Bir çalışma en fazla 100 çıktı üretebilir.")
+        artifact = Artifact(name=name, department=self.run.department, rows=0)
+        artifact.url = f"/api/runs/{self.run.id}/artifacts/{artifact.id}"
+        destination = self.store.root / "artifacts" / self.run.id
+        destination.mkdir(parents=True, exist_ok=True)
+        target = destination / f"{artifact.id}{suffix}"
+        target.write_bytes(data)
+        self.run.artifacts.append(artifact)
         self.save()
+        return target
 
     def execute(self, workflow: Workflow) -> None:
-        with self.resources:
-            self.steps(workflow.steps)
-            self.check_cancelled()
+        self.call_stack.append(workflow.id)
+        try:
+            with self.resources:
+                self.steps(workflow.steps)
+                self.check_cancelled()
+        finally:
+            self.release_keys()
+
+    def release_keys(self) -> None:
+        """A key held with 'Tuşu basılı tut' must never stay down after a run."""
+        for key in list(self.held_keys):
+            try:
+                self.desktop().key_up(key)
+            except Exception:
+                pass
+        self.held_keys.clear()
 
     def mark_unknown(self, step: Step, parameters: dict) -> None:
         target = parameters.get("output")
@@ -231,9 +319,7 @@ class Executor:
     def steps(self, steps: list[Step]) -> None:
         for step in steps:
             self.check_cancelled()
-            self.executed += 1
-            if self.executed > 10000:
-                raise WorkflowError("Bir çalışma en fazla 10.000 adım çalıştırabilir.")
+            self.count_step()
             raw = {**defaults(step.action), **step.params}
             if step.action == "control.for_each" and "item_name" not in step.params:
                 # Imported pre-0.3 flows used item when this parameter was omitted.
@@ -250,7 +336,10 @@ class Executor:
             if step.action in {"control.if", "control.while"}:
                 selectors.add("operator")
             selected = {**raw, **{key: resolve(raw[key], self.variables) for key in selectors}}
-            p = resolve({f["name"]: selected[f["name"]] for f in active_fields(step.action, selected)}, self.variables)
+            active = active_fields(step.action, selected)
+            # Raw fields (e.g. Hesapla's expression) resolve ${...} themselves, as variable references.
+            p = {**resolve({f["name"]: selected[f["name"]] for f in active if not f.get("raw")}, self.variables),
+                 **{f["name"]: selected[f["name"]] for f in active if f.get("raw")}}
             if has_unknown(p):
                 self.mark_unknown(step, raw)
                 self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
@@ -260,10 +349,24 @@ class Executor:
                 self.for_each(step, p)
             elif step.action == "control.while":
                 self.while_loop(step, raw, p)
+            elif step.action == "control.repeat":
+                self.repeat(step, p)
+            elif step.action == "control.try":
+                self.attempt(step, p)
             elif step.action == "control.if":
                 verdict = compare(p["left"], p["operator"], p.get("right"))
                 self.log("Koşul: " + ("Evet" if verdict else "Değilse"), step_id=step.id)
                 self.steps(step.children if verdict else step.otherwise)
+            elif step.action == "control.break":
+                self.log("Döngüden çıkılıyor.", step_id=step.id)
+                raise BreakLoop()
+            elif step.action == "control.continue":
+                self.log("Sonraki tura geçiliyor.", step_id=step.id)
+                raise ContinueLoop()
+            elif step.action == "control.stop":
+                raise StopWorkflow(p.get("status", "success") == "success", str(p.get("message") or ""))
+            elif step.action == "control.run_workflow":
+                self.run_workflow(p)
             else:
                 result = self.perform(step.action, p)
                 if p.get("output"):
@@ -271,10 +374,81 @@ class Executor:
             self.check_cancelled()
             self.log(f"Tamamlandı: {label}", step_id=step.id)
 
+    def count_step(self) -> None:
+        self.executed += 1
+        if self.executed > MAX_EXECUTED_STEPS:
+            raise WorkflowError("Bir çalışma en fazla 1.000.000 adım çalıştırabilir.")
+
+    def loop_body(self, step: Step) -> bool:
+        """Run one iteration; False means Döngüden çık was used."""
+        try:
+            self.steps(step.children)
+        except ContinueLoop:
+            pass
+        except BreakLoop:
+            return False
+        return True
+
+    def repeat(self, step: Step, p: dict) -> None:
+        count = p.get("count")
+        if isinstance(count, float) and count.is_integer():
+            count = int(count)
+        if type(count) is not int or not 1 <= count <= MAX_LOOP_ITEMS:
+            raise WorkflowError("Tekrar sayısı 1–100.000 arasında tam sayı olmalıdır.")
+        sentinel = object()
+        old_index = self.variables.get("loop_index", sentinel)
+        try:
+            for index in range(count):
+                self.check_cancelled()
+                self.variables["loop_index"] = index
+                self.log(f"Tekrar: {index + 1}/{count}", step_id=step.id)
+                if not self.loop_body(step):
+                    break
+        finally:
+            if old_index is sentinel:
+                self.variables.pop("loop_index", None)
+            else:
+                self.variables["loop_index"] = old_index
+
+    def attempt(self, step: Step, p: dict) -> None:
+        name = variable_name(p.get("error_name") or "error_message")
+        try:
+            self.steps(step.children)
+        except CONTROL_SIGNALS:
+            raise
+        except Exception as exc:
+            if type(exc).__name__ == "FailSafeException":
+                raise  # the emergency stop (mouse in a screen corner) always ends the run
+            message = describe_error(exc)
+            self.variables[name] = message
+            self.log(f"Hata yakalandı: {message}", level="warning", step_id=step.id)
+            self.steps(step.otherwise)
+
+    def run_workflow(self, p: dict) -> None:
+        workflow_id = p.get("workflow")
+        if not isinstance(workflow_id, str) or not workflow_id:
+            raise WorkflowError("Çalıştırılacak akışı seçin.")
+        if workflow_id in self.call_stack:
+            raise WorkflowError("Bir akış kendisini (doğrudan veya dolaylı) çağıramaz.")
+        if len(self.call_stack) > SUB_WORKFLOW_DEPTH:
+            raise WorkflowError("En fazla 5 seviye iç içe akış çalıştırılabilir.")
+        try:
+            child = self.store.workflow(workflow_id)
+        except (KeyError, ValueError, OSError) as exc:
+            raise WorkflowError("Çalıştırılacak akış bulunamadı; silinmiş olabilir. Adımda akışı yeniden seçin.") from exc
+        validate_workflow(child)
+        self.log(f"Alt akış başladı: {child.name}")
+        self.call_stack.append(workflow_id)
+        try:
+            self.steps(child.steps)
+        finally:
+            self.call_stack.pop()
+        self.log(f"Alt akış bitti: {child.name}")
+
     def for_each(self, step: Step, p: dict) -> None:
         items = p["items"]
-        if not isinstance(items, list) or len(items) > 1000:
-            raise WorkflowError("Döngü en fazla 1.000 öğelik bir liste gerektirir.")
+        if not isinstance(items, list) or len(items) > MAX_LOOP_ITEMS:
+            raise WorkflowError("Döngü en fazla 100.000 öğelik bir liste gerektirir.")
         name = variable_name(p["item_name"])
         sentinel = object()
         old_item = self.variables.get(name, sentinel)
@@ -286,7 +460,8 @@ class Executor:
                 self.variables[name] = item
                 self.variables["loop_index"] = index
                 self.log(f"Döngü: {index + 1}/{len(items)}", step_id=step.id)
-                self.steps(step.children)
+                if not self.loop_body(step):
+                    break
         finally:
             for key, old in ((name, old_item), ("loop_index", old_index)):
                 if old is sentinel:
@@ -296,8 +471,8 @@ class Executor:
 
     def while_loop(self, step: Step, raw: dict, p: dict) -> None:
         limit, seconds = p["max_iterations"], p["max_seconds"]
-        if type(limit) is not int or not 1 <= limit <= 1000:
-            raise WorkflowError("Koşullu döngü tekrar sınırı 1–1000 arasında tam sayı olmalıdır.")
+        if type(limit) is not int or not 1 <= limit <= MAX_LOOP_ITEMS:
+            raise WorkflowError("Koşullu döngü tekrar sınırı 1–100.000 arasında tam sayı olmalıdır.")
         if (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
                 or not math.isfinite(seconds) or not 1 <= seconds <= 3600):
             raise WorkflowError("Koşullu döngü süre sınırı 1–3600 saniye olmalıdır.")
@@ -322,13 +497,12 @@ class Executor:
                     return
                 if index >= limit:
                     raise WorkflowError("Koşullu döngünün tekrar sınırına ulaşıldı; koşul hâlâ doğru.")
-                self.executed += 1
-                if self.executed > 10000:
-                    raise WorkflowError("Bir çalışma en fazla 10.000 adım çalıştırabilir.")
+                self.count_step()
                 self.variables["loop_index"] = index
                 self.log(f"Koşullu döngü: {index + 1}/{limit}", step_id=step.id)
-                self.steps(step.children)
                 index += 1
+                if not self.loop_body(step):
+                    return
         finally:
             self._deadlines.pop()
             if old_index is sentinel:
@@ -382,6 +556,11 @@ class Executor:
                 "confidence": p.get("confidence", 0.9), "timeout": p.get("timeout", 10)}
 
     def perform(self, action: str, p: dict) -> Any:
+        from . import actions
+
+        handler = actions.get(action)
+        if handler is not None:
+            return handler(self, p)
         if action == "data.sample":
             return [
                 {"order_id": "SIP-1001", "customer": "Ada Teknoloji", "amount": 4250, "currency": "TRY"},
@@ -393,8 +572,8 @@ class Executor:
             self.variables[variable_name(p["name"])] = p["value"]
         elif action == "data.append":
             values = self.variables.setdefault(variable_name(p["name"]), [])
-            if not isinstance(values, list) or len(values) >= 10000:
-                raise WorkflowError("Hedef en fazla 10.000 öğelik bir liste olmalıdır.")
+            if not isinstance(values, list) or len(values) >= MAX_LOOP_ITEMS:
+                raise WorkflowError("Hedef en fazla 100.000 öğelik bir liste olmalıdır.")
             values.append(p["value"])
         elif action == "core.log":
             self.log(str(p["message"]))
@@ -596,7 +775,32 @@ class RunManager:
         finally:
             self.release_desktop(token)
 
-    def start(self, workflow: Workflow, *, dry_run: bool = False) -> Run:
+    def start_step(self, workflow: Workflow, step_id: str, variables: dict[str, Any], *,
+                   dry_run: bool = False) -> Run:
+        """Run one step (with its inner steps) for testing, seeded with sample variables."""
+        found = None
+
+        def search(steps: list[Step]) -> None:
+            nonlocal found
+            for step in steps:
+                if step.id == step_id:
+                    found = step
+                    return
+                search(step.children)
+                search(step.otherwise)
+
+        search(workflow.steps)
+        if found is None:
+            raise KeyError(step_id)
+        if not isinstance(variables, dict) or len(variables) > 100:
+            raise WorkflowError("Test değişkenleri en fazla 100 alanlı bir nesne olmalıdır.")
+        for name in variables:
+            variable_name(name)
+        single = workflow.model_copy(update={"steps": [found.model_copy(deep=True)]}, deep=True)
+        return self.start(single, dry_run=dry_run, variables=variables, test_step_id=step_id)
+
+    def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
+              test_step_id: str | None = None) -> Run:
         validate_workflow(workflow)
         with self._lock:
             if self._setup_cancel is not None:
@@ -604,39 +808,43 @@ class RunManager:
             if self._closed or self._active:
                 raise RuntimeError("Zaten bir akış çalışıyor. Tamamlanmasını bekleyin veya durdurun.")
             run = Run(workflow_id=workflow.id, workflow_name=workflow.name,
-                      department=workflow.department, dry_run=dry_run)
+                      department=workflow.department, dry_run=dry_run, test_step_id=test_step_id)
             cancel = threading.Event()
             self.store.save_run(run)
             self._active = (run.id, cancel)
-            self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel)
+            self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel, dict(variables or {}))
             return run.model_copy(deep=True)
 
-    def _work(self, workflow: Workflow, run: Run, cancel: threading.Event) -> None:
-        runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run))
+    def _work(self, workflow: Workflow, run: Run, cancel: threading.Event,
+              variables: dict[str, Any] | None = None) -> None:
+        runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables)
         try:
             run.status = "running"
-            runner.log("Önizleme başladı; harici işlemler atlanacak." if run.dry_run else "Akış çalıştırılıyor.")
+            if run.test_step_id:
+                runner.log("Adım testi: yalnız seçilen adım çalıştırılıyor.")
+            runner.log("Önizleme başladı; ekran, dosya ve bağlantı adımları atlanacak." if run.dry_run
+                       else "Akış çalıştırılıyor.")
             runner.execute(workflow)
             run.status = "succeeded"
+        except StopWorkflow as signal:
+            run.status = "succeeded" if signal.succeeded else "failed"
+            if not signal.succeeded:
+                run.error = signal.message or "Akış, Akışı bitir adımıyla hata sonucu verdi."
+            runner.log(signal.message or "Akış bitirildi.", level="info" if signal.succeeded else "error")
         except (Cancelled, InterruptedError):
             run.status = "cancelled"
             runner.log("Çalışma kullanıcı tarafından durduruldu.", level="warning")
+        except (BreakLoop, ContinueLoop):
+            run.status = "failed"
+            run.error = "Döngüden çık / Sonraki tura geç adımı bir döngünün içinde olmalıdır."
+            runner.log(run.error, level="error")
         except Exception as exc:
             run.status = "failed"
-            if isinstance(exc, (WorkflowError, WindowError)):
-                run.error = str(exc)
-            elif isinstance(exc, ImportError):
-                run.error = ("Gerekli otomasyon paketi veya sistem sürücüsü yüklenemedi. "
-                             "Kurulum rehberini ve rpa-studio doctor çıktısını kontrol edin.")
-            elif isinstance(exc, TimeoutError):
-                run.error = "İşlem zaman aşımına uğradı. Hedef öğeyi, bağlantıyı ve bekleme süresini kontrol edin."
-            elif type(exc).__name__ == "FailSafeException":
-                run.error = "Fare köşeye taşındı; PyAutoGUI acil durdurma devreye girdi."
-            else:
-                run.error = (f"İşlem tamamlanamadı ({type(exc).__name__}). Son başlayan adımın parametrelerini, "
-                             "bağlantı ayarlarını ve sistem izinlerini kontrol edin.")
+            run.error = describe_error(exc)
             runner.log(run.error, level="error")
         finally:
+            if run.test_step_id:
+                run.variables = snapshot(runner.variables)
             run.finished_at = now()
             try:
                 self.store.save_run(run)
