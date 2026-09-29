@@ -116,6 +116,9 @@ def command(ctx, p):
         cwd = Path(os.path.expandvars(os.path.expanduser(str(folder))))
         if not cwd.is_dir():
             raise WorkflowError("Çalışma klasörü bulunamadı.")
+    if os.name == "nt":
+        # UTF-8 console output keeps Turkish characters regardless of the system code page.
+        line = "chcp 65001>nul & " + line
     try:
         result = subprocess.run(line, shell=True, capture_output=True, timeout=timeout, cwd=cwd,  # noqa: S602
                                 **_no_window())

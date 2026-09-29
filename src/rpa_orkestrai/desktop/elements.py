@@ -211,13 +211,43 @@ class ElementService:
             self.cancel.wait(min(POLL_SECONDS, remaining))
 
 
+def import_comtypes():
+    """Import comtypes without clashing with a thread already joined to COM.
+
+    comtypes initializes COM for the importing thread. The workflow thread may
+    already be in the multithreaded apartment (e.g. after Windows OCR), so try
+    that first, which UI Automation also recommends, and fall back to STA.
+    """
+    import sys
+
+    if "comtypes" in sys.modules:
+        return sys.modules["comtypes"]
+    previous = getattr(sys, "coinit_flags", None)
+    try:
+        for flags in (0, 2):  # COINIT_MULTITHREADED, COINIT_APARTMENTTHREADED
+            sys.coinit_flags = flags
+            try:
+                import comtypes
+                import comtypes.client  # noqa: F401
+
+                return comtypes
+            except OSError:
+                for name in [module for module in sys.modules if module == "comtypes" or module.startswith("comtypes.")]:
+                    del sys.modules[name]
+        raise WindowError("Windows COM başlatılamadı. Uygulamayı yeniden açıp tekrar deneyin.")
+    finally:
+        if previous is None:
+            del sys.coinit_flags
+        else:
+            sys.coinit_flags = previous
+
+
 class UiaElements:
     """Windows UI Automation through comtypes; one COM context per calling thread."""
 
     def __init__(self):
         try:
-            import comtypes  # noqa: F401
-            import comtypes.client  # noqa: F401
+            import_comtypes()
         except ImportError as exc:
             raise WindowError("Alan kimliği için Windows otomasyon paketlerini kurun: .[automation]") from exc
         self._local = threading.local()
@@ -226,6 +256,7 @@ class UiaElements:
         context = getattr(self._local, "context", None)
         if context is not None:
             return context
+        import_comtypes()
         import comtypes
         import comtypes.client
 

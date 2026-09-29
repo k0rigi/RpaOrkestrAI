@@ -147,6 +147,16 @@ def wait(ctx, p):
         ctx.wait(min(0.5, max(0.0, deadline - time.monotonic())))
 
 
+def _delimiter(content: str, suffix: str) -> str:
+    """The separator used in the header line: ; (Turkish Excel), tab, | or ,."""
+    if suffix == ".tsv":
+        return "\t"
+    header = next((line for line in content.splitlines() if line.strip()), "")
+    counts = {candidate: header.count(candidate) for candidate in (";", "\t", "|", ",")}
+    best = max(counts, key=counts.get)
+    return best if counts[best] else ","
+
+
 def _cell(value):
     if isinstance(value, datetime):
         return value.isoformat(sep=" ", timespec="seconds")
@@ -195,11 +205,7 @@ def read_table(ctx, p):
             book.close()
     elif suffix in {".csv", ".txt", ".tsv"}:
         content = _decode(_read_bytes(file))
-        try:
-            dialect = csv.Sniffer().sniff(content[:5000], delimiters=",;\t|")
-        except csv.Error:
-            dialect = csv.excel
-        matrix = [list(row) for row in csv.reader(io.StringIO(content), dialect)]
+        matrix = [list(row) for row in csv.reader(io.StringIO(content, newline=""), delimiter=_delimiter(content, suffix))]
     elif suffix == ".xls":
         raise WorkflowError("Eski .xls biçimi desteklenmez; dosyayı Excel'de .xlsx olarak kaydedin.")
     else:

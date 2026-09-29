@@ -128,3 +128,27 @@ def test_win32_window_move_state_and_close(win32_form):
     assert not user32.IsIconic(window.window_id)
     service.close(target)
     service.wait_closed(target, 5)
+
+
+def test_comtypes_imports_on_a_thread_already_in_the_multithreaded_apartment():
+    import ctypes
+    import sys
+
+    results = []
+
+    def worker():
+        ctypes.windll.ole32.CoInitializeEx(None, 0)  # what Windows OCR does on the workflow thread
+        saved = {name: module for name, module in sys.modules.items() if name.startswith("comtypes")}
+        for name in saved:
+            del sys.modules[name]
+        try:
+            from rpa_orkestrai.desktop.elements import import_comtypes
+
+            results.append(import_comtypes() is not None)
+        finally:
+            sys.modules.update(saved)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(30)
+    assert results == [True]
