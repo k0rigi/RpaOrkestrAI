@@ -35,7 +35,7 @@ Lisanslar orkestrai.net veritabanındaki mevcut modül tablolarıyla yönetilir.
 | `SYS_FirmaModulleri` | Firmanın MOD_RPA satırı; `BitisTarihi` lisansın son günüdür, boş ise süresizdir |
 | `SYS_KullaniciModulleri` | Uygulamayı kullanacak her kullanıcı için MOD_RPA satırı |
 
-Modül kaydı ilk oluşturulduğunda BSG'ye (firma 2) **27.09.2027** tarihine kadar lisans verildi ve **fcoruh** kullanıcısına modül atandı. Başka bir firmaya veya kullanıcıya yetki vermek için ilgili satırları ekleyin. Süreyi uzatmak için firmanın `BitisTarihi` değerini güncelleyin. `Admin` rolündeki orkestrai.net hesapları, web modüllerinde olduğu gibi tüm modüllere erişir.
+Modül kaydı ilk oluşturulduğunda ilk müşteri firmaya bir yıllık lisans verildi ve belirlenen kullanıcıya modül atandı. Başka bir firmaya veya kullanıcıya yetki vermek için ilgili satırları ekleyin. Süreyi uzatmak için firmanın `BitisTarihi` değerini güncelleyin. `Admin` rolündeki orkestrai.net hesapları, web modüllerinde olduğu gibi tüm modüllere erişir.
 
 Yetki değişikliği uygulamaya en geç bir sonraki yenilemede, yani uygulama açıkken en fazla 1 saat içinde yansır. Uygulama internetsizse değişiklik 7 günlük çevrimdışı süre içinde yansımayabilir.
 

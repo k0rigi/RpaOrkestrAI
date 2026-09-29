@@ -13,7 +13,7 @@ Lisans vermek, uzatmak veya kaldırmak üretim veritabanını değiştirir. Firm
 
 ## Veritabanı işlemleri
 
-Üretim veritabanı yalnız sunucudan erişilebilir (`127.0.0.1`, `orke_OrkestraDB`). orkestrai deposunun kuralına göre SSH yalnız gerçekten gerektiğinde ve kullanıcı onayıyla kullanılır. Kod değişikliği için SSH kullanılmaz. Aşağıdaki SQL'ler kullanıcıya verilebilir veya onayla çalıştırılabilir.
+Üretim veritabanı yalnız sunucunun kendi içinden erişilebilir; bağlantı bilgileri orkestrai deposundaki `api/db.py` içindedir ve bu depoya yazılmaz. orkestrai deposunun kuralına göre SSH yalnız gerçekten gerektiğinde ve kullanıcı onayıyla kullanılır. Kod değişikliği için SSH kullanılmaz. Aşağıdaki SQL'ler kullanıcıya verilebilir veya onayla çalıştırılabilir.
 
 ```sql
 -- Modül kimliği
@@ -21,7 +21,7 @@ SELECT ModulID FROM SYS_Moduller WHERE ModulKodu = 'MOD_RPA';
 
 -- Kullanıcıyı bul (kullanıcı adı = e-postanın @ öncesi)
 SELECT KullaniciID, FirmaID, AdSoyad, Eposta, Rol, Durum FROM SYS_Kullanicilar
-WHERE LOWER(SUBSTRING_INDEX(Eposta, '@', 1)) = LOWER('fcoruh') OR LOWER(Eposta) = LOWER('fcoruh');
+WHERE LOWER(SUBSTRING_INDEX(Eposta, '@', 1)) = LOWER('kullanici_adi') OR LOWER(Eposta) = LOWER('kullanici_adi');
 
 -- Firmaya lisans ver veya süresini değiştir (BitisTarihi dahil son gündür)
 INSERT INTO SYS_FirmaModulleri (FirmaID, ModulID, BitisTarihi) VALUES (<FirmaID>, <ModulID>, '2027-09-27');

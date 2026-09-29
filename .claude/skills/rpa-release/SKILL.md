@@ -90,14 +90,16 @@ Hosting deposunda (`k0rigi/orkestrai`) önce inceleme, sonra yayın çalıştır
 
 ```bash
 "$UV" venv -p "$PY" "$SCRATCH/pubvenv" && "$UV" pip install -p "$SCRATCH/pubvenv/bin/python" 'paramiko>=3.5,<5'
-export HOST=89.252.185.172 USERNAME=root
-export PASSWORD=$(sed -n 's/.*şifre: "\([^"]*\)".*/\1/p' "../orkestrai/.agents/rules/orkestrai.md" | head -1)
+RULES="../orkestrai/.agents/rules/orkestrai.md"   # SSH adresi ve şifresi bu private dosyada
+export HOST=$(sed -n 's/.*ssh ip: "\([^"]*\)".*/\1/p' "$RULES" | head -1)
+export USERNAME=<SSH kullanıcı adı: kullanıcıya sor, depoya yazma>
+export PASSWORD=$(sed -n 's/.*şifre: "\([^"]*\)".*/\1/p' "$RULES" | head -1)
 RPA_ACTION=inspect "$SCRATCH/pubvenv/bin/python" scripts/deploy_update_bundle.py
 RPA_ACTION=publish RPA_VERSION=$V RPA_BUNDLE_SHA256=<sha> RPA_BUNDLE_URL="$URL" \
   "$SCRATCH/pubvenv/bin/python" scripts/deploy_update_bundle.py
 ```
 
-Şifreyi ekrana yazdırma. Sunucu anahtarı betikte sabittir; bilinmeyen anahtar reddedilir.
+Sunucu adresini, kullanıcı adını ve şifreyi ekrana, belgeye veya commit'e yazma. Sunucu anahtarı betikte sabittir; bilinmeyen anahtar reddedilir.
 
 ## 6. Doğrula
 

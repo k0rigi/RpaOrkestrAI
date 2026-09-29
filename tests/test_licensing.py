@@ -56,8 +56,8 @@ class FakeOrkestrai:
             valid = min(valid, end)
         payload = json.dumps({
             "surum": 1, "urun": product, "modul": "MOD_RPA", "kullanici_id": 42,
-            "kullanici": "fcoruh@bsg.com.tr", "ad_soyad": "Fatih Çoruh", "firma_id": 2,
-            "firma_adi": "BSG", "bitis": ends or None, "cihaz": device,
+            "kullanici": "operator@ornek.com.tr", "ad_soyad": "Örnek Operatör", "firma_id": 2,
+            "firma_adi": "Örnek Lojistik", "bitis": ends or None, "cihaz": device,
             "verildi": now.isoformat(), "gecerlilik": valid.isoformat(),
         }, ensure_ascii=False).encode()
         return {"payload": base64.b64encode(payload).decode(),
@@ -101,14 +101,14 @@ def test_login_keeps_only_signed_license_and_session(tmp_path, server):
     assert licensing.status()["state"] == "login_required"
     assert licensing.allowed() is False
 
-    status = licensing.login("fcoruh", "dogru")
+    status = licensing.login("operator", "dogru")
 
     assert status["state"] == "valid" and status["online"] is True
-    assert status["license"]["company"] == "BSG" and status["license"]["ends_on"] == "2027-09-27"
+    assert status["license"]["company"] == "Örnek Lojistik" and status["license"]["ends_on"] == "2027-09-27"
     assert licensing.allowed()
     stored = (tmp_path / "license.json").read_text(encoding="utf-8")
     assert "dogru" not in stored
-    assert server.requests[0][1]["kullanici"] == "fcoruh"
+    assert server.requests[0][1]["kullanici"] == "operator"
     # Reopening offline uses the signed license without asking again.
     server.offline = True
     reopened = service(tmp_path, server)
@@ -120,13 +120,13 @@ def test_login_keeps_only_signed_license_and_session(tmp_path, server):
 def test_wrong_password_is_reported_without_changing_state(tmp_path, server):
     licensing = service(tmp_path, server)
     with pytest.raises(LicenseError, match="hatalı"):
-        licensing.login("fcoruh", "yanlis")
+        licensing.login("operator", "yanlis")
     assert licensing.status()["state"] == "login_required"
 
 
 def test_offline_use_ends_after_seven_days(tmp_path, server):
     licensing = service(tmp_path, server)
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     server.offline = True
     server.clock.value += timedelta(days=6, hours=23).total_seconds()
     assert licensing.allowed()
@@ -140,7 +140,7 @@ def test_offline_use_ends_after_seven_days(tmp_path, server):
 def test_offline_license_never_outlives_the_company_end_date(tmp_path, server):
     server.ends_on = "2026-10-01"
     licensing = service(tmp_path, server)
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     server.offline = True
     server.clock.value = datetime(2026, 10, 1, 23, 0, tzinfo=TR).timestamp()
     assert licensing.allowed()
@@ -152,7 +152,7 @@ def test_offline_license_never_outlives_the_company_end_date(tmp_path, server):
 
 def test_rolling_the_clock_back_requires_online_verification(tmp_path, server):
     licensing = service(tmp_path, server)
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     server.clock.value += 3600
     assert licensing.allowed()
     server.clock.value -= 2 * 3600
@@ -164,13 +164,13 @@ def test_wrong_local_clock_uses_server_time(tmp_path, server):
     local = Clock(START + timedelta(days=30).total_seconds())
     licensing = LicenseService(tmp_path, public_key=server.public_key, opener=server, clock=local,
                                machine_id=lambda: "machine-a")
-    assert licensing.login("fcoruh", "dogru")["state"] == "valid"
+    assert licensing.login("operator", "dogru")["state"] == "valid"
     assert licensing.allowed()
 
 
 def test_expired_company_license_is_remembered_and_renewal_is_picked_up(tmp_path, server):
     licensing = service(tmp_path, server)
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     server.denial = ("SURE_DOLDU", "RpaOrkestrAI kullanım süreniz 27.09.2027 tarihinde dolmuştur.", "2027-09-27")
 
     status = licensing.refresh()
@@ -186,19 +186,19 @@ def test_expired_company_license_is_remembered_and_renewal_is_picked_up(tmp_path
 def test_unassigned_user_is_denied_and_revoked_session_needs_login(tmp_path, server):
     licensing = service(tmp_path, server)
     server.denial = ("YETKI_YOK", "Bu kullanıcı için RpaOrkestrAI lisansı tanımlı değil.")
-    status = licensing.login("fcoruh", "dogru")
-    assert status["state"] == "denied" and status["license"]["user"] == "fcoruh"
+    status = licensing.login("operator", "dogru")
+    assert status["state"] == "denied" and status["license"]["user"] == "operator"
     assert status["remembered"] is False
 
     server.denial = None
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     server.denial = ("OTURUM_GECERSIZ", "Oturumun süresi doldu.")
     assert licensing.refresh()["state"] == "login_required"
     assert licensing.status()["remembered"] is False
 
 
 def test_license_is_bound_to_the_computer_and_signature(tmp_path, server):
-    service(tmp_path, server).login("fcoruh", "dogru")
+    service(tmp_path, server).login("operator", "dogru")
     assert service(tmp_path, server, machine="machine-b").status()["state"] == "login_required"
 
     stored = json.loads((tmp_path / "license.json").read_text(encoding="utf-8"))
@@ -218,13 +218,13 @@ def test_license_for_another_product_is_rejected(tmp_path, server):
 
     server.signed = other_product
     with pytest.raises(LicenseError):
-        licensing.login("fcoruh", "dogru")
+        licensing.login("operator", "dogru")
     assert licensing.status()["state"] == "login_required"
 
 
 def test_logout_forgets_the_session(tmp_path, server):
     licensing = service(tmp_path, server)
-    licensing.login("fcoruh", "dogru")
+    licensing.login("operator", "dogru")
     assert licensing.logout()["state"] == "login_required"
     assert json.loads((tmp_path / "license.json").read_text(encoding="utf-8"))["refresh"] is None
 
@@ -241,15 +241,15 @@ def test_studio_api_requires_a_license(tmp_path, server):
         assert client.get("/api/health").status_code == 200
         assert client.get("/api/license").json()["can_quit"] is False
 
-        wrong = client.post("/api/license/login", json={"username": "fcoruh", "password": "yanlis"})
+        wrong = client.post("/api/license/login", json={"username": "operator", "password": "yanlis"})
         assert wrong.status_code == 422 and "hatalı" in wrong.json()["detail"]
         assert client.post("/api/license/login",
-                           json={"username": "fcoruh", "password": "dogru"}).json()["state"] == "valid"
+                           json={"username": "operator", "password": "dogru"}).json()["state"] == "valid"
         assert client.get("/api/bootstrap").status_code == 200
 
         server.offline = True
         unavailable = client.post("/api/license/logout")
         assert unavailable.json()["state"] == "login_required"
-        failed = client.post("/api/license/login", json={"username": "fcoruh", "password": "dogru"})
+        failed = client.post("/api/license/login", json={"username": "operator", "password": "dogru"})
         assert failed.status_code == 503
         assert client.post("/api/license/quit").status_code == 409
