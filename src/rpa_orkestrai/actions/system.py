@@ -97,6 +97,11 @@ def _console_encodings() -> list[str]:
 
 
 def _decode(raw: bytes) -> str:
+    if os.name == "nt" and len(raw) >= 4 and raw[1::2].count(0) >= len(raw) // 4:
+        try:
+            return raw.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
     for encoding in ("utf-8", *_console_encodings(), "cp857", "cp1254"):
         try:
             return raw.decode(encoding)
@@ -117,10 +122,13 @@ def command(ctx, p):
         if not cwd.is_dir():
             raise WorkflowError("Çalışma klasörü bulunamadı.")
     if os.name == "nt":
-        # UTF-8 console output keeps Turkish characters regardless of the system code page.
-        line = "chcp 65001>nul & " + line
+        # /u: cmd's own commands (echo, dir, type) write Unicode, so Turkish text survives any code page.
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        invocation, shell = f'"{comspec}" /d /u /s /c "{line}"', False
+    else:
+        invocation, shell = line, True
     try:
-        result = subprocess.run(line, shell=True, capture_output=True, timeout=timeout, cwd=cwd,  # noqa: S602
+        result = subprocess.run(invocation, shell=shell, capture_output=True, timeout=timeout, cwd=cwd,  # noqa: S602
                                 **_no_window())
     except subprocess.TimeoutExpired as exc:
         raise WorkflowError(f"Komut {timeout:g} saniyede bitmedi ve durduruldu.") from exc
