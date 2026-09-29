@@ -73,6 +73,13 @@ def _windows(image: Any, language: str) -> str:
         from winrt.windows.storage.streams import DataWriter
     except ImportError as exc:
         raise OcrUnavailable("Windows OCR bileşenleri yüklenemedi.") from exc
+    try:
+        import ctypes
+
+        # Workflow threads start without COM; WinRT needs the multithreaded apartment.
+        ctypes.windll.ole32.CoInitializeEx(None, 0)
+    except (OSError, AttributeError):
+        pass
     engine = None
     for code in _requested(language):
         tag = LANGUAGES[code][1]
@@ -84,7 +91,10 @@ def _windows(image: Any, language: str) -> str:
         raise OcrUnavailable("Windows'ta OCR dili yüklü değil. Ayarlar → Saat ve dil → Dil bölümünden "
                              "Türkçe veya İngilizce dil paketini (OCR) ekleyin.")
     gray = image.convert("L")
-    limit = OcrEngine.max_image_dimension
+    try:
+        limit = int(OcrEngine.max_image_dimension)
+    except (AttributeError, TypeError, ValueError):
+        limit = 10_000
     if max(gray.size) > limit:
         ratio = limit / max(gray.size)
         gray = gray.resize((max(1, int(gray.width * ratio)), max(1, int(gray.height * ratio))))

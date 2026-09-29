@@ -108,6 +108,12 @@ class PointerRequest(Model):
     delay: int = Field(default=3, ge=1, le=10, strict=True)
 
 
+class RecordRequest(Model):
+    delay: int = Field(default=3, ge=1, le=10, strict=True)
+    record_waits: bool = True
+    relative_windows: bool = True
+
+
 class PathRequest(Model):
     kind: Literal["open", "folder", "save"] = "open"
 

@@ -27,6 +27,7 @@ from .models import (
     LicenseLoginRequest,
     PathRequest,
     PointerRequest,
+    RecordRequest,
     RunRequest,
     StepTestRequest,
     TemplateCropRequest,
@@ -49,6 +50,16 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     captures = CaptureStore()
     picks = PickJobs(manager, captures)
+    from .desktop.recorder import RecordJobs
+    from .desktop.windows import WindowService
+
+    def recorder_view(stop, cancel):
+        from .desktop.picker import native_available
+        from .desktop.recorder import RecorderView
+
+        return RecorderView(stop, cancel) if native_available() else None
+
+    records = RecordJobs(manager, windows_factory=WindowService, view_factory=recorder_view)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -59,13 +70,14 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                 yield
             finally:
                 licensing.stop()
+                records.close()
                 picks.close()
                 manager.close()
 
     app = FastAPI(title="RpaOrkestrAI Studio", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
     app.state.store, app.state.manager, app.state.settings = store, manager, settings
-    app.state.picks, app.state.licensing = picks, licensing
+    app.state.picks, app.state.licensing, app.state.records = picks, licensing, records
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
     @app.middleware("http")
@@ -331,6 +343,32 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             raise HTTPException(status_code=409, detail="Ekran görüntüsü şu anda alınamıyor. Çalışan akışı bekleyin.") from exc
         except Exception as exc:
             raise HTTPException(status_code=422, detail="Ekran görüntüsü alınamadı. Ekran Kaydı iznini kontrol edin.") from exc
+
+    @app.post("/api/desktop/record", status_code=202)
+    def start_recording(body: RecordRequest):
+        from .desktop.windows import WindowError
+
+        try:
+            return records.start(delay=body.delay, record_waits=body.record_waits,
+                                 relative_windows=body.relative_windows)
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc) if "kayıt" in str(exc).lower() else
+                                "Kayıt şu anda başlatılamıyor. Çalışan akışı veya hedef seçimini bekleyin.") from exc
+
+    @app.get("/api/desktop/record/{record_id}")
+    def recording_status(record_id: str):
+        return records.status(record_id)
+
+    @app.post("/api/desktop/record/{record_id}/stop")
+    def stop_recording(record_id: str):
+        return records.stop(record_id)
+
+    @app.delete("/api/desktop/record/{record_id}", status_code=204)
+    def cancel_recording(record_id: str):
+        records.cancel(record_id)
+        return Response(status_code=204)
 
     @app.post("/api/desktop/choose-path")
     def choose_path(body: PathRequest):

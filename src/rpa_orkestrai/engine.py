@@ -390,11 +390,9 @@ class Executor:
         return True
 
     def repeat(self, step: Step, p: dict) -> None:
-        count = p.get("count")
-        if isinstance(count, float) and count.is_integer():
-            count = int(count)
-        if type(count) is not int or not 1 <= count <= MAX_LOOP_ITEMS:
-            raise WorkflowError("Tekrar sayısı 1–100.000 arasında tam sayı olmalıdır.")
+        from .actions.common import integer
+
+        count = integer(p.get("count"), "Tekrar sayısı", 1, MAX_LOOP_ITEMS)
         sentinel = object()
         old_index = self.variables.get("loop_index", sentinel)
         try:

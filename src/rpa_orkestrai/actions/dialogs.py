@@ -29,10 +29,38 @@ MAC_INPUT = '''on run argv
     return "ok:" & text returned of answer
 end run'''
 WINDOWS_INPUT = r'''
-Add-Type -AssemblyName Microsoft.VisualBasic
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$form = New-Object System.Windows.Forms.Form
+$form.Text = $env:RPA_TITLE
+$form.TopMost = $true
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+$form.MinimizeBox = $false
+$form.ClientSize = New-Object System.Drawing.Size(440, 150)
+$label = New-Object System.Windows.Forms.Label
+$label.Text = $env:RPA_PROMPT
+$label.SetBounds(12, 12, 416, 48)
+$box = New-Object System.Windows.Forms.TextBox
+$box.Text = $env:RPA_DEFAULT
+$box.SetBounds(12, 66, 416, 24)
+$ok = New-Object System.Windows.Forms.Button
+$ok.Text = 'Tamam'
+$ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+$ok.SetBounds(256, 108, 82, 30)
+$cancel = New-Object System.Windows.Forms.Button
+$cancel.Text = 'İptal'
+$cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+$cancel.SetBounds(346, 108, 82, 30)
+$form.AcceptButton = $ok
+$form.CancelButton = $cancel
+$form.Controls.AddRange(@($label, $box, $ok, $cancel))
+$form.Add_Shown({ $form.Activate(); $box.SelectAll(); $box.Focus() })
+$result = $form.ShowDialog()
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$value = [Microsoft.VisualBasic.Interaction]::InputBox($env:RPA_PROMPT, $env:RPA_TITLE, $env:RPA_DEFAULT)
-[Console]::Out.Write($value)
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write('ok:' + $box.Text) }
+else { [Console]::Out.Write('cancel') }
 '''
 
 
@@ -85,9 +113,9 @@ def ask(ctx, p):
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.SubprocessError) as exc:
             raise WorkflowError("Değer isteme kutusu açılamadı.") from exc
-        value = result.stdout.decode("utf-8", errors="replace").lstrip("﻿")
-        if value:
-            return value
+        value = result.stdout.decode("utf-8", errors="replace").lstrip("\ufeff")
+        if value.startswith("ok:"):
+            return value[3:]
         cancelled = None
     else:
         raise WorkflowError("Değer isteme kutusu macOS ve Windows'ta desteklenir.")

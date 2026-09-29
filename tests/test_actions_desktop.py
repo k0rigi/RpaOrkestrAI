@@ -290,8 +290,8 @@ def test_message_and_input_boxes(runner, monkeypatch):
         import ctypes
 
         monkeypatch.setattr(ctypes.windll.user32, "MessageBoxW", lambda *args: 6)
-        answers = iter([SimpleNamespace(returncode=0, stdout="INV-9".encode(), stderr=b""),
-                        SimpleNamespace(returncode=0, stdout=b"", stderr=b"")])
+        answers = iter([SimpleNamespace(returncode=0, stdout="ok:INV-9".encode(), stderr=b""),
+                        SimpleNamespace(returncode=0, stdout=b"cancel", stderr=b"")])
         monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: next(answers))
     else:
         pytest.skip("native dialogs")
@@ -403,3 +403,25 @@ def test_system_variables_point_to_real_user_folders():
     assert Path(values["ev"]).is_dir()
     if platform.system() in {"Windows", "Darwin"}:
         assert Path(values["masaustu"]).is_dir() and Path(values["belgeler"]).is_dir()
+
+
+def test_native_ocr_works_from_a_workflow_thread_on_windows():
+    if platform.system() != "Windows":
+        pytest.skip("Windows.Media.Ocr")
+    from PIL import ImageFont
+
+    from rpa_orkestrai.desktop.ocr import read_text
+
+    image = Image.new("RGB", (900, 120), "white")
+    ImageDraw.Draw(image).text((20, 30), "Invoice INV 2026 approved", fill="black",
+                               font=ImageFont.truetype("arial.ttf", 40))
+    results = []
+    worker = threading.Thread(target=lambda: results.append(read_text(image, engine="system")))
+    worker.start()
+    worker.join(60)
+    assert results and "INV" in results[0].upper()
+
+
+def test_command_output_decodes_turkish_text(runner):
+    command = "echo Çağrı Şule" if platform.system() == "Windows" else "printf 'Çağrı Şule'"
+    assert "Çağrı Şule" in go(runner, "system.command", command=command, output="c")["c"]["output"]

@@ -87,8 +87,17 @@ def close_app(ctx, p):
     return result.returncode == 0
 
 
+def _console_encodings() -> list[str]:
+    """Windows console programs write in the OEM code page (cp857 in Turkish), others in ANSI."""
+    if os.name != "nt":
+        return [locale.getpreferredencoding(False)]
+    import ctypes
+
+    return [f"cp{ctypes.windll.kernel32.GetOEMCP()}", f"cp{ctypes.windll.kernel32.GetACP()}"]
+
+
 def _decode(raw: bytes) -> str:
-    for encoding in ("utf-8", locale.getpreferredencoding(False), "cp857", "cp1254"):
+    for encoding in ("utf-8", *_console_encodings(), "cp857", "cp1254"):
         try:
             return raw.decode(encoding)
         except (UnicodeDecodeError, LookupError):

@@ -1,6 +1,6 @@
 # Adım rehberi
 
-0.6.0 sürümünde adım kütüphanesi 63 adımdır. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+0.6.0 sürümünde adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -9,6 +9,32 @@
 - **Çalıştır:** Adımları gerçekten uygular. **Önizleme (ekranı kullanmadan)** işaretliyse fare, klavye, ekran, dosya, bağlantı ve mesaj adımları atlanır; yalnız veri, metin, hesap ve akış adımları çalışır.
 - **Bu adımı test et:** Adımı seçin, sağ paneldeki düğmeye basın. Adımın kullandığı değişkenler (ör. `${row.form_id}`) için örnek değer girersiniz. Sadece o adım, içinde başka adımlar varsa onlarla birlikte, gerçek olarak çalışır. Sonuç ve adımın ürettiği değerler aynı pencerede görünür. Akışın geri kalanı çalışmaz.
 - **Acil durdurma:** Fareyi ekranın bir köşesine hızla götürmek çalışan akışı durdurur. Çalışma sayfasındaki **Durdur** düğmesi de bir sonraki adımda durdurur.
+
+## Hareketleri kaydet
+
+Editörün üstündeki **Hareketleri kaydet** düğmesi, bir işi bir kez fare ve klavyeyle yapmanızı izler ve adımlara çevirir; AutoHotkey'deki kaydediciye benzer.
+
+1. Hazırlık süresini seçip **Kaydı başlat**'a basın. Masaüstü uygulamasında Studio gizlenir, ekranın sağ altında kırmızı noktalı kayıt kutusu görünür.
+2. Hedef uygulamada işi yapın: tıklayın, yazın, kısayol kullanın, sürükleyin, kaydırın.
+3. **F9** tuşuna veya kutudaki **Kaydı bitir** düğmesine basın.
+4. Oluşan adımları kontrol edin, istemediklerinizin işaretini kaldırıp **Akışa ekle** deyin.
+
+| Hareket | Oluşan adım |
+| --- | --- |
+| Bir penceredeki tıklama | **Pencereyi tanı** (pencere başına bir kez) ve pencereye göre **Pencerede tıkla**. Pencere taşınsa da doğru yere tıklanır. |
+| Ard arda iki tıklama | Çift tık |
+| Yazılan metin | **Metin yaz**; yazarken sildiğiniz harfler metinden çıkarılır, Türkçe karakterler korunur |
+| Enter, Tab, oklar, F tuşları | **Tuşa bas**; art arda aynı tuş tek adımda sayıyla birleşir |
+| Ctrl/Command + tuş | **Klavye kısayolu gönder**. Windows'ta Ctrl, Mac'te Command `mod` olarak kaydedilir; akış diğer işletim sisteminde de çalışır. |
+| Basılı tutup sürükleme | **Sürükle ve bırak** |
+| Tekerlek | **Fare tekerleğiyle kaydır** |
+| 1,5 saniyeden uzun duraklama | **Bekle** (isteğe bağlı) |
+
+Studio'nun kendi pencerelerindeki ve kayıt kutusundaki tıklamalar kaydedilmez. Kaydedilen koordinatlı tıklamaları, uygulama alan kimliği veriyorsa sağ panelde **Ekranda seç → Konum** ile alan kimliğine çevirmeniz önerilir. Böylece ekran boyutu değişse de doğru alan bulunur.
+
+- **macOS:** RpaOrkestrAI'ye Erişilebilirlik ve **Girdi İzleme** izni verilmelidir. İzin yoksa kayıt başlamaz ve Sistem Ayarları'na yönlendiren mesaj görünür.
+- **Windows:** Yönetici olarak çalışan uygulamalardaki hareketler, RpaOrkestrAI de yönetici olarak çalışmıyorsa kaydedilemez.
+- Kayıt en fazla 30 dakika ve 5.000 hareket sürer. Şifre yazmayın; yazdığınız her şey adım olur.
 
 ## Hazır değişkenler
 
@@ -149,6 +175,7 @@ Bir akış en fazla 1.000 adım ve 12 seviye iç içe blok içerebilir. Bir çal
 | `FileRead`, `FileAppend`, `Loop Files`, `FileCopy`, `FileMove`, `FileDelete` | Dosya ve Excel adımları |
 | `A_Clipboard` | Panoya kopyala / Panodaki metni oku |
 | `MsgBox`, `InputBox` | Mesaj kutusu göster, Kullanıcıdan değer iste |
+| Macro Recorder | Hareketleri kaydet |
 | `Loop`, `Loop Parse`, `while`, `break`, `continue`, `try/catch`, `Gosub` | Tekrarla, Her satır için, Koşul sürdükçe tekrarla, Döngüden çık, Sonraki tura geç, Hata olursa, Başka akışı çalıştır |
 | `FormatTime`, `DateAdd`, `StrReplace`, `RegExMatch`, `StrSplit` | Tarih ve saat, Metin işlemi |
 

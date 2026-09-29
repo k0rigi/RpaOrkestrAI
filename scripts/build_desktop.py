@@ -79,11 +79,13 @@ def main() -> None:
     if system == "Darwin":
         command += ["--osx-bundle-identifier", "com.rpaorkestrai.studio",
                     "--hidden-import", "webview.platforms.cocoa", "--hidden-import", "ApplicationServices",
-                    "--hidden-import", "Vision"]
+                    "--hidden-import", "Vision", "--hidden-import", "pynput.keyboard._darwin",
+                    "--hidden-import", "pynput.mouse._darwin"]
     else:
         # comtypes generates the UI Automation wrapper at run time; bundle its code generator.
         command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",
-                    "--collect-submodules", "comtypes", "--collect-all", "winrt"]
+                    "--collect-submodules", "comtypes", "--collect-all", "winrt",
+                    "--hidden-import", "pynput.keyboard._win32", "--hidden-import", "pynput.mouse._win32"]
     command += [str(ROOT / "launch_gui.pyw")]
     subprocess.run(command, cwd=ROOT, check=True)
     if system == "Darwin":

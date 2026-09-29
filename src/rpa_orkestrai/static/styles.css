@@ -2474,3 +2474,34 @@ textarea:disabled {
   max-height: 180px;
   overflow: auto;
 }
+
+/* ----- recorder ----------------------------------------------------------- */
+.record-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+.record-dialog .checkbox-label {
+  margin: 6px 0;
+}
+.record-status .record-live {
+  color: var(--red);
+  font-weight: 600;
+}
+.record-preview h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+.record-steps {
+  margin: 8px 0 0;
+  padding: 0 0 0 22px;
+  max-height: 300px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.record-steps svg {
+  width: 14px;
+  height: 14px;
+  color: var(--teal);
+  flex: none;
+}

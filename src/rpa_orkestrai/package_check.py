@@ -19,8 +19,13 @@ def _check_accessibility() -> None:
     """Load the field-structure backend without touching any window (no permission prompt)."""
     import platform
 
+    # The recorder's platform backend is imported dynamically by pynput.
+    from pynput import keyboard, mouse
+
     from .desktop.elements import AxElements, UiaElements
 
+    if not (keyboard.Listener and mouse.Listener):
+        raise RuntimeError("Paket içindeki hareket kaydedici yüklenemedi.")
     if platform.system() == "Windows":
         UiaElements()._context()
     elif platform.system() == "Darwin":

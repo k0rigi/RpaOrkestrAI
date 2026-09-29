@@ -319,7 +319,7 @@ LIBRARY = [
             field("duration", "Sürükleme süresi (saniye)", "number", 0.5, min=0, max=10)],
            pointer=[["from_x", "from_y"], ["to_x", "to_y"]]),
     action("input.scroll", "Fare tekerleğiyle kaydır", "Fare ve klavye",
-           "Negatif değer aşağı/sağa, pozitif yukarı/sola kaydırır. Konum boşsa imlecin olduğu yerde kaydırır.",
+           "Dikeyde pozitif yukarı, negatif aşağı; yatayda pozitif sağa, negatif sola kaydırır. Konum boşsa imlecin olduğu yerde.",
            [field("amount", "Kaydırma miktarı", "number", -5, min=-100, max=100, required=True),
             field("direction", "Yön", "select", "vertical", options=[{"value": "vertical", "label": "Dikey"},
                                                                      {"value": "horizontal", "label": "Yatay"}]),

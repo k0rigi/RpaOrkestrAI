@@ -155,7 +155,8 @@ class DesktopController:
         gui = self._gui()
         if x is not None and y is not None:
             gui.moveTo(*self._on_screen(x, y))
-        gui.hscroll(amount)
+        # Positive scrolls right on both systems (macOS wheel events count leftwards).
+        gui.hscroll(-amount if sys.platform == "darwin" else amount)
 
     def key_down(self, key: str) -> None:
         self._gui().keyDown(self.modifier if key == "mod" else key)

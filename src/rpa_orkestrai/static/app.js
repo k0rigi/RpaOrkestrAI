@@ -89,6 +89,7 @@
       "M20 7v5h-5 M4 17v-5h5 M19 12a7 7 0 0 0-12-6L4 9 M5 12a7 7 0 0 0 12 6l3-3",
     logout: "M15 4h4v16h-4 M10 16l-4-4 4-4 M6 12h10",
     grip: "M9 5h.01 M9 12h.01 M9 19h.01 M15 5h.01 M15 12h.01 M15 19h.01",
+    record: "M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0 M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0",
     mouse: "M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6z M12 3v6",
     keyboard: "M3 6h18v12H3z M7 10h.01 M11 10h.01 M15 10h.01 M7 14h10",
     window: "M3 4h18v16H3z M3 8h18",
@@ -1057,8 +1058,11 @@
     });
     dry.append(check, node("span", "", "Önizleme (ekranı kullanmadan)"));
     dry.title = "Açıkken fare, klavye, ekran, dosya ve bağlantı adımları atlanır; yalnız veri adımları hesaplanır.";
+    const recorder = button("Hareketleri kaydet", "record", recordMovements);
+    recorder.title = "Fare ve klavye hareketlerinizi kaydedip adımlara çevirir.";
     actions.append(
       dry,
+      recorder,
       iconButton("Akışı JSON olarak dışa aktar", "download", exportWorkflow),
       button("Kaydet", "save", saveWorkflow),
       button("Çalıştır", "play", runWorkflow, "primary"),
@@ -1805,6 +1809,141 @@
         }
       }
       draw();
+    });
+  }
+  // ----- macro recorder ---------------------------------------------------------
+  function recordMovements() {
+    const workflow = state.workflow;
+    if (!workflow) return;
+    dialog("Hareketleri kaydet", (body, d) => {
+      d.classList.add("record-dialog");
+      let job = null, timer = null, finished = false;
+      const delay = node("select");
+      for (const seconds of [3, 5, 10]) {
+        const option = node("option", "", `${seconds} saniye`);
+        option.value = seconds;
+        delay.append(option);
+      }
+      const option = (text, checked) => {
+        const label = node("label", "checkbox-label");
+        const input = node("input");
+        input.type = "checkbox";
+        input.checked = checked;
+        label.append(input, node("span", "", text));
+        return { label, input };
+      };
+      const waits = option("Hareketler arasındaki beklemeleri kaydet (1,5 sn üzeri)", true);
+      const relative = option("Tıklamaları pencereye göre kaydet (pencere taşınsa da doğru yere tıklar)", true);
+      const status = node("div", "record-status");
+      status.setAttribute("aria-live", "polite");
+      const preview = node("div", "record-preview");
+      const start = button("Kaydı başlat", "record", begin, "primary");
+      const stop = button("Kaydı bitir", "stop", finish, "danger");
+      const add = button("Akışa ekle", "plus", insert, "primary");
+      stop.hidden = add.hidden = true;
+      const controls = node("div", "target-picker-actions");
+      controls.append(start, stop, add);
+      body.append(
+        node("p", "pane-caption", "Geri sayım bitince yaptığınız tıklamalar, yazdığınız metinler, kısayollar, sürüklemeler ve kaydırmalar kaydedilir. Kaydı F9 tuşuyla veya ekranın sağ altındaki Kaydı bitir düğmesiyle bitirin. Masaüstü uygulamasında Studio kayıt sırasında gizlenir."),
+        note("Şifre gibi gizli bilgileri kayıt sırasında yazmayın; yazdığınız her şey akışa adım olarak eklenir.", "warning"),
+        field("Hazırlık süresi", delay), waits.label, relative.label, controls, status, preview,
+      );
+      d.addEventListener("close", () => {
+        clearTimeout(timer);
+        if (job && !finished) api(`/api/desktop/record/${encodeURIComponent(job)}`, { method: "DELETE" }).catch(() => {});
+      });
+      async function begin() {
+        start.disabled = true;
+        preview.replaceChildren();
+        add.hidden = true;
+        try {
+          const started = await api("/api/desktop/record", {
+            method: "POST",
+            body: JSON.stringify({ delay: Number(delay.value), record_waits: waits.input.checked,
+              relative_windows: relative.input.checked }),
+          });
+          job = started.id;
+          finished = false;
+          stop.hidden = false;
+          poll();
+        } catch (error) {
+          status.replaceChildren(note(error.message));
+          start.disabled = false;
+        }
+      }
+      async function finish() {
+        if (job) await api(`/api/desktop/record/${encodeURIComponent(job)}/stop`, { method: "POST" }).catch(() => {});
+      }
+      async function poll() {
+        let current;
+        try {
+          current = await api(`/api/desktop/record/${encodeURIComponent(job)}`);
+        } catch (error) {
+          status.replaceChildren(note(error.message));
+          start.disabled = false;
+          stop.hidden = true;
+          return;
+        }
+        if (!d.isConnected) return;
+        const text = current.status === "recording"
+          ? `Kaydediliyor · ${current.events} hareket · F9 ile bitirin`
+          : current.message;
+        status.replaceChildren(node("p", current.status === "recording" ? "record-live" : "help", text));
+        if (["starting", "countdown", "recording"].includes(current.status)) {
+          timer = setTimeout(poll, 400);
+          return;
+        }
+        finished = true;
+        stop.hidden = true;
+        start.disabled = false;
+        start.querySelector("span").textContent = "Yeniden kaydet";
+        if (current.status === "completed") showSteps(current.result?.steps || []);
+        else status.replaceChildren(note(current.message, current.status === "cancelled" ? "" : "error"));
+      }
+      function showSteps(steps) {
+        preview.replaceChildren();
+        if (!steps.length) {
+          preview.append(note("Kayıtta adım oluşmadı. Geri sayım bittikten sonra hedef uygulamada işlem yapın."));
+          return;
+        }
+        preview.append(node("h3", "", `${steps.length} adım oluşturuldu`),
+          node("p", "help", "Eklemek istemediğiniz adımların işaretini kaldırın. Ekledikten sonra her adımı sağ panelden düzenleyebilir veya test edebilirsiniz."));
+        const list = node("ol", "record-steps");
+        steps.forEach((step) => {
+          const item = node("li");
+          const label = node("label", "checkbox-label");
+          const input = node("input");
+          input.type = "checkbox";
+          input.checked = true;
+          input.dataset.stepId = step.id;
+          label.append(input, icon(actionIcon(step.action)), node("span", "", step.title));
+          item.append(label);
+          list.append(item);
+        });
+        preview.append(list);
+        preview.recorded = steps;
+        add.hidden = false;
+      }
+      function insert() {
+        if (state.workflow !== workflow) return d.close();
+        const chosen = new Set([...preview.querySelectorAll("input[data-step-id]:checked")].map((el) => el.dataset.stepId));
+        const steps = (preview.recorded || []).filter((step) => chosen.has(step.id)).map((step) => ({
+          ...clone(step), id: uid(), children: [], otherwise: [],
+        }));
+        if (!steps.length) return toast("Eklenecek adım seçilmedi.", true);
+        let list = state.workflow.steps;
+        if (state.target) {
+          const parent = findStep(state.target.id);
+          if (parent) list = parent.step[state.target.branch] ||= [];
+        }
+        list.push(...steps);
+        d.close();
+        state.selected = steps[0].id;
+        markDirty();
+        renderCanvas();
+        renderInspector();
+        toast(`${steps.length} adım akışa eklendi. Kaydedip çalıştırmadan önce adımları kontrol edin.`);
+      }
     });
   }
   // ----- single step test -----------------------------------------------------

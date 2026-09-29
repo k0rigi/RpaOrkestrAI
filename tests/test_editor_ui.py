@@ -424,3 +424,62 @@ def test_drag_drop_library_search_and_single_step_test(tmp_path):
         saved = client.get(f"/api/workflows/{workflow_id}").json()
         assert [step["id"] for step in saved["steps"][0]["children"]] == ["calc"]
     assert not errors
+
+
+def test_recorded_movements_become_steps(tmp_path):
+    import threading
+    import time
+
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.desktop.recorder import Event
+
+    class Source:
+        def start(self, events, stop, clock):
+            now = clock()
+            for event in (Event("mouse_down", now, 300, 200), Event("mouse_up", now + 0.05, 300, 200),
+                          Event("key", now + 0.1, key="i", text="İ"), Event("key", now + 0.2, key="enter")):
+                events.put(event)
+            threading.Thread(target=lambda: (time.sleep(0.4), stop.set()), daemon=True).start()
+
+        def stop(self):
+            pass
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        records = client.app.state.records
+        records.permissions, records.source_factory, records.windows_factory = (lambda: None), Source, None
+        records.view_factory = None
+        workflow_id = client.post("/api/workflows", json={"name": "Kayıt", "steps": []}).json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 980, "height": 720})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                result = client.request(request.method, urlsplit(request.url).path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Kayıt", exact=True).click()
+            page.get_by_role("button", name="Hareketleri kaydet", exact=True).click()
+            dialog = page.locator("dialog.record-dialog")
+            dialog.get_by_label("Hazırlık süresi").select_option("3")
+            dialog.get_by_role("button", name="Kaydı başlat", exact=True).click()
+            playwright.expect(dialog.locator(".record-steps li")).to_have_count(3, timeout=15000)
+            dialog.locator(".record-steps input").nth(2).uncheck()
+            dialog.get_by_role("button", name="Akışa ekle", exact=True).click()
+            playwright.expect(page.locator(".flow-stack > .step-wrap > .step-card")).to_have_count(2)
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        assert [step["action"] for step in saved["steps"]] == ["input.mouse_click", "input.type"]
+        assert saved["steps"][1]["params"]["text"] == "İ"
+    assert not errors
