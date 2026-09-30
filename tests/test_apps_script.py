@@ -150,7 +150,8 @@ const ContentService = { MimeType: { JSON: "json" }, createTextOutput: (text) =>
 const results = %(requests)s.map((body) => JSON.parse(doPost({ postData: { contents: JSON.stringify(body) } })));
 console.log(JSON.stringify({ results, rows }));
 """ % {"rows": json.dumps(rows), "script": script_code(TOKEN), "requests": json.dumps(requests_)}
-    output = subprocess.run([node, "-e", harness], capture_output=True, text=True, timeout=30, check=True)
+    output = subprocess.run([node, "-e", harness], capture_output=True, text=True, encoding="utf-8", timeout=30,
+                            check=True)
     return json.loads(output.stdout)
 
 
