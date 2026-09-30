@@ -578,7 +578,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.6.0"}`),
+      node("span", "version", `v${state.version || "0.6.1"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -3757,15 +3757,93 @@
     const sheets = panel(
       "Google Sheets",
       "sheet",
-      "Servis hesabınızın erişebildiği elektronik tablolarda çalışın.",
+      "Akışların Google Sheets tablolarını okuyup yazabilmesi için bir bağlantı yöntemi seçin.",
       state.settings.sheets_configured,
     );
-    sheets.append(
+    const method = node("select");
+    method.id = "field-sheets-connection";
+    for (const [value, label] of [
+      ["apps_script", "Apps Script (önerilen · Google Cloud ve JSON dosyası gerekmez)"],
+      ["service_account", "Google servis hesabı (JSON anahtar dosyası)"],
+    ]) {
+      const option = node("option", "", label);
+      option.value = value;
+      method.append(option);
+    }
+    method.value = state.settings.sheets_connection || "service_account";
+    controls.sheets_connection = method;
+    sheets.append(field("Bağlantı yöntemi", method));
+    const scriptBox = node("div", "apps-script-setup");
+    const steps = node("ol", "apps-script-steps");
+    [
+      "Google Sheets tablonuzda Uzantılar → Apps Script'i açın.",
+      "Aşağıdaki Apps Script kodunu göster düğmesine basın, kodu kopyalayıp editördeki her şeyin yerine yapıştırın ve kaydedin.",
+      "Dağıt → Yeni dağıtım → türü Web uygulaması seçin. Yürütme: Ben, Erişimi olanlar: Herkes → Dağıt. İstenen izinleri onaylayın (\"Google bu uygulamayı doğrulamadı\" uyarısında Gelişmiş → devam et).",
+      "Verilen Web uygulaması URL'sini aşağıya yapıştırıp Kaydet'e, ardından Bağlantıyı test et'e basın.",
+    ].forEach((text) => steps.append(node("li", "", text)));
+    const code = node("textarea", "mono apps-script-code");
+    code.readOnly = true;
+    code.rows = 10;
+    code.hidden = true;
+    code.setAttribute("aria-label", "Apps Script kodu");
+    const copy = button("Kopyala", "copy", async () => {
+      code.select();
+      try {
+        await navigator.clipboard.writeText(code.value);
+      } catch {
+        document.execCommand("copy");
+      }
+      toast("Apps Script kodu kopyalandı.");
+    }, "small");
+    copy.hidden = true;
+    const showCode = (renew) => attempt(async () => {
+      if (renew && !(await confirmDialog("Yeni anahtar oluştur",
+        "Eski anahtarla yayımlanan betik çalışmayı bırakır. Yeni kodu Apps Script'e yapıştırıp Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm ile yeniden yayımlamanız gerekir.",
+        "Yeni anahtar oluştur", true))) return;
+      const result = await api("/api/settings/apps-script/code", { method: "POST", body: JSON.stringify({ renew }) });
+      state.settings = result.settings;
+      code.value = result.code;
+      code.hidden = copy.hidden = false;
+      code.focus();
+      code.select();
+    });
+    const codeActions = node("div", "update-actions");
+    codeActions.append(button("Apps Script kodunu göster", "code", () => showCode(false), "small"), copy,
+      linkButton("Yeni anahtar oluştur", () => showCode(true), "refresh"));
+    const testSheet = textInput("", "İsteğe bağlı: test edilecek tablonun adresi");
+    const testResult = node("div", "apps-script-test");
+    testResult.setAttribute("role", "status");
+    const test = button("Bağlantıyı test et", "check", () => attempt(async () => {
+      test.disabled = true;
+      testResult.replaceChildren(node("p", "help", "Deneniyor…"));
+      try {
+        const result = await api("/api/settings/apps-script/test", {
+          method: "POST",
+          body: JSON.stringify({ url: controls.sheets_script_url.value.trim(), spreadsheet: testSheet.value.trim() }),
+        });
+        testResult.replaceChildren(note(result.message, "info", "check"));
+      } catch (error) {
+        testResult.replaceChildren(note(error.message, "error"));
+        throw error;
+      } finally {
+        test.disabled = false;
+      }
+    }), "small");
+    scriptBox.append(
+      steps, codeActions, code,
+      setting("sheets_script_url", "Web uygulaması adresi", state.settings.sheets_script_url || "",
+        "Dağıt → Dağıtımları yönet bölümündeki URL; /exec ile biter.",
+        { placeholder: "https://script.google.com/macros/s/…/exec" }),
+      field("Test tablosu", testSheet, "Adres girerseniz o tablonun A1 hücresi okunarak da denenir."),
+      test, testResult,
+    );
+    const serviceBox = node("div", "service-account-setup");
+    serviceBox.append(
       setting(
         "google_credentials_path",
         "Servis hesabı anahtar dosyası",
         "",
-        state.settings.sheets_configured
+        state.settings.service_account_configured
           ? "Kayıtlı dosya yolu gizlenir. Mevcut ayarı korumak için boş bırakın."
           : "Yerel JSON anahtar dosyasının tam yolu. Tablonuzu servis hesabı e-postasıyla paylaşın.",
         {
@@ -3774,13 +3852,20 @@
         },
       ),
     );
-    if (state.settings.sheets_configured)
-      sheets.append(
+    if (state.settings.service_account_configured)
+      serviceBox.append(
         removeConnection(
           "google_credentials_path",
           "Kayıtlı Google Sheets bağlantısını kaldır",
         ),
       );
+    const paintMethod = () => {
+      scriptBox.hidden = method.value !== "apps_script";
+      serviceBox.hidden = method.value !== "service_account";
+    };
+    method.addEventListener("change", paintMethod);
+    paintMethod();
+    sheets.append(scriptBox, serviceBox);
     const vision = panel(
       "Masaüstü ve görsel algılama",
       "eye",
@@ -3826,6 +3911,8 @@
           tesseract_cmd: controls.tesseract_cmd.value.trim(),
           ocr_language: controls.ocr_language.value.trim(),
           template_dir: controls.template_dir.value.trim(),
+          sheets_connection: controls.sheets_connection.value,
+          sheets_script_url: controls.sheets_script_url.value.trim(),
         };
         if (removals.database_url?.checked) payload.database_url = "";
         else if (controls.database_url.value.trim())

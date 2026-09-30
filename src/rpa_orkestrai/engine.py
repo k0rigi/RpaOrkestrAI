@@ -665,18 +665,28 @@ class Executor:
         elif action.startswith("sheets."):
             from .integrations.sheets import SheetsService, normalize_spreadsheet_id
 
-            if not self.config["google_credentials_path"]:
-                raise WorkflowError("Önce Ayarlar bölümünden Google servis hesabı dosyasını tanımlayın.")
+            script = self.config.get("sheets_connection") == "apps_script"
+            if script and not (self.config.get("sheets_script_url") and self.config.get("sheets_script_token")):
+                raise WorkflowError("Önce Bağlantılar ve ayarlar → Google Sheets bölümünde Apps Script adresini "
+                                    "tanımlayın.")
+            if not script and not self.config["google_credentials_path"]:
+                raise WorkflowError("Önce Bağlantılar ve ayarlar → Google Sheets bölümünde Apps Script bağlantısını "
+                                    "veya Google servis hesabı dosyasını tanımlayın.")
             try:
                 spreadsheet_id = normalize_spreadsheet_id(p["spreadsheet_id"])
             except ValueError as exc:
                 raise WorkflowError("Geçerli bir Google Sheets bağlantısı veya tablo kimliği girin.") from exc
             key = (spreadsheet_id, p["worksheet"])
             if key not in self._sheets:
-                self._sheets[key] = self.resources.enter_context(
-                    SheetsService(self.config["google_credentials_path"], *key,
-                                  timeout=min(self.settings.action_timeout, 120))
-                )
+                if script:
+                    from .integrations.apps_script import AppsScriptSheets
+
+                    service = AppsScriptSheets(self.config["sheets_script_url"], self.config["sheets_script_token"],
+                                               *key, timeout=max(self.settings.action_timeout, 60))
+                else:
+                    service = SheetsService(self.config["google_credentials_path"], *key,
+                                            timeout=min(self.settings.action_timeout, 120))
+                self._sheets[key] = self.resources.enter_context(service)
             if action == "sheets.read":
                 return self._sheets[key].get_range(p["range"])
             if action == "sheets.read_cell":

@@ -493,6 +493,36 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     def get_settings():
         return settings.public()
 
+    @app.post("/api/settings/apps-script/code")
+    def apps_script_code(body: dict = Body(default={})):
+        """Script to paste into the spreadsheet; a new token is created on request or when missing."""
+        from .integrations.apps_script import new_token, script_code
+
+        token = settings.get("sheets_script_token")
+        if body.get("renew") is True or not token:
+            token = new_token()
+            settings.update({"sheets_script_token": token})
+        return {"code": script_code(token), "settings": settings.public()}
+
+    @app.post("/api/settings/apps-script/test")
+    def apps_script_test(body: dict = Body(default={})):
+        from .integrations.apps_script import AppsScriptSheets, validate_url
+        from .integrations.sheets import normalize_spreadsheet_id
+
+        try:
+            url = validate_url(body.get("url") or settings.get("sheets_script_url"))
+            spreadsheet = body.get("spreadsheet") or ""
+            spreadsheet = normalize_spreadsheet_id(spreadsheet) if spreadsheet else "unused"
+            client = AppsScriptSheets(url, settings.get("sheets_script_token"), spreadsheet,
+                                      body.get("sheet") or "Sayfa1", timeout=30)
+            result = client.ping()
+            if body.get("spreadsheet"):
+                client.get_range("A1")
+        except (WorkflowError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        name = result.get("spreadsheet")
+        return {"ok": True, "message": f"Bağlantı çalışıyor{f': {name}' if name else ''}."}
+
     @app.put("/api/settings")
     def update_settings(body: dict = Body(...)):
         try:

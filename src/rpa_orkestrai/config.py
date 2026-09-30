@@ -33,8 +33,9 @@ class Settings:
 
     editable = {
         "database_url", "google_credentials_path", "allowed_tables", "tesseract_cmd",
-        "ocr_language", "template_dir",
+        "ocr_language", "template_dir", "sheets_connection", "sheets_script_url", "sheets_script_token",
     }
+    secrets = {"database_url", "google_credentials_path", "sheets_script_token"}
 
     def __init__(self, data_dir: Path | str | None = None, *, dotenv: bool = True):
         if dotenv:
@@ -59,6 +60,9 @@ class Settings:
             "tesseract_cmd": os.getenv("RPA_TESSERACT_CMD", ""),
             "ocr_language": os.getenv("RPA_OCR_LANGUAGE", "tur+eng"),
             "template_dir": os.getenv("RPA_TEMPLATE_DIR", "assets/templates"),
+            "sheets_connection": os.getenv("RPA_SHEETS_CONNECTION", "service_account"),
+            "sheets_script_url": os.getenv("RPA_SHEETS_SCRIPT_URL", ""),
+            "sheets_script_token": os.getenv("RPA_SHEETS_SCRIPT_TOKEN", ""),
         }
         if self._path.exists():
             saved = json.loads(self._path.read_text(encoding="utf-8"))
@@ -79,6 +83,12 @@ class Settings:
                     raise ValueError("allowed_tables bir tablo adı listesi olmalıdır.")
             elif not isinstance(value, str) or len(value) > 4096:
                 raise ValueError("Ayarlar en fazla 4096 karakterlik metin olmalıdır.")
+            elif key == "sheets_connection" and value not in {"service_account", "apps_script"}:
+                raise ValueError("Google Sheets bağlantı yöntemi servis hesabı veya Apps Script olmalıdır.")
+            elif key == "sheets_script_url" and value:
+                from .integrations.apps_script import validate_url
+
+                validate_url(value)
         with self._lock:
             updated = {**self._values, **values}
             atomic_json(self._path, updated)
@@ -91,10 +101,14 @@ class Settings:
 
     def public(self) -> dict[str, Any]:
         values = self.snapshot()
+        script_ready = bool(values["sheets_script_url"] and values["sheets_script_token"])
         return {
-            **{k: v for k, v in values.items() if k not in {"database_url", "google_credentials_path"}},
+            **{k: v for k, v in values.items() if k not in self.secrets},
             "database_configured": bool(values["database_url"]),
-            "sheets_configured": bool(values["google_credentials_path"]),
+            "service_account_configured": bool(values["google_credentials_path"]),
+            "sheets_script_configured": script_ready,
+            "sheets_configured": script_ready if values["sheets_connection"] == "apps_script"
+            else bool(values["google_credentials_path"]),
             "platform": platform.system(),
             "modifier_key": modifier_key(),
         }

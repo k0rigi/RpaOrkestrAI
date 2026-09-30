@@ -4,7 +4,7 @@
 
 ## Bağlantıyı ve ERP hedefini hazırlayın
 
-**Bağlantılar ve ayarlar** bölümünde Google servis hesabının JSON dosyasını seçin/yolunu tanımlayın. Google Sheets tablosunu servis hesabının e-posta adresiyle paylaşın. Okuma için görüntüleme; sonuçları tabloya yazmak için düzenleme izni gerekir. Servis hesabı dosyası çalışmanın yapıldığı bilgisayarda bulunmalıdır.
+**Bağlantılar ve ayarlar → Google Sheets** bölümünde bağlantıyı kurun. Önerilen yöntem, Google Cloud ve JSON dosyası gerektirmeyen **Apps Script**'tir; servis hesabı da kullanılabilir. Adımlar [Google Sheets bağlantı rehberindedir](google-sheets.md).
 
 **Google Sheets adresi veya kimliği** alanına tablonun tam `https://docs.google.com/spreadsheets/d/.../edit` bağlantısını yapıştırabilirsiniz. Yalnız tablo kimliği de kabul edilir. **Sayfa adı**, alt sekmenin tam adıdır; örneğin `Sayfa1`.
 
