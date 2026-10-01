@@ -25,6 +25,10 @@
     drag: null,
     librarySearch: "",
     testValues: {},
+    connections: [],
+    diagram: { x: 0, y: 0, k: 1, workflowId: null, fitted: false, hiddenRun: null },
+    diagramLibraryHidden: (() => { try { return localStorage.getItem("rpa.diagramLibrary") !== "shown"; } catch { return true; } })(),
+    canvasView: (() => { try { return localStorage.getItem("rpa.canvasView") || "list"; } catch { return "list"; } })(),
     run: null,
     poll: null,
     pollEpoch: 0,
@@ -508,7 +512,7 @@
     );
     settings.append(
       icon("settings"),
-      node("span", "", "Bağlantılar ve ayarlar"),
+      node("span", "", "Ayarlar"),
     );
     settings.addEventListener("click", () => navigate("settings"));
     bottom.append(settings);
@@ -557,7 +561,7 @@
           editor: "Akış düzenleyici",
           runs: "Çalışma geçmişi",
           run: "Çalışma ayrıntısı",
-          settings: "Bağlantılar ve ayarlar",
+          settings: "Ayarlar",
         }[state.page],
       ),
     );
@@ -578,7 +582,7 @@
     );
     right.append(
       platform,
-      node("span", "version", `v${state.version || "0.6.1"}`),
+      node("span", "version", `v${state.version || "0.7.1"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1060,8 +1064,11 @@
     dry.title = "Açıkken fare, klavye, ekran, dosya ve bağlantı adımları atlanır; yalnız veri adımları hesaplanır.";
     const recorder = button("Hareketleri kaydet", "record", recordMovements);
     recorder.title = "Fare ve klavye hareketlerinizi kaydedip adımlara çevirir.";
+    const links = button("Bağlantılar", "link", () => openConnectionManager());
+    links.title = "Google Sheets ve veritabanı bağlantılarını yönetin.";
     actions.append(
       dry,
+      links,
       recorder,
       iconButton("Akışı JSON olarak dışa aktar", "download", exportWorkflow),
       button("Kaydet", "save", saveWorkflow),
@@ -1254,11 +1261,13 @@
     markDirty();
     renderCanvas();
     renderInspector();
-    requestAnimationFrame(() =>
-      document
-        .querySelector(`[data-step-id="${CSS.escape(step.id)}"]`)
-        ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
-    );
+    requestAnimationFrame(() => {
+      if (state.canvasView === "diagram") state.diagram.reveal?.(step.id);
+      else
+        document
+          .querySelector(`[data-step-id="${CSS.escape(step.id)}"]`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
   }
   function buildStep(spec, parentId) {
     const params = {};
@@ -1379,14 +1388,55 @@
     const oldScroll = pane.scrollTop;
     pane.replaceChildren();
     const caption = node("div", "canvas-caption");
-    caption.append(
-      node("span", "", "AKIŞ TASARIMI"),
+    const views = node("div", "view-toggle");
+    views.setAttribute("role", "group");
+    views.setAttribute("aria-label", "Akış görünümü");
+    for (const [value, label, glyph] of [["list", "Liste", "menu"], ["diagram", "Diyagram", "flow"]]) {
+      const choice = button(label, glyph, () => {
+        if (state.canvasView === value) return;
+        state.canvasView = value;
+        try {
+          localStorage.setItem("rpa.canvasView", value);
+        } catch {}
+        renderCanvas();
+      });
+      choice.className = "view-choice";
+      choice.setAttribute("aria-pressed", String(state.canvasView === value));
+      views.append(choice);
+    }
+    const summary = node("div", "caption-side");
+    summary.append(
       node(
         "span",
         "steps-total",
         `${countSteps(state.workflow.steps)} adım · ${state.workflow.department || "Genel"}`,
       ),
+      views,
     );
+    caption.append(node("span", "", "AKIŞ TASARIMI"), summary);
+    const diagram = state.canvasView === "diagram";
+    // The diagram inserts steps from its own + menu, so the library can make room for it.
+    pane.parentElement?.classList.toggle("library-hidden", diagram && state.diagramLibraryHidden);
+    if (diagram) {
+      const shelf = button("Kütüphane", "menu", () => {
+        state.diagramLibraryHidden = !state.diagramLibraryHidden;
+        try {
+          localStorage.setItem("rpa.diagramLibrary", state.diagramLibraryHidden ? "hidden" : "shown");
+        } catch {}
+        renderCanvas();
+        if (!state.diagramLibraryHidden) renderLibrary();
+      });
+      shelf.className = "view-choice library-toggle";
+      shelf.title = "Adım kütüphanesini göster veya gizle";
+      shelf.setAttribute("aria-pressed", String(!state.diagramLibraryHidden));
+      summary.insertBefore(shelf, views);
+    }
+    if (diagram) {
+      renderDiagram(pane, caption);
+      return;
+    }
+    closeInsertMenu();
+    pane.classList.remove("diagram-mode");
     pane.append(caption);
     const stack = node("div", "flow-stack");
     const start = node("div", "flow-terminal");
@@ -1431,6 +1481,628 @@
     stack.append(end);
     pane.append(stack);
     pane.scrollTop = oldScroll;
+  }
+  // ----- Diagram view: the same steps drawn left → right, n8n style ------------------
+  const DG = { w: 188, h: 56, gx: 48, bx: 108, gy: 36, lane: 34, emptyW: 168, emptyH: 42, merge: 40, term: 84, pad: 48 };
+  const categoryTones = {
+    "Pencere": "#3b72a5", "Fare ve klavye": "#7a5bb5", "Ekran ve görsel": "#b07a1b",
+    "Uygulama ve sistem": "#56656b", "Dosya ve Excel": "#2f8a55", "Veri ve metin": "#187968",
+    "Google Sheets": "#1e8e3e", "Akış": "#c2622d", "Kullanıcı etkileşimi": "#b24a78", "Web ve API": "#4b5fc2",
+  };
+  const branchWords = {
+    "control.for_each": { children: "Her öğe" },
+    "control.while": { children: "Sürdükçe" },
+    "control.repeat": { children: "Tekrarla" },
+    "control.if": { children: "Doğruysa", otherwise: "Değilse" },
+    "control.try": { children: "Dene", otherwise: "Hata olursa" },
+  };
+  function toneFor(spec) {
+    return categoryTones[spec.category] || "#56656b";
+  }
+  function branchWord(step, branch) {
+    return branchWords[step.action]?.[branch] || (branch === "otherwise" ? "Değilse" : "İç adımlar");
+  }
+  function diagramShape(step) {
+    const spec = specFor(step.action);
+    const kind = spec.container || (step.children?.length || step.otherwise?.length ? "condition" : null);
+    if (!kind) return null;
+    const branches = Object.keys(spec.branches ||
+      (kind === "loop" ? { children: 1 } : { children: 1, otherwise: 1 }));
+    if (step.otherwise?.length && !branches.includes("otherwise")) branches.push("otherwise");
+    return { loop: kind === "loop" && branches.length === 1, branches };
+  }
+  function measureSequence(list) {
+    if (!list.length) return { w: DG.emptyW, h: DG.emptyH, spine: DG.emptyH / 2, parts: [] };
+    const parts = list.map(measureNode);
+    const above = Math.max(...parts.map((part) => part.spine));
+    const below = Math.max(...parts.map((part) => part.h - part.spine));
+    return {
+      w: parts.reduce((sum, part) => sum + part.w, 0) + DG.gx * (parts.length - 1),
+      h: above + below, spine: above, parts,
+    };
+  }
+  function measureNode(step) {
+    const shape = diagramShape(step);
+    if (!shape) return { w: DG.w, h: DG.h, spine: DG.h / 2 };
+    const rows = shape.branches.map((branch) => measureSequence(step[branch] || []));
+    const inner = Math.max(...rows.map((row) => row.w));
+    const w = DG.w + DG.bx + inner + DG.merge;
+    if (shape.loop) {
+      const body = rows[0];
+      const spine = DG.lane + Math.max(body.spine, DG.h / 2);
+      return { w, h: spine + Math.max(body.h - body.spine, DG.h / 2) + DG.lane, spine, rows, shape };
+    }
+    const offset = Math.max(0, DG.h / 2 - rows[0].spine);
+    const stacked = rows.reduce((sum, row) => sum + row.h, 0) + DG.gy * (rows.length - 1);
+    const spine = offset + rows[0].spine;
+    return { w, h: Math.max(offset + stacked, spine + DG.h / 2), spine, rows, shape, offset };
+  }
+  function placeSequence(list, x, spine, owner, branch, m, out) {
+    if (!list.length) {
+      out.empties.push({ x, y: spine - DG.emptyH / 2, list, owner, branch });
+      return { entry: { x, y: spine }, exit: { x: x + DG.emptyW, y: spine }, empty: true };
+    }
+    let cursor = x;
+    let first = null;
+    let previous = null;
+    list.forEach((step, index) => {
+      const part = m.parts[index];
+      const placed = placeNode(step, cursor, spine, part, list, owner, out);
+      if (previous) out.edges.push({ from: previous, to: placed.entry, arrow: true, insert: { list, index, owner, branch } });
+      first ||= placed.entry;
+      previous = placed.exit;
+      cursor += part.w + DG.gx;
+    });
+    return { entry: first, exit: previous };
+  }
+  function placeNode(step, x, spine, m, list, owner, out) {
+    out.nodes.push({ step, x, y: spine - DG.h / 2, list, owner, shape: m.shape });
+    const entry = { x, y: spine };
+    if (!m.shape) return { entry, exit: { x: x + DG.w, y: spine } };
+    const top = spine - m.spine;
+    const bx = x + DG.w + DG.bx;
+    const merge = { x: x + m.w - 8, y: spine };
+    const centre = x + DG.w / 2;
+    if (m.shape.loop) {
+      step.children ||= [];
+      const body = placeSequence(step.children, bx, spine, step, "children", m.rows[0], out);
+      out.edges.push({ from: { x: x + DG.w, y: spine }, to: body.entry, arrow: !body.empty, port: true,
+        label: branchWord(step, "children"), insertAt: 0.74,
+        insert: body.empty ? null : { list: step.children, index: 0, owner: step, branch: "children" } });
+      const high = top + DG.lane / 2;
+      const low = top + m.h - DG.lane / 2;
+      const turn = body.exit.x + 14;
+      out.edges.push({ kind: "back", arrow: true, label: "Sonraki tur", labelPoint: { x: (turn + centre) / 2, y: high },
+        points: [body.exit, { x: turn, y: body.exit.y }, { x: turn, y: high }, { x: centre, y: high },
+          { x: centre, y: spine - DG.h / 2 }],
+        insert: body.empty ? null : { list: step.children, index: step.children.length, owner: step, branch: "children" },
+        insertPoint: { x: turn, y: (body.exit.y + high) / 2 } });
+      out.edges.push({ kind: "done", label: "Bitince", labelPoint: { x: centre + 58, y: low },
+        points: [{ x: centre, y: spine + DG.h / 2 }, { x: centre, y: low }, { x: merge.x, y: low }, merge] });
+    } else {
+      let rowTop = top + m.offset;
+      const count = m.shape.branches.length;
+      m.shape.branches.forEach((branch, index) => {
+        step[branch] ||= [];
+        const row = m.rows[index];
+        const placed = placeSequence(step[branch], bx, rowTop + row.spine, step, branch, row, out);
+        const from = { x: x + DG.w, y: spine + (index - (count - 1) / 2) * 20 };
+        const tone = branch === "otherwise" && step.action === "control.try" ? "error" : "";
+        out.edges.push({ from, to: placed.entry, arrow: !placed.empty, port: true, label: branchWord(step, branch),
+          tone, insertAt: 0.74,
+          insert: placed.empty ? null : { list: step[branch], index: 0, owner: step, branch } });
+        out.edges.push({ from: placed.exit, to: merge, tone,
+          insert: placed.empty ? null : { list: step[branch], index: step[branch].length, owner: step, branch } });
+        rowTop += row.h + DG.gy;
+      });
+    }
+    out.merges.push(merge);
+    return { entry, exit: { x: merge.x + 5, y: spine } };
+  }
+  function diagramLayout() {
+    const steps = state.workflow.steps;
+    const m = measureSequence(steps);
+    const out = { nodes: [], edges: [], empties: [], merges: [] };
+    const spine = DG.pad + Math.max(m.spine, 24);
+    const start = { x: DG.pad + DG.term, y: spine };
+    const main = placeSequence(steps, start.x + DG.gx, spine, null, null, m, out);
+    const end = { x: main.exit.x + DG.gx, y: spine };
+    out.edges.push({ from: start, to: main.entry, arrow: !main.empty,
+      insert: main.empty ? null : { list: steps, index: 0, owner: null, branch: null } });
+    out.edges.push({ from: main.exit, to: end, arrow: true,
+      insert: main.empty ? null : { list: steps, index: steps.length, owner: null, branch: null } });
+    out.terminals = [{ kind: "start", x: DG.pad, y: spine }, { kind: "end", x: end.x, y: spine }];
+    return { ...out, width: end.x + DG.term + DG.pad, height: spine + Math.max(m.h - m.spine, 24) + DG.pad };
+  }
+  function curve(edge) {
+    const { from: a, to: b } = edge;
+    const dx = Math.max(24, (b.x - a.x) / 2);
+    return [a, { x: a.x + dx, y: a.y }, { x: b.x - dx, y: b.y }, b];
+  }
+  function curvePoint(edge, t) {
+    const [p0, p1, p2, p3] = curve(edge);
+    const u = 1 - t;
+    const mix = (key) => u * u * u * p0[key] + 3 * u * u * t * p1[key] + 3 * u * t * t * p2[key] + t * t * t * p3[key];
+    return { x: mix("x"), y: mix("y") };
+  }
+  function edgePath(edge) {
+    if (!edge.points) {
+      const [a, c1, c2, b] = curve(edge);
+      return `M${a.x},${a.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${b.x},${b.y}`;
+    }
+    const points = edge.points;
+    let d = `M${points[0].x},${points[0].y}`;
+    for (let i = 1; i < points.length - 1; i++) {
+      const [prev, point, next] = [points[i - 1], points[i], points[i + 1]];
+      const before = Math.hypot(point.x - prev.x, point.y - prev.y);
+      const after = Math.hypot(next.x - point.x, next.y - point.y);
+      if (!before || !after) continue;
+      const r = Math.min(12, before / 2, after / 2);
+      d += ` L${point.x - ((point.x - prev.x) / before) * r},${point.y - ((point.y - prev.y) / before) * r}`;
+      d += ` Q${point.x},${point.y} ${point.x + ((next.x - point.x) / after) * r},${point.y + ((next.y - point.y) / after) * r}`;
+    }
+    const last = points.at(-1);
+    return `${d} L${last.x},${last.y}`;
+  }
+  function svgNode(tag, attributes = {}) {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attributes)) el.setAttribute(key, value);
+    return el;
+  }
+  function lastRun() {
+    const chosen = state.diagram.runId && state.runs.find((run) => run.id === state.diagram.runId);
+    if (chosen && chosen.workflow_id === state.workflow?.id) return chosen;
+    return state.runs.find((run) => run.workflow_id === state.workflow?.id && !run.test_step_id) || null;
+  }
+  async function showRunInDiagram(run) {
+    // Opens the flow with this run's ✓ / ✗ marks and the failed step selected.
+    const failed = Object.entries(run.step_stats || {}).find(([, stats]) => stats.errors)?.[0];
+    upsert(state.runs, run);
+    state.canvasView = "diagram";
+    try {
+      localStorage.setItem("rpa.canvasView", "diagram");
+    } catch {}
+    await openWorkflow(run.workflow_id);
+    if (state.workflow?.id !== run.workflow_id) return;
+    Object.assign(state.diagram, { runId: run.id, hiddenRun: null });
+    if (failed && findStep(failed)) state.selected = failed;
+    renderCanvas();
+    renderInspector();
+    if (state.selected) requestAnimationFrame(() => state.diagram.reveal?.(state.selected));
+  }
+  function stepStatus(stats, step, run) {
+    if (!stats || !stats.runs) return null;
+    if (stats.errors)
+      return { kind: "failed", glyph: "cross", text: stats.runs > 1 ? `${stats.errors}/${stats.runs}` : "",
+        title: `${stats.errors} kez hata verdi${stats.ok ? `, ${stats.ok} kez başarılı` : ""}.` };
+    if (stats.ok)
+      return { kind: "succeeded", glyph: "check", text: stats.ok > 1 ? String(stats.ok) : "",
+        title: stats.ok > 1 ? `${stats.ok} kez başarıyla çalıştı.` : "Başarıyla çalıştı." };
+    if (stats.skipped)
+      return { kind: "skipped", glyph: "info", text: "", title: "Önizlemede atlandı (harici işlem)." };
+    if (run.status === "running") return { kind: "running", glyph: "clock", text: "", title: "Çalışıyor." };
+    return { kind: "ran", glyph: "check", text: "", title: "Çalıştı." };
+  }
+  function renderDiagram(pane, caption) {
+    closeInsertMenu();
+    pane.classList.add("diagram-mode");
+    if (state.diagram.workflowId !== state.workflow.id)
+      Object.assign(state.diagram, { workflowId: state.workflow.id, fitted: false, runId: null });
+    const layout = diagramLayout();
+    state.diagram.layout = layout;
+    const latest = lastRun();
+    const run = latest && latest.id !== state.diagram.hiddenRun ? latest : null;
+    const viewport = node("div", "diagram-viewport");
+    viewport.id = "diagram-viewport";
+    const world = node("div", "diagram-world");
+    world.style.width = `${layout.width}px`;
+    world.style.height = `${layout.height}px`;
+    const svg = svgNode("svg", { class: "diagram-edges", width: layout.width, height: layout.height,
+      viewBox: `0 0 ${layout.width} ${layout.height}`, "aria-hidden": "true" });
+    const defs = svgNode("defs");
+    for (const [id, color] of [["arrow", "#98aaa0"], ["arrow-back", "#bba374"], ["arrow-error", "#d1968e"]]) {
+      const marker = svgNode("marker", { id: `diagram-${id}`, viewBox: "0 0 10 10", refX: "9", refY: "5",
+        markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+      marker.append(svgNode("path", { d: "M0,1 L9,5 L0,9 z", fill: color }));
+      defs.append(marker);
+    }
+    svg.append(defs);
+    const overlay = [];
+    layout.edges.forEach((edge) => {
+      const classes = ["edge", edge.kind, edge.tone].filter(Boolean).join(" ");
+      const path = svgNode("path", { d: edgePath(edge), class: classes });
+      if (edge.arrow)
+        path.setAttribute("marker-end", `url(#diagram-${edge.kind === "back" ? "arrow-back" : edge.tone === "error" ? "arrow-error" : "arrow"})`);
+      svg.append(path);
+      if (edge.port) svg.append(svgNode("circle", { cx: edge.from.x, cy: edge.from.y, r: 4.5, class: "port" }));
+      if (edge.label) {
+        const at = edge.labelPoint || curvePoint(edge, 0.3);
+        const label = node("span", `edge-label ${edge.kind || ""} ${edge.tone || ""}`, edge.label);
+        label.style.left = `${at.x}px`;
+        label.style.top = `${at.y}px`;
+        overlay.push(label);
+      }
+      if (edge.insert) {
+        const at = edge.insertPoint || (edge.points ? edge.points[0] : curvePoint(edge, edge.insertAt || 0.5));
+        const handle = node("button", "edge-insert");
+        handle.type = "button";
+        handle.title = "Buraya adım ekle (veya bir adımı buraya sürükleyin)";
+        handle.setAttribute("aria-label", "Buraya adım ekle");
+        handle.append(icon("plus"));
+        handle.style.left = `${at.x}px`;
+        handle.style.top = `${at.y}px`;
+        handle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          openInsertMenu(handle, edge.insert);
+        });
+        handle.addEventListener("mouseenter", () => path.classList.add("hover"));
+        handle.addEventListener("mouseleave", () => path.classList.remove("hover"));
+        dropZone(handle, () => ({ list: edge.insert.list, index: edge.insert.index,
+          ownerId: edge.insert.owner?.id || null, mark: "inside", target: handle }));
+        overlay.push(handle);
+      }
+    });
+    layout.merges.forEach((point) => svg.append(svgNode("circle", { cx: point.x, cy: point.y, r: 5, class: "merge" })));
+    world.append(svg);
+    layout.terminals.forEach((terminal) => {
+      const el = node("div", `diagram-terminal ${terminal.kind}`);
+      el.append(icon(terminal.kind === "start" ? "play" : "check"),
+        node("span", "", terminal.kind === "start" ? "Başlangıç" : "Bitiş"));
+      el.style.left = `${terminal.x}px`;
+      el.style.top = `${terminal.y}px`;
+      world.append(el);
+    });
+    layout.empties.forEach((slot) => {
+      const el = node("button", "diagram-empty");
+      el.type = "button";
+      const text = !slot.owner ? "İlk adımı ekleyin"
+        : diagramShape(slot.owner)?.loop ? "Her turda yapılacak adımı ekleyin"
+          : slot.owner.action === "control.try" && slot.branch === "otherwise" ? "Hata olursa yapılacak adım"
+            : "Bu dala adım ekleyin";
+      el.append(icon("plus"), node("span", "", text));
+      el.title = "Tıklayıp adım seçin veya kütüphaneden buraya sürükleyin.";
+      el.style.left = `${slot.x}px`;
+      el.style.top = `${slot.y}px`;
+      el.style.width = `${DG.emptyW}px`;
+      el.style.height = `${DG.emptyH}px`;
+      const place = { list: slot.list, index: 0, owner: slot.owner, branch: slot.branch };
+      el.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openInsertMenu(el, place);
+      });
+      dropZone(el, () => ({ list: slot.list, index: 0, ownerId: slot.owner?.id || null, mark: "inside", target: el }));
+      world.append(el);
+    });
+    layout.nodes.forEach((item) => world.append(diagramNode(item, run)));
+    world.append(...overlay);
+    viewport.append(world);
+    if (run) {
+      const chip = node("div", "diagram-run");
+      chip.append(node("span", "", `Son çalışma · ${when(run.started_at)}${run.dry_run ? " · Önizleme" : ""}`), badge(run.status));
+      chip.append(linkButton("Ayrıntılar", () => openRun(run.id)),
+        iconButton("Çalışma sonuçlarını gizle", "cross", () => {
+          state.diagram.hiddenRun = run.id;
+          renderCanvas();
+        }));
+      viewport.append(chip);
+    }
+    const hint = node("div", "diagram-hint", "Sürükleyerek veya kaydırarak gezinin · Ctrl/⌘ + kaydırma: yakınlaştır");
+    const zoomLabel = node("span", "zoom-level");
+    const controls = node("div", "diagram-controls");
+    controls.append(
+      iconButton("Uzaklaştır", "down", () => zoomBy(-1)),
+      zoomLabel,
+      iconButton("Yakınlaştır", "up", () => zoomBy(1)),
+      iconButton("Tümünü sığdır", "grid", () => {
+        fitDiagram(viewport, layout);
+        paint();
+      }),
+    );
+    viewport.append(hint, controls);
+    pane.append(caption, viewport);
+
+    const d = state.diagram;
+    function paint() {
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      // Keep part of the flow on screen whatever the pan.
+      d.x = Math.min(width - 80, Math.max(80 - layout.width * d.k, d.x));
+      d.y = Math.min(height - 60, Math.max(60 - layout.height * d.k, d.y));
+      world.style.transform = `translate(${d.x}px, ${d.y}px) scale(${d.k})`;
+      viewport.style.backgroundSize = `${20 * d.k}px ${20 * d.k}px`;
+      viewport.style.backgroundPosition = `${d.x}px ${d.y}px`;
+      zoomLabel.textContent = `${Math.round(d.k * 100)}%`;
+    }
+    function zoomAt(px, py, factor) {
+      const k = Math.min(1.8, Math.max(0.25, d.k * factor));
+      d.x = px - ((px - d.x) / d.k) * k;
+      d.y = py - ((py - d.y) / d.k) * k;
+      d.k = k;
+      paint();
+    }
+    function zoomBy(direction) {
+      // The buttons step through round levels; the wheel and pinch stay continuous.
+      const levels = [0.25, 0.35, 0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5, 1.8];
+      const next = direction > 0 ? levels.find((level) => level > d.k + 0.001) || 1.8
+        : [...levels].reverse().find((level) => level < d.k - 0.001) || 0.25;
+      zoomAt(viewport.clientWidth / 2, viewport.clientHeight / 2, next / d.k);
+    }
+    if (!d.fitted) {
+      fitDiagram(viewport, layout);
+      d.fitted = true;
+    }
+    paint();
+    viewport.addEventListener("scroll", () => {
+      viewport.scrollTop = 0;
+      viewport.scrollLeft = 0;
+    });
+    viewport.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      const scale = event.deltaMode === 1 ? 16 : 1;
+      if (event.ctrlKey || event.metaKey)
+        zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * scale * 0.0022));
+      else {
+        d.x -= (event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX) * scale;
+        d.y -= (event.shiftKey && !event.deltaX ? 0 : event.deltaY) * scale;
+        paint();
+      }
+    }, { passive: false });
+    viewport.addEventListener("pointerdown", (event) => {
+      const onBackground = !event.target.closest(".dnode, button, .diagram-insert, .diagram-run, .diagram-controls");
+      if (!(event.button === 1 || (event.button === 0 && onBackground))) return;
+      event.preventDefault();
+      closeInsertMenu();
+      const origin = { x: event.clientX - d.x, y: event.clientY - d.y };
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add("panning");
+      const move = (next) => {
+        d.x = next.clientX - origin.x;
+        d.y = next.clientY - origin.y;
+        paint();
+      };
+      const stop = () => {
+        viewport.classList.remove("panning");
+        viewport.removeEventListener("pointermove", move);
+        viewport.removeEventListener("pointerup", stop);
+        viewport.removeEventListener("pointercancel", stop);
+      };
+      viewport.addEventListener("pointermove", move);
+      viewport.addEventListener("pointerup", stop);
+      viewport.addEventListener("pointercancel", stop);
+    });
+    // A step dragged near the edge scrolls the diagram, like the list view.
+    viewport.addEventListener("dragover", (event) => {
+      if (!state.drag) return;
+      const rect = viewport.getBoundingClientRect();
+      const edge = 36;
+      const dx = event.clientX < rect.left + edge ? 12 : event.clientX > rect.right - edge ? -12 : 0;
+      const dy = event.clientY < rect.top + edge ? 12 : event.clientY > rect.bottom - edge ? -12 : 0;
+      if (dx || dy) {
+        d.x += dx;
+        d.y += dy;
+        paint();
+      }
+    });
+    state.diagram.reveal = (id) => {
+      const item = layout.nodes.find((candidate) => candidate.step.id === id);
+      if (!item) return;
+      const left = item.x * d.k + d.x;
+      const top = item.y * d.k + d.y;
+      const margin = 40;
+      if (left < margin) d.x += margin - left;
+      else if (left + DG.w * d.k > viewport.clientWidth - margin) d.x -= left + DG.w * d.k - viewport.clientWidth + margin;
+      if (top < margin) d.y += margin - top;
+      else if (top + DG.h * d.k > viewport.clientHeight - margin) d.y -= top + DG.h * d.k - viewport.clientHeight + margin;
+      paint();
+    };
+  }
+  function fitDiagram(viewport, layout) {
+    const width = viewport.clientWidth || 800;
+    const height = viewport.clientHeight || 500;
+    // Never shrink below a readable size; a long flow starts at its beginning and pans sideways.
+    const k = Math.max(0.6, Math.min(1, (width - 40) / layout.width, (height - 40) / layout.height));
+    Object.assign(state.diagram, {
+      k,
+      x: layout.width * k < width ? (width - layout.width * k) / 2 : 0,
+      y: layout.height * k < height ? (height - layout.height * k) / 2 : 0,
+    });
+  }
+  function diagramNode(item, run) {
+    const { step } = item;
+    const spec = specFor(step.action);
+    const status = run ? stepStatus(run.step_stats?.[step.id], step, run) : null;
+    const el = node("div", `dnode${item.shape ? " dnode-container" : ""}${state.selected === step.id ? " selected" : ""}${status ? ` status-${status.kind}` : ""}`);
+    el.dataset.stepId = step.id;
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", `${step.title || spec.label} adımını düzenle`);
+    el.title = step.title || spec.label;
+    el.style.left = `${item.x}px`;
+    el.style.top = `${item.y}px`;
+    el.style.width = `${DG.w}px`;
+    el.style.height = `${DG.h}px`;
+    const tone = toneFor(spec);
+    el.style.setProperty("--tone", tone);
+    el.style.setProperty("--tone-bg", `${tone}1a`);
+    const tile = node("span", "dnode-icon");
+    tile.append(icon(actionIcon(step.action)));
+    const copy = node("span", "dnode-copy");
+    const output = step.params?.output;
+    copy.append(
+      node("strong", "", step.title || spec.label),
+      output ? node("small", "mono", `→ \${${output}}`)
+        : node("small", "", step.title && step.title !== spec.label ? spec.label : spec.category || ""),
+    );
+    el.append(tile, copy);
+    if (status) {
+      const mark = node("span", `dnode-status ${status.kind}`);
+      mark.title = status.title;
+      mark.append(icon(status.glyph));
+      if (status.text) mark.append(node("span", "", status.text));
+      el.append(mark);
+    }
+    const tools = node("div", "dnode-tools");
+    const bar = node("div", "dnode-toolbar");
+    if (!["control.break", "control.continue"].includes(step.action))
+      bar.append(iconButton("Bu adımı test et", "play", () => {
+        select();
+        openStepTest(step);
+      }));
+    bar.append(
+      iconButton("Adımı çoğalt", "copy", () => duplicateStep(step.id)),
+      iconButton("Adımı sil", "trash", () => removeStep(step.id), "danger"),
+    );
+    tools.append(bar);
+    el.append(tools);
+    const select = () => {
+      if (state.selected === step.id) return;
+      state.selected = step.id;
+      renderCanvas();
+      renderInspector();
+      // Keep keyboard focus on the redrawn node so Delete and Tab keep working.
+      document.querySelector(`#diagram-viewport [data-step-id="${CSS.escape(step.id)}"]`)?.focus({ preventScroll: true });
+    };
+    el.addEventListener("click", select);
+    el.addEventListener("keydown", (event) => {
+      if (event.target !== el) return;
+      if (["Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        select();
+        document.getElementById("inspector")?.querySelector("input, select, textarea")?.focus();
+      } else if (["Delete", "Backspace"].includes(event.key)) {
+        event.preventDefault();
+        removeStep(step.id);
+      }
+    });
+    el.draggable = true;
+    el.addEventListener("dragstart", (event) => {
+      event.stopPropagation();
+      closeInsertMenu();
+      startDrag(event, { kind: "move", id: step.id });
+      requestAnimationFrame(() => el.classList.add("drag-source"));
+    });
+    el.addEventListener("dragend", () => {
+      el.classList.remove("drag-source");
+      endDrag();
+    });
+    dropZone(el, (event) => {
+      const bounds = el.getBoundingClientRect();
+      const after = event.clientX > bounds.left + bounds.width / 2;
+      const current = item.list.indexOf(step);
+      return { list: item.list, index: after ? current + 1 : current, ownerId: item.owner?.id || null,
+        mark: after ? "after" : "before", target: el };
+    });
+    return el;
+  }
+  function closeInsertMenu() {
+    const menu = document.getElementById("diagram-insert");
+    if (!menu) return;
+    menu.cleanup?.();
+    menu.remove();
+  }
+  function openInsertMenu(anchor, place) {
+    closeInsertMenu();
+    const viewport = document.getElementById("diagram-viewport");
+    if (!viewport) return;
+    const menu = node("div", "diagram-insert");
+    menu.id = "diagram-insert";
+    menu.setAttribute("role", "dialog");
+    menu.setAttribute("aria-label", "Adım ekle");
+    const where = place.owner
+      ? `${place.owner.title || specFor(place.owner.action).label} · ${branchWord(place.owner, place.branch)}`
+      : "Ana akış";
+    const head = node("div", "diagram-insert-head");
+    head.append(node("strong", "", "Buraya adım ekle"), node("small", "", where));
+    const search = textInput("", "Ara: tıkla, sheets, bekle, koşul…", "search");
+    search.setAttribute("aria-label", "Eklenecek adımı ara");
+    const results = node("div", "diagram-insert-list");
+    let firstMatch = null;
+    const insert = (spec) => {
+      closeInsertMenu();
+      state.drag = { kind: "new", type: spec.type };
+      dropInto(place.list, place.index, place.owner?.id || null);
+    };
+    const paint = () => {
+      const words = searchText(search.value).split(/\s+/).filter(Boolean);
+      const favorites = words.length ? [] : state.favorites
+        .map((type) => state.catalog.find((spec) => spec.type === type)).filter(Boolean);
+      results.replaceChildren();
+      firstMatch = null;
+      let group = null;
+      const query = words.join(" ");
+      // While searching, the best label matches come first in one list.
+      const rank = (spec) => {
+        const label = searchText(spec.label);
+        return label === query ? 0 : label.startsWith(query) ? 1 : words.every((word) => label.includes(word)) ? 2 : 3;
+      };
+      const candidates = words.length
+        ? state.catalog
+          .filter((spec) => words.every((word) =>
+            searchText(`${spec.label} ${spec.description || ""} ${spec.category || ""} ${spec.type}`).includes(word)))
+          .map((spec) => ({ spec, group: "Sonuçlar", rank: rank(spec) }))
+          .sort((a, b) => a.rank - b.rank)
+        : [...favorites.map((spec) => ({ spec, group: "Sık kullanılanlar" })),
+          ...state.catalog.map((spec) => ({ spec, group: spec.category || "Genel" }))];
+      for (const { spec, group: name } of candidates) {
+        if (name !== group) {
+          group = name;
+          results.append(node("div", "diagram-insert-group", name));
+        }
+        const option = node("button", "diagram-insert-item");
+        option.type = "button";
+        option.title = spec.description || spec.label;
+        const tone = toneFor(spec);
+        option.style.setProperty("--tone", tone);
+        option.style.setProperty("--tone-bg", `${tone}1a`);
+        const tile = node("span", "dnode-icon");
+        tile.append(icon(actionIcon(spec.type)));
+        option.append(tile, node("span", "", spec.label));
+        option.addEventListener("click", () => insert(spec));
+        results.append(option);
+        firstMatch ||= spec;
+      }
+      if (!firstMatch) results.append(node("p", "help", "Eşleşen adım yok."));
+    };
+    search.addEventListener("input", paint);
+    menu.addEventListener("keydown", (event) => {
+      const items = [...results.querySelectorAll(".diagram-insert-item")];
+      const index = items.indexOf(document.activeElement);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeInsertMenu();
+        anchor.focus?.();
+      } else if (event.key === "Enter" && event.target === search && firstMatch) {
+        event.preventDefault();
+        insert(firstMatch);
+      } else if (event.key === "ArrowDown" && items.length) {
+        event.preventDefault();
+        items[Math.min(items.length - 1, index + 1)].focus();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        if (index <= 0) search.focus();
+        else items[index - 1].focus();
+      }
+    });
+    menu.addEventListener("pointerdown", (event) => event.stopPropagation());
+    menu.addEventListener("wheel", (event) => event.stopPropagation());
+    paint();
+    menu.append(head, search, results);
+    viewport.append(menu);
+    const area = viewport.getBoundingClientRect();
+    const spot = anchor.getBoundingClientRect();
+    const width = Math.min(300, area.width - 16);
+    const height = Math.min(380, area.height - 16);
+    menu.style.width = `${width}px`;
+    menu.style.maxHeight = `${height}px`;
+    menu.style.left = `${Math.max(8, Math.min(area.width - width - 8, spot.right - area.left + 10))}px`;
+    menu.style.top = `${Math.max(8, Math.min(area.height - height - 8, spot.top - area.top - 20))}px`;
+    const outside = (event) => {
+      if (!menu.contains(event.target) && event.target !== anchor) closeInsertMenu();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    menu.cleanup = () => document.removeEventListener("pointerdown", outside, true);
+    search.focus();
   }
   function stepCard(step, list, index) {
     const wrap = node("div", "step-wrap");
@@ -2961,6 +3633,10 @@
         pane.append(elementLocatorField(step, f));
         return;
       }
+      if (f.type === "connection") {
+        pane.append(connectionField(step, f));
+        return;
+      }
       let control, jsonMode;
       const value = parameterValue(step, f.name);
       if (state.drafts.has(key)) state.fieldErrors.add(key);
@@ -3314,6 +3990,7 @@
         }
         stopPolling();
         state.run = run;
+        state.diagram.runId = null;
         state.page = "run";
         state.dirty = false;
         render();
@@ -3430,6 +4107,8 @@
     actions.append(
       button("Akışı aç", "flow", () => openWorkflow(run.workflow_id)),
     );
+    if (!run.test_step_id && Object.keys(run.step_stats || {}).length)
+      actions.append(button("Diyagramda göster", "branch", () => showRunInDiagram(run)));
     page.append(
       heading(
         "ÇALIŞMA AYRINTISI",
@@ -3629,19 +4308,359 @@
     });
   }
 
+  // ----- Named connections: chosen per step, like n8n credentials -------------------
+  const connectionKinds = {
+    google_sheets: { label: "Google Sheets", glyph: "sheet", example: "Ör. Satış tablosu" },
+    database: { label: "Veritabanı", glyph: "database", example: "Ör. ERP canlı veritabanı" },
+  };
+  async function refreshConnections() {
+    state.connections = await api("/api/connections");
+    return state.connections;
+  }
+  function connectionsOf(kind) {
+    return state.connections.filter((item) => item.type === kind);
+  }
+  function connectionUsage(id) {
+    return state.workflow ? allSteps(state.workflow.steps).filter((step) => step.params?.connection === id).length : 0;
+  }
+  function connectionSummary(profile) {
+    if (profile.type === "google_sheets") return profile.method_label;
+    const tables = profile.allowed_tables.length;
+    return `${profile.engine || "SQL"} · ${tables ? `${tables} izinli tablo` : "izinli tablo yok"}`;
+  }
+  function connectionStatus(profile) {
+    const wrap = node("span", "connection-status");
+    wrap.append(node("span", `pill ${profile.ready ? "success" : "warning"}`, profile.ready ? "Hazır" : "Ayarları eksik"));
+    if (profile.default) wrap.append(node("span", "pill", "Varsayılan"));
+    return wrap;
+  }
+  function freeConnectionName(kind) {
+    const taken = new Set(connectionsOf(kind).map((item) => item.name.toLocaleLowerCase("tr")));
+    const base = connectionKinds[kind].label;
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? base : `${base} ${n}`;
+      if (!taken.has(name.toLocaleLowerCase("tr"))) return name;
+    }
+  }
+  function connectionField(step, f) {
+    const kind = f.connection_type;
+    const info = connectionKinds[kind] || { label: "Bağlantı", glyph: "link" };
+    const profiles = connectionsOf(kind);
+    const chosen = step.params[f.name] || "";
+    const fallback = profiles.find((item) => item.default) || profiles[0];
+    const missing = Boolean(chosen) && !profiles.some((item) => item.id === chosen);
+    const wrap = node("div", "field connection-field");
+    const select = node("select");
+    select.id = `field-${uid()}`;
+    const label = node("label", "field-label", f.label || "Bağlantı");
+    label.htmlFor = select.id;
+    const option = (value, text) => {
+      const el = node("option", "", text);
+      el.value = value;
+      select.append(el);
+    };
+    option("", fallback ? `Varsayılan bağlantı (${fallback.name})` : "Bağlantı yok");
+    profiles.forEach((item) => option(item.id, `${item.name}${item.ready ? "" : " · ayarları eksik"}`));
+    if (missing) option(chosen, "Bu bilgisayarda bulunmayan bağlantı");
+    option("__new__", `+ Yeni ${info.label} bağlantısı…`);
+    select.value = chosen;
+    const current = profiles.find((item) => item.id === (chosen || fallback?.id));
+    const done = (result) => {
+      if (result?.created) {
+        step.params[f.name] = result.profile.id;
+        markDirty();
+      } else if (result?.deleted && step.params[f.name] === result.deleted) {
+        markDirty();
+      }
+      renderInspector();
+    };
+    const edit = iconButton("Bağlantıyı düzenle", "edit", () => {
+      if (current) openConnectionDialog(kind, current, done);
+    });
+    edit.disabled = !current || missing;
+    const row = node("div", "connection-row");
+    row.append(select, edit);
+    const meta = node("div", "connection-meta");
+    if (missing)
+      meta.append(note("Bu adımda seçili bağlantı bu bilgisayarda yok; akış başka bir bilgisayardan aktarılmış olabilir. Listeden bir bağlantı seçin veya yeni oluşturun.", "warning"));
+    else if (current)
+      meta.append(icon(info.glyph), node("span", "", connectionSummary(current)), connectionStatus(current));
+    else {
+      const create = button(`${info.label} bağlantısı oluştur`, "plus", () => openConnectionDialog(kind, null, done), "small");
+      meta.append(note(`Bu adımın çalışması için bir ${info.label} bağlantısı gerekir.`, "info"), create);
+    }
+    wrap.append(label, row, meta);
+    if (f.help) wrap.append(node("p", "help", f.help));
+    select.addEventListener("change", () => {
+      if (select.value === "__new__") {
+        select.value = chosen;
+        openConnectionDialog(kind, null, done);
+        return;
+      }
+      if (select.value) step.params[f.name] = select.value;
+      else delete step.params[f.name];
+      markDirty();
+      renderInspector();
+    });
+    return wrap;
+  }
+  function openConnectionDialog(kind, original, onDone = () => {}) {
+    const info = connectionKinds[kind];
+    let profile = original;
+    let created = false;
+    let finished = false;
+    const inputs = {};
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      onDone(result || (profile ? { profile, created } : null));
+    };
+    const actions = [];
+    if (profile)
+      actions.push({ label: "Sil", icon: "trash", variant: "danger connection-delete", fn: (d) => remove(d) });
+    actions.push(
+      { label: "Vazgeç", fn: (d) => d.close() },
+      { label: profile ? "Kaydet" : "Bağlantıyı oluştur", icon: "save", variant: "primary", fn: (d) => save(d) },
+    );
+    const el = dialog(profile ? `${profile.name}` : `Yeni ${info.label} bağlantısı`, (body) => {
+      inputs.name = textInput(profile?.name || freeConnectionName(kind), info.example);
+      inputs.name.maxLength = 80;
+      body.append(field("Bağlantı adı", inputs.name, "Adımlarda bu adla seçilir.", true));
+      if (kind === "google_sheets") sheetsForm(body);
+      else databaseForm(body);
+      const makeDefault = node("input");
+      makeDefault.type = "checkbox";
+      makeDefault.checked = profile ? profile.default : !connectionsOf(kind).length;
+      makeDefault.disabled = Boolean(profile?.default);
+      inputs.default = makeDefault;
+      const defaultLabel = node("label", "checkbox-label connection-default");
+      defaultLabel.append(makeDefault, node("span", "", `Bağlantı seçilmemiş ${info.label} adımlarında bunu kullan (varsayılan)`));
+      body.append(defaultLabel, note("Şifre, anahtar ve dosya yolları yalnız bu bilgisayarda saklanır; dışa aktarılan akışlara eklenmez.", "", "shield"));
+    }, actions);
+    el.classList.add("connection-dialog");
+    el.addEventListener("close", () => finish());
+
+    function sheetsForm(body) {
+      const method = node("select");
+      for (const [value, label] of [
+        ["apps_script", "Apps Script (önerilen · Google Cloud gerekmez)"],
+        ["service_account", "Google servis hesabı (JSON anahtar dosyası)"],
+      ]) {
+        const option = node("option", "", label);
+        option.value = value;
+        method.append(option);
+      }
+      method.value = profile?.method || "apps_script";
+      inputs.method = method;
+      body.append(field("Bağlantı yöntemi", method));
+      const script = node("div", "apps-script-setup");
+      const steps = node("ol", "apps-script-steps");
+      [
+        "Google Sheets tablonuzda Uzantılar → Apps Script'i açın.",
+        "Apps Script kodunu göster'e basın; kodu kopyalayıp editördeki her şeyin yerine yapıştırın ve kaydedin.",
+        "Dağıt → Yeni dağıtım → tür: Web uygulaması. Yürütme: Ben, Erişimi olanlar: Herkes → Dağıt. İzinleri onaylayın (\"Google bu uygulamayı doğrulamadı\" uyarısında Gelişmiş → devam et).",
+        "Verilen Web uygulaması URL'sini aşağıya yapıştırın ve Bağlantıyı test et'e basın.",
+      ].forEach((text) => steps.append(node("li", "", text)));
+      const code = node("textarea", "mono apps-script-code");
+      code.readOnly = true;
+      code.rows = 8;
+      code.hidden = true;
+      code.setAttribute("aria-label", "Apps Script kodu");
+      const copy = button("Kopyala", "copy", async () => {
+        code.select();
+        try {
+          await navigator.clipboard.writeText(code.value);
+        } catch {
+          document.execCommand("copy");
+        }
+        toast("Apps Script kodu kopyalandı.");
+      }, "small");
+      copy.hidden = true;
+      const renew = linkButton("Yeni anahtar oluştur", () => showCode(true), "refresh");
+      renew.hidden = !profile?.has_token;
+      const showCode = (fresh) => attempt(async () => {
+        if (fresh && !(await confirmDialog("Yeni anahtar oluştur",
+          "Eski anahtarla yayımlanan betik çalışmayı bırakır. Yeni kodu Apps Script'e yapıştırıp Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm ile yeniden yayımlamanız gerekir.",
+          "Yeni anahtar oluştur", true))) return;
+        // The token must survive a closed dialog, so a new connection is saved first.
+        if (!profile) await persist({ quiet: true });
+        const result = await api("/api/connections/apps-script-code", {
+          method: "POST", body: JSON.stringify({ id: profile.id, renew: fresh }),
+        });
+        await refreshConnections();
+        profile = state.connections.find((item) => item.id === profile.id) || profile;
+        code.value = result.code;
+        code.hidden = copy.hidden = false;
+        renew.hidden = false;
+        code.focus();
+        code.select();
+      });
+      const codeActions = node("div", "update-actions");
+      codeActions.append(button("Apps Script kodunu göster", "code", () => showCode(false), "small"), copy, renew);
+      inputs.script_url = textInput(profile?.script_url || "", "https://script.google.com/macros/s/…/exec");
+      inputs.spreadsheet = textInput("", "İsteğe bağlı: tablonun adresi");
+      script.append(
+        steps, codeActions, code,
+        field("Web uygulaması adresi", inputs.script_url, "Dağıt → Dağıtımları yönet bölümündeki URL; /exec ile biter."),
+        field("Test tablosu", inputs.spreadsheet, "Adres girerseniz o tablonun A1 hücresi de okunarak denenir."),
+      );
+      const service = node("div", "service-account-setup");
+      inputs.credentials_path = textInput("", profile?.has_credentials
+        ? "Kayıtlı dosya kullanılıyor · değiştirmek için yeni dosya seçin"
+        : "/…/google-service-account.json");
+      inputs.credentials_path.spellcheck = false;
+      const pathRow = node("div", "path-row");
+      pathRow.append(inputs.credentials_path, button("Seç…", "folder", () => attempt(async () => {
+        const chosen = await api("/api/desktop/choose-path", { method: "POST", body: JSON.stringify({ kind: "open" }) });
+        if (chosen.path) inputs.credentials_path.value = chosen.path;
+      }), "small"));
+      const pathField = field("Servis hesabı anahtar dosyası (JSON)", pathRow,
+        "Tablonuzu dosyadaki client_email adresiyle Düzenleyen olarak paylaşın. Kurulum: docs/google-sheets.md");
+      pathField.querySelector("label").htmlFor = inputs.credentials_path.id = `field-${uid()}`;
+      service.append(pathField);
+      const paint = () => {
+        script.hidden = method.value !== "apps_script";
+        service.hidden = method.value !== "service_account";
+      };
+      method.addEventListener("change", paint);
+      paint();
+      body.append(script, service, testArea());
+    }
+    function databaseForm(body) {
+      inputs.url = textInput("", profile?.has_url
+        ? "Kayıtlı adres kullanılıyor · değiştirmek için yeni adres girin"
+        : "postgresql+psycopg://kullanici:şifre@sunucu:5432/veritabani", "password");
+      inputs.url.autocomplete = "new-password";
+      inputs.url.spellcheck = false;
+      inputs.allowed_tables = textInput((profile?.allowed_tables || []).join(", "), "public.siparisler, public.stok");
+      body.append(
+        field("Bağlantı adresi", inputs.url,
+          "SQLAlchemy biçimi. Yalnız okuma yapılır; mümkünse salt okunur bir veritabanı kullanıcısı kullanın."),
+        field("İzin verilen tablolar", inputs.allowed_tables,
+          "Virgülle ayırın. Adımlar yalnız bu tablolardan okuyabilir."),
+        testArea(),
+      );
+    }
+    function testArea() {
+      const wrap = node("div", "connection-test");
+      const result = node("div", "connection-test-result");
+      result.setAttribute("role", "status");
+      const test = button("Bağlantıyı test et", "check", () => attempt(async () => {
+        test.disabled = true;
+        result.replaceChildren(node("p", "help", "Deneniyor…"));
+        try {
+          const outcome = await api("/api/connections/test", {
+            method: "POST",
+            body: JSON.stringify({
+              type: kind, id: profile?.id, config: config(),
+              spreadsheet: inputs.spreadsheet?.value.trim() || "",
+            }),
+          });
+          result.replaceChildren(note(outcome.message, "info", "check"));
+        } catch (error) {
+          result.replaceChildren(note(error.message, "error"));
+        } finally {
+          test.disabled = false;
+        }
+      }), "small");
+      wrap.append(test, result);
+      return wrap;
+    }
+    function config() {
+      if (kind === "google_sheets")
+        return {
+          method: inputs.method.value,
+          script_url: inputs.script_url.value.trim(),
+          credentials_path: inputs.credentials_path.value.trim(),
+        };
+      return { url: inputs.url.value.trim(), allowed_tables: inputs.allowed_tables.value };
+    }
+    async function persist({ quiet = false } = {}) {
+      const payload = { name: inputs.name.value.trim(), config: config() };
+      if (inputs.default.checked && !inputs.default.disabled) payload.default = true;
+      if (profile) {
+        profile = await api(`/api/connections/${profile.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      } else {
+        profile = await api("/api/connections", {
+          method: "POST", body: JSON.stringify({ type: kind, ...payload }),
+        });
+        created = true;
+        if (payload.default && !profile.default)
+          profile = await api(`/api/connections/${profile.id}`, { method: "PUT", body: JSON.stringify({ default: true }) });
+        el.querySelector(".dialog-head h2").textContent = profile.name;
+        el.querySelector(".dialog-footer .button.primary span").textContent = "Kaydet";
+      }
+      await refreshConnections();
+      if (!quiet) toast(`${profile.name} bağlantısı kaydedildi.`);
+    }
+    async function save(d) {
+      const ok = await attempt(async () => {
+        await persist();
+        return true;
+      });
+      if (ok) d.close();
+    }
+    async function remove(d) {
+      const used = connectionUsage(profile.id);
+      const message = `${used ? `Bu akışta ${used} adım bu bağlantıyı kullanıyor. ` : ""}Bağlantıyı kullanan adımlar yeni bir bağlantı seçilene kadar çalışmaz. Bu işlem geri alınamaz.`;
+      if (!(await confirmDialog(`${profile.name} silinsin mi?`, message, "Bağlantıyı sil", true))) return;
+      const ok = await attempt(async () => {
+        await api(`/api/connections/${profile.id}`, { method: "DELETE" });
+        await refreshConnections();
+        return true;
+      });
+      if (!ok) return;
+      toast(`${profile.name} bağlantısı silindi.`);
+      finish({ deleted: profile.id });
+      d.close();
+    }
+    return el;
+  }
+  function openConnectionManager() {
+    const el = dialog("Bağlantılar", (body) => paint(body));
+    el.classList.add("connection-manager");
+    function paint(body = el.querySelector(".dialog-body")) {
+      body.replaceChildren(node("p", "small muted",
+        "Google Sheets ve veritabanı bağlantıları adımın Bağlantı alanından seçilir. Aynı türde birden fazla bağlantı olabilir; bağlantı seçilmemiş adımlar varsayılanı kullanır."));
+      const changed = () => {
+        paint();
+        renderInspector();
+      };
+      for (const [kind, info] of Object.entries(connectionKinds)) {
+        const section = node("section", "connection-group");
+        const head = node("div", "connection-group-head");
+        head.append(icon(info.glyph), node("h3", "", info.label),
+          button("Yeni", "plus", () => openConnectionDialog(kind, null, changed), "small"));
+        section.append(head);
+        const list = connectionsOf(kind);
+        if (!list.length) section.append(node("p", "help", "Henüz bağlantı yok."));
+        list.forEach((profile) => {
+          const row = node("div", "connection-item");
+          const text = node("div", "connection-item-text");
+          const used = connectionUsage(profile.id);
+          text.append(node("strong", "", profile.name),
+            node("span", "help", `${connectionSummary(profile)}${used ? ` · bu akışta ${used} adım` : ""}`));
+          row.append(text, connectionStatus(profile),
+            iconButton(`${profile.name} bağlantısını düzenle`, "edit", () => openConnectionDialog(kind, profile, changed)));
+          section.append(row);
+        });
+        body.append(section);
+      }
+    }
+    return el;
+  }
   function settingsPage() {
     const page = node("div", "page");
     page.append(
       heading(
-        "ÇALIŞMA ALANI AYARLARI",
-        "Sistemlerinizi bağlayın.",
-        "Otomasyonlarınızın kullanacağı bağlantıları ve çalışma ortamını yönetin.",
+        "UYGULAMA AYARLARI",
+        "Hesap ve uygulama.",
+        "Lisansınızı, güncellemeleri ve uygulama genelindeki teknik ayarları yönetin.",
       ),
     );
     const layout = node("div", "settings-layout");
     const form = node("form");
     const controls = {};
-    const removals = {};
     function setting(name, label, value, help, options = {}) {
       const input = options.multiline
         ? node("textarea", options.mono ? "mono" : "")
@@ -3653,26 +4672,6 @@
       }
       controls[name] = input;
       return field(label, input, help);
-    }
-    function removeConnection(name, label) {
-      const wrap = node("div", "connection-removal");
-      const checkbox = node("input");
-      checkbox.type = "checkbox";
-      const text = node("label", "checkbox-label");
-      text.append(checkbox, node("span", "", label));
-      wrap.append(
-        text,
-        node(
-          "p",
-          "help",
-          "Ayarları kaydettiğinizde kayıtlı bağlantı bilgisi temizlenir.",
-        ),
-      );
-      removals[name] = checkbox;
-      checkbox.addEventListener("change", () => {
-        controls[name].disabled = checkbox.checked;
-      });
-      return wrap;
     }
     function panel(title, glyph, description, status) {
       const el = node("section", "panel settings-panel");
@@ -3717,184 +4716,31 @@
     updateActions.append(checkUpdate, downloads);
     updatePanel.append(updateMessage, updateActions);
     form.append(updatePanel);
-    const db = panel(
-      "Veritabanı",
-      "database",
-      "PostgreSQL veya SQL Server için yalnızca SELECT yetkili bir hesap kullanın.",
-      state.settings.database_configured,
+    const advanced = node("details", "panel settings-panel settings-advanced");
+    const summary = node("summary");
+    summary.append(icon("settings"), node("span", "", "Gelişmiş: OCR ve görsel şablonlar"));
+    advanced.append(
+      summary,
+      node("p", "", "Uygulamanın tamamında geçerli teknik ayarlar. Çoğu kurulumda değiştirmeniz gerekmez."),
+      setting("ocr_language", "OCR dili", state.settings.ocr_language || "tur+eng",
+        "Türkçe ve İngilizce için tur+eng. Sistem OCR'ı (macOS Vision, Windows OCR) bu sırayı kullanır.",
+        { placeholder: "tur+eng" }),
+      setting("tesseract_cmd", "Tesseract çalıştırılabilir dosyası (isteğe bağlı)", state.settings.tesseract_cmd || "",
+        "Yalnız sistem OCR'ı kullanılamazsa yedek olarak kullanılır. Boş: PATH.",
+        { placeholder: "Örn. C:\\Program Files\\Tesseract-OCR\\tesseract.exe" }),
+      setting("template_dir", "Görsel şablon klasörü", state.settings.template_dir || "",
+        "Ekrandan seçilen referans görsellerin saklandığı klasör.", { placeholder: "assets/templates" }),
     );
-    db.append(
-      setting(
-        "database_url",
-        "Bağlantı adresi",
-        "",
-        state.settings.database_configured
-          ? "Kayıtlı bağlantı gizlenir. Değiştirmek istemiyorsanız boş bırakın."
-          : "Bağlantı bilgisi bu bilgisayarda saklanır; akış dosyalarına eklenmez.",
-        {
-          type: "password",
-          secret: true,
-          placeholder:
-            "postgresql+psycopg://kullanici:parola@sunucu/veritabani",
-        },
-      ),
-      setting(
-        "allowed_tables",
-        "İzin verilen tablolar",
-        Array.isArray(state.settings.allowed_tables)
-          ? state.settings.allowed_tables.join(", ")
-          : state.settings.allowed_tables || "",
-        "Tablo adlarını şemasıyla, virgülle ayırın. Örnek: public.IASSALITEM, public.IASINVITEM",
-      ),
-    );
-    if (state.settings.database_configured)
-      db.append(
-        removeConnection(
-          "database_url",
-          "Kayıtlı veritabanı bağlantısını kaldır",
-        ),
-      );
-    const sheets = panel(
-      "Google Sheets",
-      "sheet",
-      "Akışların Google Sheets tablolarını okuyup yazabilmesi için bir bağlantı yöntemi seçin.",
-      state.settings.sheets_configured,
-    );
-    const method = node("select");
-    method.id = "field-sheets-connection";
-    for (const [value, label] of [
-      ["apps_script", "Apps Script (önerilen · Google Cloud ve JSON dosyası gerekmez)"],
-      ["service_account", "Google servis hesabı (JSON anahtar dosyası)"],
-    ]) {
-      const option = node("option", "", label);
-      option.value = value;
-      method.append(option);
-    }
-    method.value = state.settings.sheets_connection || "service_account";
-    controls.sheets_connection = method;
-    sheets.append(field("Bağlantı yöntemi", method));
-    const scriptBox = node("div", "apps-script-setup");
-    const steps = node("ol", "apps-script-steps");
-    [
-      "Google Sheets tablonuzda Uzantılar → Apps Script'i açın.",
-      "Aşağıdaki Apps Script kodunu göster düğmesine basın, kodu kopyalayıp editördeki her şeyin yerine yapıştırın ve kaydedin.",
-      "Dağıt → Yeni dağıtım → türü Web uygulaması seçin. Yürütme: Ben, Erişimi olanlar: Herkes → Dağıt. İstenen izinleri onaylayın (\"Google bu uygulamayı doğrulamadı\" uyarısında Gelişmiş → devam et).",
-      "Verilen Web uygulaması URL'sini aşağıya yapıştırıp Kaydet'e, ardından Bağlantıyı test et'e basın.",
-    ].forEach((text) => steps.append(node("li", "", text)));
-    const code = node("textarea", "mono apps-script-code");
-    code.readOnly = true;
-    code.rows = 10;
-    code.hidden = true;
-    code.setAttribute("aria-label", "Apps Script kodu");
-    const copy = button("Kopyala", "copy", async () => {
-      code.select();
-      try {
-        await navigator.clipboard.writeText(code.value);
-      } catch {
-        document.execCommand("copy");
-      }
-      toast("Apps Script kodu kopyalandı.");
-    }, "small");
-    copy.hidden = true;
-    const showCode = (renew) => attempt(async () => {
-      if (renew && !(await confirmDialog("Yeni anahtar oluştur",
-        "Eski anahtarla yayımlanan betik çalışmayı bırakır. Yeni kodu Apps Script'e yapıştırıp Dağıt → Dağıtımları yönet → Düzenle → Yeni sürüm ile yeniden yayımlamanız gerekir.",
-        "Yeni anahtar oluştur", true))) return;
-      const result = await api("/api/settings/apps-script/code", { method: "POST", body: JSON.stringify({ renew }) });
-      state.settings = result.settings;
-      code.value = result.code;
-      code.hidden = copy.hidden = false;
-      code.focus();
-      code.select();
-    });
-    const codeActions = node("div", "update-actions");
-    codeActions.append(button("Apps Script kodunu göster", "code", () => showCode(false), "small"), copy,
-      linkButton("Yeni anahtar oluştur", () => showCode(true), "refresh"));
-    const testSheet = textInput("", "İsteğe bağlı: test edilecek tablonun adresi");
-    const testResult = node("div", "apps-script-test");
-    testResult.setAttribute("role", "status");
-    const test = button("Bağlantıyı test et", "check", () => attempt(async () => {
-      test.disabled = true;
-      testResult.replaceChildren(node("p", "help", "Deneniyor…"));
-      try {
-        const result = await api("/api/settings/apps-script/test", {
-          method: "POST",
-          body: JSON.stringify({ url: controls.sheets_script_url.value.trim(), spreadsheet: testSheet.value.trim() }),
-        });
-        testResult.replaceChildren(note(result.message, "info", "check"));
-      } catch (error) {
-        testResult.replaceChildren(note(error.message, "error"));
-        throw error;
-      } finally {
-        test.disabled = false;
-      }
-    }), "small");
-    scriptBox.append(
-      steps, codeActions, code,
-      setting("sheets_script_url", "Web uygulaması adresi", state.settings.sheets_script_url || "",
-        "Dağıt → Dağıtımları yönet bölümündeki URL; /exec ile biter.",
-        { placeholder: "https://script.google.com/macros/s/…/exec" }),
-      field("Test tablosu", testSheet, "Adres girerseniz o tablonun A1 hücresi okunarak da denenir."),
-      test, testResult,
-    );
-    const serviceBox = node("div", "service-account-setup");
-    serviceBox.append(
-      setting(
-        "google_credentials_path",
-        "Servis hesabı anahtar dosyası",
-        "",
-        state.settings.service_account_configured
-          ? "Kayıtlı dosya yolu gizlenir. Mevcut ayarı korumak için boş bırakın."
-          : "Yerel JSON anahtar dosyasının tam yolu. Tablonuzu servis hesabı e-postasıyla paylaşın.",
-        {
-          secret: true,
-          placeholder: "/…/credentials/google-service-account.json",
-        },
-      ),
-    );
-    if (state.settings.service_account_configured)
-      serviceBox.append(
-        removeConnection(
-          "google_credentials_path",
-          "Kayıtlı Google Sheets bağlantısını kaldır",
-        ),
-      );
-    const paintMethod = () => {
-      scriptBox.hidden = method.value !== "apps_script";
-      serviceBox.hidden = method.value !== "service_account";
-    };
-    method.addEventListener("change", paintMethod);
-    paintMethod();
-    sheets.append(scriptBox, serviceBox);
-    const vision = panel(
-      "Masaüstü ve görsel algılama",
-      "eye",
-      "OCR ve şablon eşleştirmenin kullanacağı yerel kaynakları belirleyin.",
-    );
-    vision.append(
-      setting(
-        "tesseract_cmd",
-        "Tesseract çalıştırılabilir dosyası",
-        state.settings.tesseract_cmd || "",
-        "Sistem PATH ayarını kullanmak için boş bırakın.",
-        { placeholder: "Örn. /opt/homebrew/bin/tesseract" },
-      ),
-      setting(
-        "ocr_language",
-        "OCR dili",
-        state.settings.ocr_language || "tur+eng",
-        "Tesseract içinde ilgili dil paketlerinin kurulu olması gerekir.",
-        { placeholder: "tur+eng" },
-      ),
-      setting(
-        "template_dir",
-        "Görsel şablon klasörü",
-        state.settings.template_dir || "",
-        "Buton ve pencere eşleştirmede kullanılacak görsellerin bulunduğu klasör.",
-        { placeholder: "assets/templates" },
-      ),
-    );
-    form.append(db, sheets, vision);
+    const moved = panel("Bağlantılar", "link",
+      "Google Sheets ve veritabanı bağlantıları, onları kullanan adımın Bağlantı alanından seçilir ve oluşturulur. Farklı akışlar ve adımlar farklı bağlantılar kullanabilir.");
+    const defined = state.connections.length
+      ? `${state.connections.length} bağlantı tanımlı: ${state.connections.map((item) => item.name).join(", ")}`
+      : "Henüz bağlantı tanımlı değil.";
+    moved.append(node("p", "help", defined), button("Bağlantıları yönet", "link", () => {
+      const el = openConnectionManager();
+      el.addEventListener("close", () => renderPage());
+    }, "small"));
+    form.append(moved, advanced);
     const foot = node("div", "settings-actions");
     const save = button("Ayarları kaydet", "save", null, "primary");
     save.type = "submit";
@@ -3904,24 +4750,10 @@
       event.preventDefault();
       attempt(async () => {
         const payload = {
-          allowed_tables: controls.allowed_tables.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
           tesseract_cmd: controls.tesseract_cmd.value.trim(),
           ocr_language: controls.ocr_language.value.trim(),
           template_dir: controls.template_dir.value.trim(),
-          sheets_connection: controls.sheets_connection.value,
-          sheets_script_url: controls.sheets_script_url.value.trim(),
         };
-        if (removals.database_url?.checked) payload.database_url = "";
-        else if (controls.database_url.value.trim())
-          payload.database_url = controls.database_url.value.trim();
-        if (removals.google_credentials_path?.checked)
-          payload.google_credentials_path = "";
-        else if (controls.google_credentials_path.value.trim())
-          payload.google_credentials_path =
-            controls.google_credentials_path.value.trim();
         save.disabled = true;
         try {
           state.settings = await api("/api/settings", {
@@ -3929,7 +4761,7 @@
             body: JSON.stringify(payload),
           });
           renderPage();
-          toast("Bağlantı ayarları kaydedildi.");
+          toast("Ayarlar kaydedildi.");
         } finally {
           save.disabled = false;
         }
@@ -3938,7 +4770,7 @@
     const aside = node("aside", "settings-aside");
     aside.append(
       note(
-        "Gizli bağlantı bilgileri dışa aktarılan akışlara eklenmez. Her bilgisayar kendi bağlantı ayarlarını kullanır.",
+        "Bağlantıların gizli bilgileri (şifre, anahtar) yalnız bu bilgisayarda saklanır; dışa aktarılan akışlarda yalnız bağlantının adı ve kimliği bulunur.",
         "",
         "shield",
       ),
@@ -3965,10 +4797,6 @@
         "p",
         "",
         "Playwright tarayıcısı arka planda çalışabilir. Kurulum sırasında Chromium tarayıcısını indirdiğinizden emin olun.",
-      ),
-      note(
-        "Yapılandırıldı etiketi, ayarın kaydedildiğini belirtir. Bağlantıya erişim ilgili adım çalıştırıldığında doğrulanır.",
-        "info",
       ),
     );
     layout.append(form, aside);
@@ -4206,6 +5034,7 @@
       state.platform = data.platform || state.settings.platform || "";
       state.version = data.version || "";
       state.updates = data.updates || {};
+      state.connections = data.connections || [];
       render();
       pollRunList();
       pollUpdates();

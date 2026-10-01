@@ -33,7 +33,7 @@ SCRIPT_TEMPLATE = r"""/**
  * Kurulum: Uzantılar → Apps Script → bu kodun tamamını yapıştırın → Kaydet →
  * Dağıt → Yeni dağıtım → Tür: Web uygulaması → Yürütme: Ben →
  * Erişimi olanlar: Herkes → Dağıt → izinleri onaylayın → Web uygulaması URL'sini
- * RpaOrkestrAI → Bağlantılar ve ayarlar → Google Sheets bölümüne yapıştırın.
+ * RpaOrkestrAI'deki bağlantı penceresinin Web uygulaması adresi alanına yapıştırın.
  *
  * Tablonuz herkese açılmaz: betik sizin adınıza çalışır ve yalnız aşağıdaki
  * anahtarı bilen RpaOrkestrAI isteklerini kabul eder. Anahtarı paylaşmayın.
@@ -129,7 +129,8 @@ class AppsScriptSheets(SheetsService):
         super().__init__("", spreadsheet_id, worksheet, timeout=min(timeout, 120))
         self.url = validate_url(url)
         if not TOKEN_PATTERN.fullmatch(token or ""):
-            raise WorkflowError("Apps Script anahtarı eksik. Ayarlar → Google Sheets bölümünden yeniden oluşturun.")
+            raise WorkflowError("Apps Script anahtarı eksik. Adımın Bağlantı alanından bağlantıyı açıp "
+                                "Apps Script kodunu göster ile kodu yeniden alın.")
         self.token, self.attempts = token, attempts
         if opener is None:
             import certifi

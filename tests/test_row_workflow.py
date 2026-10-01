@@ -31,7 +31,7 @@ def row_runner(tmp_path):
     worksheet = Mock()
     worksheet.get.return_value = [["000142"], [], [0]]
     sheets._worksheet = worksheet
-    runner._sheets[("sheet-id", "Sayfa1")] = sheets
+    runner._sheets[(runner.connections.resolve(None, "google_sheets")["id"], "sheet-id", "Sayfa1")] = sheets
     return runner, worksheet
 
 

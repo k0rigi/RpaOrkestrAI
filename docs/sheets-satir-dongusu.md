@@ -4,7 +4,7 @@
 
 ## Bağlantıyı ve ERP hedefini hazırlayın
 
-**Bağlantılar ve ayarlar → Google Sheets** bölümünde bağlantıyı kurun. Önerilen yöntem, Google Cloud ve JSON dosyası gerektirmeyen **Apps Script**'tir; servis hesabı da kullanılabilir. Adımlar [Google Sheets bağlantı rehberindedir](google-sheets.md).
+Sheets adımının ilk alanı olan **Bağlantı**'dan bağlantıyı kurun. Önerilen yöntem, Google Cloud ve JSON dosyası gerektirmeyen **Apps Script**'tir; servis hesabı da kullanılabilir. Adımlar [Google Sheets bağlantı rehberindedir](google-sheets.md).
 
 **Google Sheets adresi veya kimliği** alanına tablonun tam `https://docs.google.com/spreadsheets/d/.../edit` bağlantısını yapıştırabilirsiniz. Yalnız tablo kimliği de kabul edilir. **Sayfa adı**, alt sekmenin tam adıdır; örneğin `Sayfa1`.
 

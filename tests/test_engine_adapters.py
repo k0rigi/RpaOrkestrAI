@@ -102,7 +102,7 @@ def test_window_sheets_and_guarded_input_compose_in_a_condition(tmp_path):
     runner._desktop.size.return_value = (1920, 1080)
     sheets = Mock()
     sheets.get_cell.return_value = 'FAT-00042'
-    runner._sheets[('sheet-id', 'Faturalar')] = sheets
+    runner._sheets[(runner.connections.resolve(None, "google_sheets")["id"], "sheet-id", "Faturalar")] = sheets
     workflow = Workflow(steps=[
         Step(action='desktop.find_window', params={'title': 'İade', 'application': 'ERP'}),
         Step(action='control.if', children=[
@@ -139,7 +139,7 @@ def test_empty_sheets_cell_stops_before_window_write(tmp_path):
     from rpa_orkestrai.models import Step, Workflow
 
     runner = executor(tmp_path)
-    runner._sheets[('sheet-id', 'Sheet1')] = Mock(get_cell=Mock(return_value=None))
+    runner._sheets[(runner.connections.resolve(None, "google_sheets")["id"], "sheet-id", "Sheet1")] = Mock(get_cell=Mock(return_value=None))
     runner._desktop = Mock()
     workflow = Workflow(steps=[
         Step(action='sheets.read_cell', params={'spreadsheet_id': 'sheet-id'}),

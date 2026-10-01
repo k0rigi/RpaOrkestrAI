@@ -8,6 +8,7 @@ import base64
 import io
 import json
 import os
+import re
 from urllib.parse import urlsplit
 
 import pytest
@@ -482,4 +483,215 @@ def test_recorded_movements_become_steps(tmp_path):
         saved = client.get(f"/api/workflows/{workflow_id}").json()
         assert [step["action"] for step in saved["steps"]] == ["input.mouse_click", "input.type"]
         assert saved["steps"][1]["params"]["text"] == "İ"
+    assert not errors
+
+
+def test_connections_are_created_and_chosen_inside_the_step(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors, shots = [], os.environ.get("RPA_UI_SHOTS")
+    url = "https://script.google.com/macros/s/AKfycb" + "u" * 40 + "/exec"
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Bağlantılı akış", "steps": [
+            {"id": "write", "action": "sheets.write_cell", "params": {
+                "spreadsheet_id": "sheet-id", "worksheet": "Sayfa1", "cell": "B2", "value": "Tamam"}},
+            {"id": "db", "action": "database.read", "params": {"table": "public.A"}},
+        ]})
+        assert response.status_code == 201, response.text
+        workflow_id = response.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            # Settings no longer hold Sheets or database fields.
+            page.get_by_role("button", name="Ayarlar").first.click()
+            playwright.expect(page.get_by_text("Web uygulaması adresi")).to_have_count(0)
+            playwright.expect(page.get_by_role("button", name="Bağlantıları yönet")).to_be_visible()
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Bağlantılı akış", exact=True).click()
+            page.locator('[data-step-id="write"]').click()
+            inspector = page.locator("#inspector")
+            playwright.expect(inspector.locator(".connection-field")).to_contain_text("bağlantısı gerekir")
+
+            # Create a Sheets connection from inside the step; showing the code saves it first.
+            inspector.get_by_role("button", name="Google Sheets bağlantısı oluştur").click()
+            dialog = page.locator("dialog.connection-dialog")
+            dialog.get_by_label("Bağlantı adı").fill("Satış tablosu")
+            dialog.get_by_role("button", name="Apps Script kodunu göster").click()
+            playwright.expect(dialog.get_by_label("Apps Script kodu")).to_have_value(re.compile("const RPA_TOKEN"))
+            token = dialog.get_by_label("Apps Script kodu").input_value().split('RPA_TOKEN = "')[1].split('"')[0]
+            dialog.get_by_label("Web uygulaması adresi").fill(url)
+            if shots:
+                page.screenshot(path=f"{shots}/connection-dialog.png")
+            dialog.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(dialog).to_have_count(0)
+            playwright.expect(inspector.locator(".connection-meta")).to_contain_text("Hazır")
+            select = inspector.locator(".connection-field select")
+            profile = client.get("/api/connections").json()[0]
+            assert select.input_value() == profile["id"] and profile["name"] == "Satış tablosu"
+
+            # A second connection is offered in the same list; the database step has its own type.
+            select.select_option("__new__")
+            dialog.get_by_label("Bağlantı adı").fill("İade tablosu")
+            dialog.get_by_role("button", name="Bağlantıyı oluştur").click()
+            playwright.expect(dialog).to_have_count(0)
+            options = select.locator("option").all_inner_texts()
+            assert any("İade tablosu" in text and "eksik" in text for text in options)
+            playwright.expect(inspector.locator(".connection-meta")).to_contain_text("Ayarları eksik")
+            select.select_option(profile["id"])
+            playwright.expect(inspector.locator(".connection-meta")).to_contain_text("Hazır")
+            page.locator('[data-step-id="db"]').click()
+            db_options = inspector.locator(".connection-field select option").all_inner_texts()
+            assert not any("tablosu" in text for text in db_options)
+            if shots:
+                page.screenshot(path=f"{shots}/connection-step.png")
+
+            # The manager lists both; the workflow stores only the connection id.
+            page.get_by_role("button", name="Bağlantılar", exact=True).click()
+            manager = page.locator("dialog.connection-manager")
+            playwright.expect(manager.locator(".connection-item")).to_have_count(2)
+            playwright.expect(manager).to_contain_text("bu akışta 1 adım")
+            if shots:
+                page.screenshot(path=f"{shots}/connection-manager.png")
+            manager.get_by_role("button", name="Kapat").click()
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        assert saved["steps"][0]["params"]["connection"] == profile["id"]
+        exported = client.get(f"/api/workflows/{workflow_id}/export").text
+        assert token not in exported and url not in exported
+    assert not errors
+
+
+def test_diagram_view_draws_branches_inserts_moves_and_shows_the_last_run(tmp_path):
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.engine import Executor
+    from rpa_orkestrai.models import Run, Workflow
+    from rpa_orkestrai.storage import Store
+
+    errors, shots = [], os.environ.get("RPA_UI_SHOTS")
+    settings = Settings(tmp_path / "data", dotenv=False)
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/api/workflows", json={"name": "Diyagram", "steps": [
+            {"id": "rows", "action": "core.set", "title": "Satırlar", "params": {"name": "satirlar", "value": [1, 2, 3]}},
+            {"id": "loop", "action": "control.for_each", "title": "Her satır", "params": {
+                "items": "${satirlar}", "item_name": "row"}, "children": [
+                    {"id": "check", "action": "control.if", "title": "Büyük mü", "params": {
+                        "left": "${row}", "operator": "gt", "right": 1}, "children": [
+                            {"id": "log", "action": "core.log", "title": "Yaz", "params": {"message": "${row}"}}]},
+                ]},
+            {"id": "guard", "action": "control.try", "title": "Dene", "params": {}, "children": [
+                {"id": "boom", "action": "data.calculate", "title": "Böl", "params": {
+                    "expression": "1 / 0", "output": "sonuc"}}]},
+        ]})
+        assert response.status_code == 201, response.text
+        workflow_id = response.json()["id"]
+        # A finished run gives the diagram its ✓ / ✗ marks.
+        store = Store(settings.data_dir)
+        run = Run(workflow_id=workflow_id, workflow_name="Diyagram", department="Genel")
+        Executor(settings, store, run, threading.Event(), lambda: store.save_run(run)).execute(
+            Workflow.model_validate(client.get(f"/api/workflows/{workflow_id}").json()))
+        run.status = "succeeded"
+        store.save_run(run)
+        assert run.step_stats["log"]["ok"] == 2 and run.step_stats["boom"]["errors"] == 1
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1900, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Diyagram", exact=True).first.click()
+            playwright.expect(page.locator("#step-library")).to_be_visible()
+            page.get_by_role("button", name="Diyagram", exact=True).click()
+            viewport = page.locator("#diagram-viewport")
+            playwright.expect(viewport.locator(".dnode")).to_have_count(6)
+            # The library folds away in the diagram and can be brought back.
+            playwright.expect(page.locator("#step-library")).to_be_hidden()
+            page.get_by_role("button", name="Kütüphane").click()
+            playwright.expect(page.locator("#step-library")).to_be_visible()
+            page.get_by_role("button", name="Kütüphane").click()
+            for label in ("Her öğe", "Sonraki tur", "Bitince", "Doğruysa", "Değilse", "Dene", "Hata olursa"):
+                playwright.expect(viewport.locator(".edge-label", has_text=label).first).to_be_visible()
+            playwright.expect(viewport.locator('[data-step-id="log"] .dnode-status')).to_have_text("2")
+            playwright.expect(viewport.locator('[data-step-id="boom"] .dnode-status.failed')).to_have_count(1)
+            playwright.expect(viewport.locator(".diagram-run")).to_contain_text("Tamamlandı")
+            if shots:
+                page.screenshot(path=f"{shots}/diagram.png")
+
+            # Nodes sit left → right: the loop body is to the right of the loop, the try after the loop.
+            def box(step_id):
+                return viewport.locator(f'[data-step-id="{step_id}"]').bounding_box()
+
+            assert box("rows")["x"] < box("loop")["x"] < box("check")["x"] < box("log")["x"] < box("guard")["x"]
+            assert abs(box("loop")["y"] - box("check")["y"]) < 2
+
+            # Insert from the empty "Değilse" branch with the search popover.
+            viewport.locator(".diagram-empty").first.click()
+            menu = page.locator("#diagram-insert")
+            menu.get_by_label("Eklenecek adımı ara").fill("bekle")
+            menu.get_by_label("Eklenecek adımı ara").press("Enter")
+            playwright.expect(menu).to_have_count(0)
+            playwright.expect(viewport.locator(".dnode")).to_have_count(7)
+            playwright.expect(page.locator("#inspector div.pane-heading")).to_have_text("Bekle")
+            # Hover tools duplicate; the Delete key removes the focused node.
+            viewport.locator(".dnode.selected").get_by_role("button", name="Adımı çoğalt").click()
+            playwright.expect(viewport.locator(".dnode")).to_have_count(8)
+            copy = viewport.locator(".dnode", has_text="(kopya)")
+            copy.click()
+            copy.press("Delete")
+            playwright.expect(viewport.locator(".dnode")).to_have_count(7)
+
+            # Move the first step into the try block by dropping it on a + handle inside the branch.
+            playwright.expect(viewport.locator(".edge-insert")).not_to_have_count(0)
+            page.get_by_role("button", name="Tümünü sığdır").click()
+            page.locator('[data-step-id="rows"]').drag_to(page.locator('[data-step-id="boom"]'), target_position={"x": 5, "y": 30})
+            zoom = viewport.locator(".zoom-level").inner_text()
+            page.get_by_role("button", name="Yakınlaştır").click()
+            playwright.expect(viewport.locator(".zoom-level")).not_to_have_text(zoom)
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            # The chosen view is remembered.
+            page.reload()
+            page.get_by_role("button", name="Diyagram", exact=True).first.click()
+            playwright.expect(page.locator("#diagram-viewport .dnode")).to_have_count(7)
+            # From the run details, the failed step opens selected in the diagram.
+            page.locator(".diagram-run").get_by_role("button", name="Ayrıntılar").click()
+            page.get_by_role("button", name="Diyagramda göster").click()
+            playwright.expect(page.locator('#diagram-viewport [data-step-id="boom"].selected')).to_have_count(1)
+            playwright.expect(page.locator("#inspector div.pane-heading")).to_have_text("Hesapla")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        assert [step["id"] for step in saved["steps"]] == ["loop", "guard"]
+        assert [step["id"] for step in saved["steps"][1]["children"]] == ["rows", "boom"]
+        otherwise = saved["steps"][0]["children"][0]["otherwise"]
+        assert [step["action"] for step in otherwise] == ["core.wait"]
     assert not errors

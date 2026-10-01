@@ -630,6 +630,10 @@ button svg {
   color: #86724c;
   background: #f8f1e5;
 }
+.pill.warning {
+  color: #8a5f12;
+  background: #fbf2df;
+}
 .pill.dry {
   color: #837638;
   background: #f5f1df;
@@ -1472,19 +1476,6 @@ label.field-label {
 }
 .artifact-note {
   margin-top: 15px;
-}
-.connection-removal {
-  padding-top: 15px;
-  border-top: 1px solid var(--line);
-}
-.connection-removal .checkbox-label {
-  color: var(--red);
-  font-size: 11px;
-}
-.connection-removal .help {
-  margin: 7px 0 0 23px;
-  color: var(--muted);
-  font-size: 10px;
 }
 .run-summary {
   display: grid;
@@ -2525,4 +2516,714 @@ textarea:disabled {
   width: 100%;
   font-size: 11px;
   background: #f8faf7;
+}
+
+/* ----- Connections (per step) ------------------------------------------------ */
+.connection-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.connection-row select {
+  flex: 1;
+  min-width: 0;
+}
+.connection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.connection-meta > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--teal);
+}
+.connection-meta .note {
+  flex: 1 1 100%;
+}
+.connection-status {
+  display: inline-flex;
+  gap: 5px;
+}
+.dialog-backdrop.connection-dialog,
+.dialog-backdrop.connection-manager {
+  width: min(620px, calc(100vw - 32px));
+}
+.dialog-backdrop.connection-dialog[open],
+.dialog-backdrop.connection-manager[open] {
+  display: flex;
+  flex-direction: column;
+}
+.connection-dialog .dialog-body,
+.connection-manager .dialog-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+.connection-dialog .dialog-body {
+  display: grid;
+  gap: 4px;
+}
+.connection-group > .help {
+  font-size: 11px;
+  color: var(--muted);
+}
+.connection-dialog .connection-delete {
+  margin-right: auto;
+}
+.connection-default {
+  margin: 10px 0 12px;
+  font-size: 12px;
+}
+.connection-test {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.connection-test-result:empty {
+  display: none;
+}
+.connection-test-result .note {
+  margin: 0;
+}
+.connection-group {
+  margin-top: 20px;
+}
+.connection-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.connection-group-head svg {
+  width: 16px;
+  height: 16px;
+  color: var(--teal);
+}
+.connection-group-head h3 {
+  font-size: 13px;
+  flex: 1;
+}
+.connection-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin-bottom: 7px;
+  background: var(--paper);
+}
+.connection-item-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.connection-item-text strong {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connection-item-text .help {
+  font-size: 10px;
+}
+.settings-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+.settings-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-advanced > summary svg {
+  width: 17px;
+  height: 17px;
+  color: var(--teal);
+}
+.settings-advanced[open] > summary {
+  margin-bottom: 12px;
+}
+.settings-advanced > p {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+
+/* ----- Diagram view ------------------------------------------------------------ */
+.caption-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 2px;
+}
+.view-toggle .view-choice {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.view-toggle .view-choice svg {
+  width: 13px;
+  height: 13px;
+}
+.caption-side > .library-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 11px;
+  color: var(--muted);
+}
+.caption-side > .library-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+.caption-side > .library-toggle[aria-pressed="true"],
+.view-toggle .view-choice[aria-pressed="true"] {
+  background: var(--teal-tint);
+  color: var(--teal-dark);
+  font-weight: 600;
+}
+.flow-canvas.diagram-mode {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-image: none;
+}
+.flow-canvas.diagram-mode .canvas-caption {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcf9;
+}
+.diagram-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background-color: #f6f7f3;
+  background-image: radial-gradient(#cdd6cb 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.diagram-viewport.panning {
+  cursor: grabbing;
+}
+.diagram-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+svg.diagram-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  stroke-width: initial;
+}
+.diagram-edges .edge {
+  fill: none;
+  stroke: #a3b3aa;
+  stroke-width: 1.7;
+  transition: stroke 0.12s;
+}
+.diagram-edges .edge.back {
+  stroke: #c3ad80;
+  stroke-dasharray: 6 5;
+}
+.diagram-edges .edge.error {
+  stroke: #d8a39c;
+}
+.diagram-edges .edge.hover {
+  stroke: var(--teal);
+  stroke-width: 2.4;
+}
+.diagram-edges .merge,
+.diagram-edges .port {
+  fill: #fff;
+  stroke: #98aaa0;
+  stroke-width: 1.6;
+}
+.edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #dde5df;
+  color: #587069;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.edge-label.error {
+  color: #a8483f;
+  border-color: #f0d4cf;
+  background: #fdf6f5;
+}
+.edge-label.back,
+.edge-label.done {
+  font-weight: 550;
+  color: #8a7040;
+  border-color: #ece2cb;
+  background: #fcf9f1;
+}
+.edge-label.done {
+  color: #5d6f68;
+  border-color: #dde5df;
+  background: #fff;
+}
+.edge-insert {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #c8d3cb;
+  background: #fff;
+  color: var(--teal);
+  display: grid;
+  place-items: center;
+  opacity: 0.8;
+  box-shadow: 0 2px 6px #0f2a2a14;
+  transition: opacity 0.12s, transform 0.12s, background 0.12s;
+}
+.edge-insert svg {
+  width: 13px;
+  height: 13px;
+}
+.edge-insert:hover,
+.edge-insert:focus-visible {
+  opacity: 1;
+  transform: scale(1.18);
+  border-color: var(--teal);
+}
+body.dragging-step .edge-insert {
+  opacity: 1;
+  transform: scale(1.35);
+  border: 1.5px dashed var(--teal);
+}
+.edge-insert.drop-inside {
+  background: var(--teal);
+  color: #fff;
+  transform: scale(1.6) !important;
+}
+.dnode {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 14px 0 10px;
+  background: #fff;
+  border: 1px solid #dbe3dd;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px #0f2a2a0d, 0 4px 14px #0f2a2a0a;
+  cursor: pointer;
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+.dnode-container {
+  border-left: 4px solid var(--tone);
+  padding-left: 8px;
+}
+.dnode::before,
+.dnode::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid #98aaa0;
+}
+.dnode::before {
+  left: -6px;
+}
+.dnode-container::before {
+  left: -8px;
+}
+.dnode::after {
+  right: -6px;
+}
+.dnode-container::after {
+  display: none;
+}
+.dnode:hover {
+  border-color: #b7c7bd;
+  box-shadow: 0 6px 20px #0f2a2a17;
+}
+.dnode-container:hover {
+  border-left-color: var(--tone);
+}
+.dnode.selected {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px #1879682e, 0 6px 20px #0f2a2a17;
+}
+.dnode-container.selected {
+  border-left-color: var(--tone);
+}
+.dnode:focus-visible {
+  outline: 3px solid #7fb8a8;
+  outline-offset: 3px;
+}
+.dnode.status-failed {
+  border-color: #e3aaa2;
+  background: #fffafa;
+}
+.dnode.drag-source {
+  opacity: 0.4;
+}
+.dnode.drop-before {
+  box-shadow: -5px 0 0 0 var(--teal), 0 6px 20px #0f2a2a17;
+}
+.dnode.drop-after {
+  box-shadow: 5px 0 0 0 var(--teal), 0 6px 20px #0f2a2a17;
+}
+.dnode-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--tone-bg, #eef2ef);
+  color: var(--tone, #56656b);
+}
+.dnode-icon svg {
+  width: 19px;
+  height: 19px;
+}
+.dnode-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.dnode-copy strong {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dnode-copy small {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dnode-copy small.mono {
+  color: var(--teal-dark);
+}
+.dnode-status {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.dnode-status svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+.dnode-status.succeeded {
+  background: #2f9a64;
+  color: #fff;
+}
+.dnode-status.failed {
+  background: var(--red);
+  color: #fff;
+}
+.dnode-status.skipped {
+  background: #ece6d3;
+  color: #6f6444;
+}
+.dnode-status.running {
+  background: #3b72a5;
+  color: #fff;
+}
+.dnode-status.ran {
+  background: #dfe7e2;
+  color: #4d625a;
+}
+.dnode-tools {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  padding-bottom: 6px;
+  display: none;
+}
+.dnode:hover .dnode-tools,
+.dnode:focus-within .dnode-tools,
+.dnode.selected .dnode-tools {
+  display: block;
+}
+body.dragging-step .dnode-tools {
+  display: none !important;
+}
+.dnode-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px #0f2a2a14;
+}
+.dnode-toolbar .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.dnode-toolbar .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.diagram-terminal {
+  position: absolute;
+  width: 96px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 18px;
+  border: 1px solid #d6e0d2;
+  background: #fdfefb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #6f8266;
+}
+.diagram-terminal svg {
+  width: 13px;
+  height: 13px;
+}
+.diagram-terminal.start {
+  color: var(--teal-dark);
+  border-color: #bcd8cc;
+  background: var(--teal-tint);
+}
+.diagram-empty {
+  position: absolute;
+  border: 1.5px dashed #b8c7bd;
+  border-radius: 10px;
+  background: #fbfcf9e6;
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+.diagram-empty svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.diagram-empty:hover,
+.diagram-empty:focus-visible,
+.diagram-empty.drop-inside {
+  border-color: var(--teal);
+  color: var(--teal-dark);
+  background: var(--teal-tint);
+}
+.diagram-controls {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px #0f2a2a12;
+  cursor: default;
+}
+.diagram-controls .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.diagram-controls .zoom-level {
+  min-width: 42px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.diagram-hint {
+  position: absolute;
+  left: 14px;
+  bottom: 16px;
+  font-size: 10px;
+  color: #8b9891;
+  pointer-events: none;
+}
+.diagram-run {
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 5px 5px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px #0f2a2a12;
+  cursor: default;
+}
+.diagram-run .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.diagram-insert {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px #0f2a2a2e;
+  overflow: hidden;
+  cursor: default;
+  user-select: text;
+}
+.diagram-insert-head {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px 8px;
+}
+.diagram-insert-head strong {
+  font-size: 12px;
+}
+.diagram-insert-head small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.diagram-insert > .field-input {
+  margin: 0 12px 6px;
+  width: auto;
+}
+.diagram-insert-list {
+  overflow-y: auto;
+  padding: 0 6px 8px;
+  min-height: 0;
+}
+.diagram-insert-list .help {
+  padding: 10px 8px;
+}
+.diagram-insert-group {
+  padding: 10px 8px 4px;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #8b9891;
+}
+.diagram-insert-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 12px;
+  text-align: left;
+}
+.diagram-insert-item:hover,
+.diagram-insert-item:focus-visible {
+  background: #f0f5f1;
+  outline: none;
+}
+.diagram-insert-item .dnode-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+.diagram-insert-item .dnode-icon svg {
+  width: 14px;
+  height: 14px;
+}
+@media (max-width: 1200px) {
+  .diagram-hint {
+    display: none;
+  }
+}
+.editor-workspace.library-hidden {
+  grid-template-columns: minmax(300px, 1fr) 287px;
+}
+.editor-workspace.library-hidden .step-library {
+  display: none;
+}
+@media (min-width: 1600px) {
+  .editor-workspace.library-hidden {
+    grid-template-columns: minmax(350px, 1fr) 320px;
+  }
+}
+@media (max-width: 1200px) {
+  .editor-workspace.library-hidden {
+    grid-template-columns: minmax(240px, 1fr) 245px;
+  }
+}
+@media (max-width: 1000px) {
+  .editor-workspace.library-hidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -76,7 +76,7 @@ RPA_ALLOWED_TABLES=erp.IASSALITEM,erp.IASINVITEM
 # RPA_ALLOWED_TABLES=dbo.IASSALITEM,dbo.IASINVITEM
 ```
 
-URL içinde kullanılan parola özel karakterler içeriyorsa URL kodlaması gerekir. SQL Server sertifikası istemci tarafından güvenilir olmalı; kurumsal CA sertifikasını yükleyerek bağlantıyı düzeltin. Studio'da kaydedilmiş bağlantı ayarları `.env` varsayılanlarını geçersiz kılabilir; ayarları uygulama ekranından da kontrol edin.
+URL içinde kullanılan parola özel karakterler içeriyorsa URL kodlaması gerekir. SQL Server sertifikası istemci tarafından güvenilir olmalı; kurumsal CA sertifikasını yükleyerek bağlantıyı düzeltin. `.env` içindeki `RPA_DATABASE_URL` yalnız ilk açılışta varsayılan bağlantıya dönüştürülür; sonraki değişiklikleri adımın **Bağlantı** alanından veya editördeki **Bağlantılar** penceresinden yapın.
 
 İzin listesinde şemayla birlikte tablo adını kullanın: PostgreSQL için `erp.IASSALITEM`, SQL Server için `dbo.IASSALITEM`. Okunacak sütunları mümkün olduğunca daraltın, satır sınırı koyun ve büyük veri kümelerinde adaptörün parçalı okuma arayüzünü kullanın. Sınırlı sonuçlar tam rapor yerine örneklem olabilir; satır limitini iş gereksiniminize göre seçin.
 

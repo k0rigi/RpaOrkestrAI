@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.6.1-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.6.1-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.7.1-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.7.1-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. Son doğrulamadan sonra internetsiz en fazla 7 gün çalışır. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -56,6 +56,10 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 - akış: tekrarla, döngüden çık, hata olursa, başka akışı çalıştır, akışı bitir
 - etkileşim ve web: mesaj ve girdi kutusu, HTTP/API
 
+**0.7.1 ile akış iki görünümde düzenlenir.** **Liste** görünümü alt alta kartlardır. **Diyagram** görünümü aynı adımları n8n'deki gibi soldan sağa düğümler ve bağlantı çizgileriyle gösterir: koşul ve hata dalları ayrı satırlarda, döngüler "Sonraki tur" dönüş çizgisiyle çizilir. Çizgilerdeki **+** düğmesiyle araya adım eklenir, düğümler sürüklenerek taşınır. Son çalışmada her adımın kaç kez çalıştığı ✓ ve hata verdiği ✗ olarak düğümün üzerinde görünür; çalışma ayrıntısındaki **Diyagramda göster** hatalı adımı seçili açar. Çalışma mantığı iki görünümde de aynıdır.
+
+**Bağlantılar adımın içindedir.** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
+
 **Hareketleri kaydet**, bir işi fare ve klavyeyle bir kez yapmanızı adımlara çevirir; kayıt F9 ile biter. Adımlar tutup sürüklenerek yer değiştirir ve döngü, koşul veya hata bloklarının içine bırakılabilir. **Bu adımı test et**, seçili adımı örnek değerlerle tek başına çalıştırır. **Çalıştır** adımları gerçekten uygular; **Önizleme (ekranı kullanmadan)** seçeneği ekran, dosya ve bağlantı adımlarını atlar. Tüm adımlar, AutoHotkey karşılıkları ve örnekler [adım rehberindedir](docs/adimlar.md). İlk denemeler için [examples/adim-turu.json](examples/adim-turu.json) ve [examples/metin-editoru.json](examples/metin-editoru.json) akışlarını içe aktarabilirsiniz.
 
 Sheets adımları, Google Cloud veya JSON dosyası gerektirmeyen **Apps Script** bağlantısıyla ya da Google servis hesabıyla çalışır; [Google Sheets bağlantı rehberi](docs/google-sheets.md). **Sheets satırlarını oku** ile B sütununa `form_id`, C sütununa `status` adı verin; döngüde `${row.form_id}` ve `${row.status}` kullanın. Durumu **boş veya Bekliyor** olanları koşulla seçebilir, her dalın içine işlem veya başka bir döngü ekleyebilirsiniz. **Koşul sürdükçe tekrarla**, tekrar ve süre sınırlarıyla çalışır. [Sheets satır ve koşul rehberi](docs/sheets-satir-dongusu.md).
@@ -100,7 +104,7 @@ Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve aya
 Masaüstü ERP için [pencere tanıtma rehberiyle](docs/pencere-tanitma.md) başlayın. Daha kapsamlı işlemler için aşağıdaki sırayı izleyin. Tabloda ve rehberlerde anlatılan mevcut motor işlemleri, eski veya içe aktarılan akışlarda desteklenmeye devam eder.
 
 1. [Kurulum rehberindeki](docs/kurulum.md) otomasyon paketlerini ve gerekli sistem araçlarını kurun.
-2. Bağlantı bilgilerini `.env` veya uygulamanın bağlantı ayarlarında tanımlayın. Veritabanında ayrı salt okunur kullanıcı kullanın.
+2. Veritabanı veya Sheets adımını ekleyip **Bağlantı** alanından bağlantı oluşturun. Veritabanında ayrı salt okunur kullanıcı kullanın.
 3. Yeni akışa ad ve departman girin. Adım kitaplığından veri okuma adımını ve ardından bir döngü ekleyin.
 4. Çıktı değişkenlerini sonraki adımlara `${orders}` veya `${item.MATERIAL}` biçiminde bağlayın.
 5. ERP tıklama, alan doldurma ve arama adımlarını döngünün içine yerleştirin. OCR sonucuna göre koşul ekleyin.
@@ -157,9 +161,9 @@ Tarayıcıyı otomatik açmadan çalıştırmak için `rpa-studio --no-browser` 
 
 Zaman aşımı tarayıcı, veritabanı, ekran bekleme ve OCR işlemlerine aktarılır. Sheets için istek başına üst sınır 120 saniyedir. Tek bir adım birden fazla istek, yeniden deneme veya dropdown sayfası içerebilir; bu değer tüm akışın toplam süre sınırı değildir.
 
-Studio'da kaydedilmiş bağlantı ayarları `data/settings.json` içindedir ve aynı alanlar için `.env` varsayılanlarından önce gelir. `.env` değişikliğinin uygulanması için uygulamayı yeniden başlatın; daha önce Studio'da kaydedilmiş değeri de güncelleyin. `data/` ile `.env` Git'e eklenmez. Yerel ayar dosyası bir şifre kasası değildir; bilgisayar hesabı ve dosya erişimleri bu bilgileri korur.
+Adlandırılmış bağlantılar `data/connections.json`, uygulama ayarları `data/settings.json` içindedir. `RPA_DATABASE_URL` ve `RPA_GOOGLE_CREDENTIALS_PATH` gibi `.env` değerleri yalnız ilk açılışta varsayılan bağlantıya dönüştürülür; sonrasında bağlantıyı adımın **Bağlantı** alanından veya **Bağlantılar** penceresinden düzenleyin. `data/` ile `.env` Git'e eklenmez. Yerel ayar dosyası bir şifre kasası değildir; bilgisayar hesabı ve dosya erişimleri bu bilgileri korur.
 
-Akış dışa aktarımı bağlantı ayarlarını içermez. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
+Akış dışa aktarımı bağlantı bilgilerini içermez; adımda yalnız bağlantının kimliği kalır. Akışı başka bir bilgisayara aktardığınızda adım "bağlantı bu bilgisayarda yok" uyarısı gösterir; orada bağlantıyı seçin veya oluşturun. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
 
 ## Geliştirme ve doğrulama
 

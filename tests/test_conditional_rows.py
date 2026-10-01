@@ -35,7 +35,7 @@ def runner(tmp_path):
     executor._windows.find.return_value = {"found": True, "title": "ERP"}
     service = SheetsService("unused.json", "sheet-id", "Sayfa1")
     service._worksheet = Mock()
-    executor._sheets[("sheet-id", "Sayfa1")] = service
+    executor._sheets[(executor.connections.resolve(None, "google_sheets")["id"], "sheet-id", "Sayfa1")] = service
     return executor, service._worksheet
 
 

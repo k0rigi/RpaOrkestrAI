@@ -30,6 +30,10 @@ OPERATORS = [
 ]
 
 WINDOW = field("window", "Pencere değişkeni", default="${erp_window}", required=True)
+SHEETS_CONNECTION = field("connection", "Google Sheets bağlantısı", "connection", "", connection_type="google_sheets",
+                          help="Boş bırakılırsa varsayılan Google Sheets bağlantısı kullanılır.")
+DATABASE_CONNECTION = field("connection", "Veritabanı bağlantısı", "connection", "", connection_type="database",
+                            help="Boş bırakılırsa varsayılan veritabanı bağlantısı kullanılır.")
 SHEET_ID = field("spreadsheet_id", "Google Sheets adresi veya kimliği", required=True,
                  help="Tablonun tam bağlantısını yapıştırabilirsiniz. Servis hesabıyla paylaşılmış olmalıdır.")
 
@@ -70,7 +74,7 @@ def target_fields() -> list[dict]:
 ACTION_DEFINITIONS = [
     action("sheets.read_column", "Sheets sütununu oku", "Google Sheets",
            "B2, B3, B4 gibi bir sütundaki değerleri satır bilgileriyle listeye alır. Ardından döngü ekleyin.",
-           [SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
+           [SHEETS_CONNECTION, SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
             field("start_cell", "Başlangıç hücresi", default="B2", required=True),
             field("max_rows", "En fazla kaç satır okunsun?", "number", 100, min=1, max=1000, required=True),
             field("empty_policy", "Boş hücreyle karşılaşınca", "select", "stop", required=True,
@@ -104,7 +108,7 @@ ACTION_DEFINITIONS = [
            [field("message", "Not", default="Adım tamamlandı.", required=True,
                   help="Günlüğe hassas iş verisi veya parola yazmayın.")]),
     action("database.read", "Tablo oku", "Veritabanı", "İzin verilen tablodan salt okunur veri alır.",
-           [field("table", "Şema.Tablo", default="public.IASSALITEM", required=True),
+           [DATABASE_CONNECTION, field("table", "Şema.Tablo", default="public.IASSALITEM", required=True),
             field("columns", "Sütun listesi (null: tümü)", "json", None),
             field("filters", "Eşitlik filtreleri", "json", {}),
             field("limit", "Azami satır", "number", 1000),
@@ -138,11 +142,11 @@ ACTION_DEFINITIONS = [
     action("browser.text", "Web metnini al", "Web", "Seçilen öğenin metnini değişkene aktarır.",
            [field("selector", "Seçici", default="h1", required=True), OUTPUT]),
     action("sheets.read", "Sheets aralığını oku", "Google Sheets", "Bir hücre veya aralıktaki değerleri alır.",
-           [field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
+           [SHEETS_CONNECTION, field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
             field("worksheet", "Sayfa adı", default="Sheet1", required=True),
             field("range", "Hücre / aralık", default="A1:C10", required=True), OUTPUT]),
     action("sheets.write", "Sheets aralığına yaz", "Google Sheets", "Hücre veya aralığa RAW değerleri yazar.",
-           [field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
+           [SHEETS_CONNECTION, field("spreadsheet_id", "Elektronik tablo kimliği", required=True),
             field("worksheet", "Sayfa adı", default="Sheet1", required=True),
             field("range", "Başlangıç hücresi / aralık", default="A1", required=True),
             field("values", "Satır matrisi", "json", [["Örnek", 1]], required=True)]),
@@ -197,7 +201,7 @@ CATALOG: list[dict[str, Any]] = [
                                                    {"value": "hidden", "label": "Kaybolsun"}])]),
     action("sheets.read_cell", "Sheets hücresini oku", "Google Sheets",
            "Bir Google Sheets hücresinin değerini metin olarak alır; yazma adımına aktarabilirsiniz.",
-           [SHEET_ID,
+           [SHEETS_CONNECTION, SHEET_ID,
             field("worksheet", "Sayfa adı", default="Sheet1", required=True),
             field("cell", "Hücre", default="A2", required=True),
             field("allow_empty", "Boş hücreyi hata vermeden oku", "boolean", False,
@@ -205,7 +209,7 @@ CATALOG: list[dict[str, Any]] = [
             field("output", "Değer değişkeni", default="cell_value", required=True)]),
     action("sheets.read_rows", "Sheets satırlarını oku", "Google Sheets",
            "FormID ve durum gibi sütunları aynı kayıtta okur. Durum boş olsa da satırı korur.",
-           [SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
+           [SHEETS_CONNECTION, SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
             field("start_row", "Başlangıç satırı", "number", 2, min=1, max=1000000, required=True),
             field("max_rows", "En fazla kaç satır okunsun?", "number", 100, min=1, max=1000, required=True),
             field("columns", "Okunacak sütunlar", "columns", {"form_id": "B", "status": "C"}, required=True,
@@ -218,7 +222,7 @@ CATALOG: list[dict[str, Any]] = [
             field("output", "Satır listesi değişkeni", default="sheet_rows", required=True)]),
     action("sheets.write_cell", "Sheets hücresine yaz", "Google Sheets",
            "İşlem sonucunu tek hücreye kaydeder. Örneğin geçerli satırın C sütununa Tamamlandı yazın.",
-           [SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
+           [SHEETS_CONNECTION, SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
             field("cell", "Yazılacak hücre", default="C${row.row_number}", required=True),
             field("value", "Yazılacak değer", default="Tamamlandı", required=True,
                   help="Formül çalıştırmadan metin olarak kaydedilir. Başarıyı doğrulayan adımlardan sonra ekleyin.")]),

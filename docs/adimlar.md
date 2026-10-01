@@ -1,11 +1,18 @@
 # Adım rehberi
 
-0.6.0 sürümünde adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
 - **Adım eklemek:** Kütüphanedeki adıma tıklayın veya adımı sürükleyip akıştaki istediğiniz yere bırakın.
 - **Yer değiştirmek:** Kartı tutup sürükleyin. Kartın üst yarısına bırakırsanız önüne, alt yarısına bırakırsanız arkasına yerleşir. Bir döngünün, koşulun veya **Hata olursa** bloğunun kesikli alanına bırakırsanız o bloğun içine girer. Bir blok kendi içine taşınamaz. Yukarı/aşağı düğmeleri de çalışmaya devam eder.
+- **Diyagram görünümü:** Akış alanının sağ üstündeki **Liste / Diyagram** düğmesiyle geçilir; seçim hatırlanır. Diyagramda adımlar soldan sağa düğümlerdir. **Koşul** düğümünden **Doğruysa** ve **Değilse**, **Hata olursa** düğümünden **Dene** ve **Hata olursa** dalları çıkar; dallar sağda birleşip akış devam eder. Döngünün iç adımları **Her öğe** çizgisiyle sağa uzanır, sondan kesikli **Sonraki tur** çizgisiyle döngüye döner; döngü bitince **Bitince** çizgisiyle sonraki adıma geçilir.
+  - Çizgilerdeki **+** düğmesi o noktaya adım ekler: açılan kutuda adı yazıp Enter'a basın. Boş dallardaki kesikli kutular da aynı işi görür.
+  - Düğümü sürükleyip başka bir düğümün soluna/sağına veya bir **+** düğmesine bırakarak taşıyın. Kütüphaneden sürüklemek için **Kütüphane** düğmesiyle kütüphaneyi açın.
+  - Boş alanı sürükleyerek veya kaydırarak gezinin; Ctrl/⌘ + kaydırma veya sağ alttaki düğmeler yakınlaştırır, ⊞ tümünü sığdırır.
+  - Düğümün üzerine gelince test ▶, çoğalt ve sil düğmeleri çıkar. Seçili düğümde Delete tuşu adımı siler.
+  - Son çalışmada her düğümün sağ üstünde ✓ (birden çok çalıştıysa kaç kez) veya ✗ (hata verdi) görünür. Çalışma ayrıntısındaki **Diyagramda göster**, o çalışmanın sonuçlarını hatalı adım seçili olarak açar.
+- **Bağlantı seçmek:** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
 - **Çalıştır:** Adımları gerçekten uygular. **Önizleme (ekranı kullanmadan)** işaretliyse fare, klavye, ekran, dosya, bağlantı ve mesaj adımları atlanır; yalnız veri, metin, hesap ve akış adımları çalışır.
 - **Bu adımı test et:** Adımı seçin, sağ paneldeki düğmeye basın. Adımın kullandığı değişkenler (ör. `${row.form_id}`) için örnek değer girersiniz. Sadece o adım, içinde başka adımlar varsa onlarla birlikte, gerçek olarak çalışır. Sonuç ve adımın ürettiği değerler aynı pencerede görünür. Akışın geri kalanı çalışmaz.
 - **Acil durdurma:** Fareyi ekranın bir köşesine hızla götürmek çalışan akışı durdurur. Çalışma sayfasındaki **Durdur** düğmesi de bir sonraki adımda durdurur.

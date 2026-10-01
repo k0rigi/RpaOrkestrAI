@@ -234,12 +234,17 @@ class Executor:
             self.variables["sistem"] = system_variables()
         self.held_keys: set[str] = set()
         self.call_stack: list[str] = []
+        from .connections import Connections
+
+        self.connections = Connections(settings.data_dir, settings)
+        self._secrets = [value for value in (self.config.get("database_url"), self.config.get("google_credentials_path"))
+                         if value] + self.connections.secrets()
         self._last_save = 0.0
         self.resources = ExitStack()
         self._browser: Any = None
         self._desktop: Any = None
         self._windows: Any = None
-        self._database: Any = None
+        self._databases: dict[str, Any] = {}
         self._sheets: dict[tuple[str, str], Any] = {}
         self.executed = 0
         self._deadlines: list[float] = []
@@ -252,10 +257,8 @@ class Executor:
 
     def log(self, message: str, *, level: str = "info", step_id: str | None = None) -> None:
         # Never persist configured credentials, even when accidentally used in a log step.
-        for key in ("database_url", "google_credentials_path"):
-            secret = self.config.get(key)
-            if secret:
-                message = message.replace(secret, "[gizlendi]")
+        for secret in self._secrets:
+            message = message.replace(secret, "[gizlendi]")
         message = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
         self.run.events.append(Event(message=message[:2000], level=level, step_id=step_id))
         self.run.events = self.run.events[-1000:]
@@ -318,61 +321,81 @@ class Executor:
 
     def steps(self, steps: list[Step]) -> None:
         for step in steps:
-            self.check_cancelled()
-            self.count_step()
-            raw = {**defaults(step.action), **step.params}
-            if step.action == "control.for_each" and "item_name" not in step.params:
-                # Imported pre-0.3 flows used item when this parameter was omitted.
-                raw["item_name"] = "item"
-            label = step.title or BY_TYPE[step.action]["label"]
-            self.log(f"Başladı: {label}", step_id=step.id)
-            if self.run.dry_run and step.action.startswith(EXTERNAL_PREFIXES):
-                self.mark_unknown(step, raw)
-                self.log(f"Önizleme: {label} harici işlem olduğu için atlandı.",
-                         level="warning", step_id=step.id)
-                continue
-            # Resolve selectors first; inactive target fields may contain old expressions.
-            selectors = {key for f in BY_TYPE[step.action]["fields"] for key in f.get("visible_when", {})}
-            if step.action in {"control.if", "control.while"}:
-                selectors.add("operator")
-            selected = {**raw, **{key: resolve(raw[key], self.variables) for key in selectors}}
-            active = active_fields(step.action, selected)
-            # Raw fields (e.g. Hesapla's expression) resolve ${...} themselves, as variable references.
-            p = {**resolve({f["name"]: selected[f["name"]] for f in active if not f.get("raw")}, self.variables),
-                 **{f["name"]: selected[f["name"]] for f in active if f.get("raw")}}
-            if has_unknown(p):
-                self.mark_unknown(step, raw)
-                self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
-                         level="warning", step_id=step.id)
-                continue
-            if step.action == "control.for_each":
-                self.for_each(step, p)
-            elif step.action == "control.while":
-                self.while_loop(step, raw, p)
-            elif step.action == "control.repeat":
-                self.repeat(step, p)
-            elif step.action == "control.try":
-                self.attempt(step, p)
-            elif step.action == "control.if":
-                verdict = compare(p["left"], p["operator"], p.get("right"))
-                self.log("Koşul: " + ("Evet" if verdict else "Değilse"), step_id=step.id)
-                self.steps(step.children if verdict else step.otherwise)
-            elif step.action == "control.break":
-                self.log("Döngüden çıkılıyor.", step_id=step.id)
-                raise BreakLoop()
-            elif step.action == "control.continue":
-                self.log("Sonraki tura geçiliyor.", step_id=step.id)
-                raise ContinueLoop()
-            elif step.action == "control.stop":
-                raise StopWorkflow(p.get("status", "success") == "success", str(p.get("message") or ""))
-            elif step.action == "control.run_workflow":
-                self.run_workflow(p)
-            else:
-                result = self.perform(step.action, p)
-                if p.get("output"):
-                    self.variables[variable_name(p["output"])] = result
-            self.check_cancelled()
-            self.log(f"Tamamlandı: {label}", step_id=step.id)
+            # Per-step counters let the diagram show what ran, how often and where it failed,
+            # even after a long loop has rotated the event log.
+            stats = self.run.step_stats.setdefault(step.id, {"runs": 0, "ok": 0, "errors": 0, "skipped": 0})
+            try:
+                outcome = self.step(step)
+            except CONTROL_SIGNALS:
+                raise
+            except Exception as exc:
+                if not getattr(exc, "rpa_step_counted", False):
+                    stats["errors"] += 1
+                    try:
+                        exc.rpa_step_counted = True
+                    except AttributeError:
+                        pass
+                raise
+            stats[outcome] += 1
+
+    def step(self, step: Step) -> str:
+        self.check_cancelled()
+        self.count_step()
+        self.run.step_stats[step.id]["runs"] += 1
+        raw = {**defaults(step.action), **step.params}
+        if step.action == "control.for_each" and "item_name" not in step.params:
+            # Imported pre-0.3 flows used item when this parameter was omitted.
+            raw["item_name"] = "item"
+        label = step.title or BY_TYPE[step.action]["label"]
+        self.log(f"Başladı: {label}", step_id=step.id)
+        if self.run.dry_run and step.action.startswith(EXTERNAL_PREFIXES):
+            self.mark_unknown(step, raw)
+            self.log(f"Önizleme: {label} harici işlem olduğu için atlandı.",
+                     level="warning", step_id=step.id)
+            return "skipped"
+        # Resolve selectors first; inactive target fields may contain old expressions.
+        selectors = {key for f in BY_TYPE[step.action]["fields"] for key in f.get("visible_when", {})}
+        if step.action in {"control.if", "control.while"}:
+            selectors.add("operator")
+        selected = {**raw, **{key: resolve(raw[key], self.variables) for key in selectors}}
+        active = active_fields(step.action, selected)
+        # Raw fields (e.g. Hesapla's expression) resolve ${...} themselves, as variable references.
+        p = {**resolve({f["name"]: selected[f["name"]] for f in active if not f.get("raw")}, self.variables),
+             **{f["name"]: selected[f["name"]] for f in active if f.get("raw")}}
+        if has_unknown(p):
+            self.mark_unknown(step, raw)
+            self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
+                     level="warning", step_id=step.id)
+            return "skipped"
+        if step.action == "control.for_each":
+            self.for_each(step, p)
+        elif step.action == "control.while":
+            self.while_loop(step, raw, p)
+        elif step.action == "control.repeat":
+            self.repeat(step, p)
+        elif step.action == "control.try":
+            self.attempt(step, p)
+        elif step.action == "control.if":
+            verdict = compare(p["left"], p["operator"], p.get("right"))
+            self.log("Koşul: " + ("Evet" if verdict else "Değilse"), step_id=step.id)
+            self.steps(step.children if verdict else step.otherwise)
+        elif step.action == "control.break":
+            self.log("Döngüden çıkılıyor.", step_id=step.id)
+            raise BreakLoop()
+        elif step.action == "control.continue":
+            self.log("Sonraki tura geçiliyor.", step_id=step.id)
+            raise ContinueLoop()
+        elif step.action == "control.stop":
+            raise StopWorkflow(p.get("status", "success") == "success", str(p.get("message") or ""))
+        elif step.action == "control.run_workflow":
+            self.run_workflow(p)
+        else:
+            result = self.perform(step.action, p)
+            if p.get("output"):
+                self.variables[variable_name(p["output"])] = result
+        self.check_cancelled()
+        self.log(f"Tamamlandı: {label}", step_id=step.id)
+        return "ok"
 
     def count_step(self) -> None:
         self.executed += 1
@@ -586,14 +609,13 @@ class Executor:
         elif action == "database.read":
             from .database.reader import ReadOnlyDatabase
 
-            if not self.config["database_url"]:
-                raise WorkflowError("Önce Ayarlar bölümünden veritabanı bağlantısını tanımlayın.")
-            if self._database is None:
-                self._database = self.resources.enter_context(ReadOnlyDatabase(
-                    self.config["database_url"], {t: None for t in self.config["allowed_tables"]},
+            profile = self.connections.resolve(p.get("connection"), "database")
+            if profile["id"] not in self._databases:
+                self._databases[profile["id"]] = self.resources.enter_context(ReadOnlyDatabase(
+                    profile["config"]["url"], {t: None for t in profile["config"]["allowed_tables"]},
                     max_rows=self.settings.max_rows, timeout_seconds=self.settings.action_timeout,
                 ))
-            frame = self._database.read_table(p["table"], columns=p["columns"], filters=p["filters"],
+            frame = self._databases[profile["id"]].read_table(p["table"], columns=p["columns"], filters=p["filters"],
                                               limit=int(p["limit"]))
             return json.loads(frame.to_json(orient="records", date_format="iso"))
         elif action == "desktop.find_window":
@@ -665,26 +687,22 @@ class Executor:
         elif action.startswith("sheets."):
             from .integrations.sheets import SheetsService, normalize_spreadsheet_id
 
-            script = self.config.get("sheets_connection") == "apps_script"
-            if script and not (self.config.get("sheets_script_url") and self.config.get("sheets_script_token")):
-                raise WorkflowError("Önce Bağlantılar ve ayarlar → Google Sheets bölümünde Apps Script adresini "
-                                    "tanımlayın.")
-            if not script and not self.config["google_credentials_path"]:
-                raise WorkflowError("Önce Bağlantılar ve ayarlar → Google Sheets bölümünde Apps Script bağlantısını "
-                                    "veya Google servis hesabı dosyasını tanımlayın.")
+            profile = self.connections.resolve(p.get("connection"), "google_sheets")
+            config = profile["config"]
+            script = config["method"] == "apps_script"
             try:
                 spreadsheet_id = normalize_spreadsheet_id(p["spreadsheet_id"])
             except ValueError as exc:
                 raise WorkflowError("Geçerli bir Google Sheets bağlantısı veya tablo kimliği girin.") from exc
-            key = (spreadsheet_id, p["worksheet"])
+            key = (profile["id"], spreadsheet_id, p["worksheet"])
             if key not in self._sheets:
                 if script:
                     from .integrations.apps_script import AppsScriptSheets
 
-                    service = AppsScriptSheets(self.config["sheets_script_url"], self.config["sheets_script_token"],
-                                               *key, timeout=max(self.settings.action_timeout, 60))
+                    service = AppsScriptSheets(config["script_url"], config["script_token"], *key[1:],
+                                               timeout=max(self.settings.action_timeout, 60))
                 else:
-                    service = SheetsService(self.config["google_credentials_path"], *key,
+                    service = SheetsService(config["credentials_path"], *key[1:],
                                             timeout=min(self.settings.action_timeout, 120))
                 self._sheets[key] = self.resources.enter_context(service)
             if action == "sheets.read":

@@ -205,26 +205,3 @@ def test_workflow_steps_use_apps_script_when_selected(tmp_path, monkeypatch):
     ]))
     assert [row[1] for row in fake.rows[1:4]] == ["Tamamlandı", "Tamamlandı", ""]
     assert sum(1 for request in fake.requests if request["action"] == "write") == 1
-
-
-def test_settings_keep_the_token_secret_and_serve_the_script(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from rpa_orkestrai.app import create_app
-
-    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as api:
-        first = api.post("/api/settings/apps-script/code", json={}).json()
-        assert "RPA_TOKEN" in first["code"]
-        token = first["code"].split('const RPA_TOKEN = "')[1].split('"')[0]
-        public = api.get("/api/settings").json()
-        assert token not in json.dumps(public) and public["sheets_script_configured"] is False
-        again = api.post("/api/settings/apps-script/code", json={}).json()
-        assert token in again["code"]
-        renewed = api.post("/api/settings/apps-script/code", json={"renew": True}).json()
-        assert token not in renewed["code"]
-        saved = api.put("/api/settings", json={"sheets_connection": "apps_script", "sheets_script_url": URL}).json()
-        assert saved["sheets_configured"] is True and saved["sheets_script_url"] == URL
-        assert api.put("/api/settings", json={"sheets_script_url": "https://example.com"}).status_code == 422
-        assert api.put("/api/settings", json={"sheets_connection": "ftp"}).status_code == 422
-        monkeypatch.setattr(AppsScriptSheets, "ping", lambda self: {"ok": True, "spreadsheet": "Faturalar"})
-        assert api.post("/api/settings/apps-script/test", json={}).json()["message"] == "Bağlantı çalışıyor: Faturalar."

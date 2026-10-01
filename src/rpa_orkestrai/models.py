@@ -98,6 +98,8 @@ class Run(Model):
     # A single-step test records the step and the variables it left behind.
     test_step_id: str | None = None
     variables: dict[str, Any] | None = None
+    # step id → {"runs", "ok", "errors", "skipped"}: shown on the diagram after a run.
+    step_stats: dict[str, dict[str, int]] = Field(default_factory=dict)
 
 
 class RunRequest(Model):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import platform
 import threading
 from contextlib import asynccontextmanager
@@ -60,6 +61,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         return RecorderView(stop, cancel) if native_available() else None
 
     records = RecordJobs(manager, windows_factory=WindowService, view_factory=recorder_view)
+    from .connections import Connections
+
+    connections = Connections(settings.data_dir, settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -196,7 +200,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
                 "runs": store.runs(), "catalog": library_catalog(), "settings": settings.public(),
                 "action_definitions": ACTION_DEFINITIONS + library_catalog(),
-                "favorites": store.favorites(), "updates": update_status()}
+                "favorites": store.favorites(), "updates": update_status(), "connections": connections.list()}
 
     def update_status():
         from .update_service import source_status
@@ -493,42 +497,93 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     def get_settings():
         return settings.public()
 
-    @app.post("/api/settings/apps-script/code")
-    def apps_script_code(body: dict = Body(default={})):
-        """Script to paste into the spreadsheet; a new token is created on request or when missing."""
-        from .integrations.apps_script import new_token, script_code
-
-        token = settings.get("sheets_script_token")
-        if body.get("renew") is True or not token:
-            token = new_token()
-            settings.update({"sheets_script_token": token})
-        return {"code": script_code(token), "settings": settings.public()}
-
-    @app.post("/api/settings/apps-script/test")
-    def apps_script_test(body: dict = Body(default={})):
-        from .integrations.apps_script import AppsScriptSheets, validate_url
-        from .integrations.sheets import normalize_spreadsheet_id
-
-        try:
-            url = validate_url(body.get("url") or settings.get("sheets_script_url"))
-            spreadsheet = body.get("spreadsheet") or ""
-            spreadsheet = normalize_spreadsheet_id(spreadsheet) if spreadsheet else "unused"
-            client = AppsScriptSheets(url, settings.get("sheets_script_token"), spreadsheet,
-                                      body.get("sheet") or "Sayfa1", timeout=30)
-            result = client.ping()
-            if body.get("spreadsheet"):
-                client.get_range("A1")
-        except (WorkflowError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        name = result.get("spreadsheet")
-        return {"ok": True, "message": f"Bağlantı çalışıyor{f': {name}' if name else ''}."}
-
     @app.put("/api/settings")
     def update_settings(body: dict = Body(...)):
         try:
             return settings.update(body)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/connections")
+    def list_connections():
+        return connections.list()
+
+    @app.post("/api/connections", status_code=201)
+    def create_connection(body: dict = Body(...)):
+        try:
+            return connections.create(body)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.put("/api/connections/{connection_id}")
+    def update_connection(connection_id: str, body: dict = Body(...)):
+        try:
+            return connections.update(connection_id, body)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/connections/{connection_id}", status_code=204)
+    def delete_connection(connection_id: str):
+        connections.delete(connection_id)
+        return Response(status_code=204)
+
+    @app.post("/api/connections/apps-script-code")
+    def connection_script_code(body: dict = Body(default={})):
+        """Script for a spreadsheet. A new profile gets a fresh token; an existing one keeps its own."""
+        from .integrations.apps_script import new_token, script_code
+
+        connection_id = body.get("id")
+        if connection_id:
+            token = connections.get(connection_id)["config"].get("script_token")
+            if body.get("renew") is True or not token:
+                token = new_token()
+                connections.update(connection_id, {"config": {"script_token": token}})
+        else:
+            token = new_token()
+        return {"code": script_code(token), "token": token}
+
+    @app.post("/api/connections/test")
+    def test_connection(body: dict = Body(...)):
+        from .integrations.apps_script import AppsScriptSheets
+        from .integrations.sheets import normalize_spreadsheet_id
+
+        kind = body.get("type")
+        stored = connections.get(body["id"]) if body.get("id") else {"config": {}}
+        try:
+            config = connections._clean(kind, body.get("config") or {}, stored["config"]) if kind in {
+                "google_sheets", "database"} else None
+            if config is None:
+                raise ValueError("Bağlantı türü geçersiz.")
+            spreadsheet = body.get("spreadsheet") or ""
+            if kind == "database":
+                from .database.reader import ReadOnlyDatabase
+
+                if not config["url"] or not config["allowed_tables"]:
+                    raise ValueError("Bağlantı adresini ve en az bir izinli tabloyu girin.")
+                with ReadOnlyDatabase(config["url"], {t: None for t in config["allowed_tables"]},
+                                      timeout_seconds=15) as database:
+                    with database._connection() as connection:
+                        connection.exec_driver_sql("SELECT 1")
+                return {"ok": True, "message": "Veritabanına bağlanıldı."}
+            if config["method"] == "apps_script":
+                client = AppsScriptSheets(config["script_url"], config["script_token"],
+                                          normalize_spreadsheet_id(spreadsheet) if spreadsheet else "unused",
+                                          body.get("sheet") or "Sayfa1", timeout=30)
+                name = client.ping().get("spreadsheet")
+                if spreadsheet:
+                    client.get_range("A1")
+                return {"ok": True, "message": f"Bağlantı çalışıyor{f': {name}' if name else ''}."}
+            path = Path(config["credentials_path"]).expanduser()
+            email = json.loads(path.read_text(encoding="utf-8")).get("client_email") if path.is_file() else None
+            if not email:
+                raise ValueError("Servis hesabı JSON dosyası bulunamadı veya geçersiz.")
+            return {"ok": True, "message": f"Anahtar dosyası geçerli. Tablonuzu {email} ile Düzenleyen olarak "
+                                           "paylaşın."}
+        except (WorkflowError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="Bağlantı kurulamadı. Adresi, kullanıcıyı ve ağ erişimini "
+                                                        "kontrol edin.") from exc
 
     static = Path(__file__).parent / "static"
     app.mount("/", StaticFiles(directory=static, html=True), name="studio")

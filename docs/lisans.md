@@ -10,7 +10,7 @@
 
 Şifre bu bilgisayara kaydedilmez. Bilgisayarda yalnız orkestrai.net'in imzaladığı lisans ile bu bilgisayara bağlı bir yenileme oturumu tutulur. Oturum, açılış ve yenilemelerle 30 gün boyunca kendini tazeler. Orkestrai.net'te şifreniz değişirse oturum kapanır ve yeniden giriş istenir.
 
-**Bağlantılar ve ayarlar → RpaOrkestrAI lisansı** bölümünde lisans durumunu görebilir, **Lisansı şimdi doğrula** ile hemen yenileyebilir veya **Oturumu kapat** ile başka bir kullanıcıya geçebilirsiniz. Oturumu kapatmak akışları ve bağlantı ayarlarını silmez.
+**Ayarlar → RpaOrkestrAI lisansı** bölümünde lisans durumunu görebilir, **Lisansı şimdi doğrula** ile hemen yenileyebilir veya **Oturumu kapat** ile başka bir kullanıcıya geçebilirsiniz. Oturumu kapatmak akışları ve bağlantı ayarlarını silmez.
 
 ### İnternet olmadığında
 
