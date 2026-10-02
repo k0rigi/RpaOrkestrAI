@@ -85,4 +85,4 @@ Anahtar farklıysa sunucudaki `/home/orkestrai.net/.orkestrai_rpa_lisans_ed25519
 
 Uygulama tarafında çalışma alanındaki `data/license.json` yalnız kurulum kimliğini, oturum belirtecini ve kullanıcı adını içerir; lisansın kendisi ve şifre yoktur. Dosya uygulamayı açmaz: onay her açılışta sunucudan alınır ve yalnız bellekte tutulur. Dosya silinir veya bozulursa yeniden giriş istenir.
 
-Canlı sunucunun hangi protokolü konuştuğu `anahtar` ucundaki `protokol` alanından görülür (0.8.0 için `2`).
+Canlı sunucunun protokolü ve lisans verdiği en düşük uygulama sürümü `anahtar` ucundaki `protokol` ve `asgari_surum` alanlarından görülür (şu an `2` ve `0.8.0`).

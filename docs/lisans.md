@@ -83,7 +83,7 @@ Kapanmış oturumlar 90 gün sonra silinir.
 | `POST https://orkestrai.net/api/rpa/lisans/giris` | Kullanıcı adı/e-posta, şifre ve cihaz kimliğiyle oturum açar ve lisans verir; hesabın başka bilgisayardaki oturumu kapanır. Web girişiyle aynı hatalı deneme sınırı (15 dakikada hesap başına 10) uygulanır. |
 | `POST https://orkestrai.net/api/rpa/lisans/yenile` | Cihaza bağlı oturumla taze lisans verir. Yetki, süre, oturum ve uygulama sürümü her seferinde veritabanından denetlenir. |
 | `POST https://orkestrai.net/api/rpa/lisans/cikis` | Uygulamadaki **Oturumu kapat**: bu bilgisayarın oturumunu sunucuda da kapatır. |
-| `GET https://orkestrai.net/api/rpa/lisans/anahtar` | Lisans imzasının açık anahtarı ve protokol numarası. Açık anahtar uygulamaya gömülüdür (`licensing.LICENSE_PUBLIC_KEY`). |
+| `GET https://orkestrai.net/api/rpa/lisans/anahtar` | Lisans imzasının açık anahtarı, protokol numarası ve lisans verilen en düşük uygulama sürümü (`asgari_surum`). Açık anahtar uygulamaya gömülüdür (`licensing.LICENSE_PUBLIC_KEY`). |
 
 Doğrulama şöyle çalışır (protokol 2):
 
@@ -91,7 +91,7 @@ Doğrulama şöyle çalışır (protokol 2):
 - Onay yalnız çalışan uygulamanın belleğinde tutulur. `data/license.json` dosyasında kurulum kimliği, oturum belirteci ve kullanıcı adı vardır; lisansın kendisi ve şifre yoktur.
 - Oturum belirteci her doğrulamada yenilenir ve bir sıra numarası taşır. Sunucu her hesap için tek etkin oturum tutar. Yanıtı yolda kaybolan bir istek aynı uygulama tarafından yinelenebilir; aynı oturumun başka bir kopyası ise fark edilir.
 - Yenileme aralığı (10 dakika) ve bağlantısız çalışma süresi (60 dakika) imzalı lisansın içinde gelir ve sunucuda (`api/app.py`: `RPA_YENILEME_ARALIGI`, `RPA_CALISMA_TOLERANSI`) ayarlanır. Uygulama bu değerleri 1–60 dakika ve 5 dakika–6 saat aralığına sınırlar.
-- Sunucu, `RPA_ASGARI_SURUM` değerinden eski uygulamalara lisans vermez. Güvenlikle ilgili bir sürüm yayımlandıktan sonra bu değer yükseltilir.
+- Sunucu, `RPA_ASGARI_SURUM` değerinden (şu an 0.8.0) eski uygulamalara lisans vermez; protokol 2 ve isteğe özel rastgele değer de zorunludur. Güvenlikle ilgili bir sürüm yayımlandıktan sonra bu değer yükseltilir.
 
 Lisans, orkestrai.net sunucusunda Ed25519 ile imzalanır. Özel anahtar `/home/orkestrai.net/.orkestrai_rpa_lisans_ed25519` dosyasında, web klasörünün dışında durur ve dağıtımlarla değişmez. Bu dosya silinirse sunucu yeni anahtar üretir. Bu durumda kurulu uygulamalar, yeni açık anahtarı içeren bir sürüm yayımlanana kadar lisans doğrulayamaz; güncelleme mekanizması lisanstan bağımsız çalışmaya devam eder. Bu nedenle dosyayı sunucu yedeğine dahil edin.
 
