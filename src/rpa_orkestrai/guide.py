@@ -7,13 +7,14 @@ fill every field that has none, first by (step, field) and then by field name.
 
 from __future__ import annotations
 
-WINDOW_FIRST = "Önce akışın başına Pencereyi tanı ekleyin; Pencere değişkeni onun çıktısıdır (${erp_window})."
+WINDOW_FIRST = "Önce akışın başına Pencereyi tanı ekleyin; bu adımın Pencere alanından o pencereyi seçin."
 PICK_TARGET = ("Ekranda seç'e basın, geri sayım bitmeden fareyi hedefin üzerine götürün. Uygulama destekliyorsa "
                "Alan kimliği seçeneğini kullanın.")
 TEST_HINT = "Bu adımı test et → Yeri göster, tıklamadan fareyi hedefe götürür."
 
 FIELD_HELP = {
-    "window": "Pencereyi tanı adımının çıktısı. Aynı pencerede çalışıyorsanız ${erp_window} olarak bırakın.",
+    "window": "Bu adımın çalışacağı pencere. Listede, önceki Pencereyi tanı adımlarında ad verdiğiniz pencereler "
+              "görünür.",
     "target_mode": "X / Y: Ekranda seç ile alınan nokta. Referans görsel: düğme yer değiştirse de bulunur. "
                    "Alan kimliği: uygulama destekliyorsa en sağlam yöntem.",
     "x": "Ekranın sol kenarından piksel. Fare konumunu al düğmesiyle doldurun.",
@@ -28,7 +29,7 @@ FIELD_HELP = {
     "relative_to": "Tanıtılan pencere seçilirse bölge pencerenin sol üst köşesine göre ölçülür; pencere taşınsa "
                    "da doğru kalır.",
     "worksheet": "Tablonun altındaki sekmenin adı; birebir aynı yazın (ör. Sayfa1).",
-    "output": "Sonucun saklanacağı değişken adı. Sonraki adımlarda ${ad} biçiminde kullanılır.",
+    "output": "Sonuca vereceğiniz ad. Yalnız adı yazın; ${ } işaretleri burada yazılmaz.",
     "left": "Karşılaştırılacak değer; genellikle bir değişken (ör. ${row.durum}).",
     "operator": "Sol değerin sağ değerle nasıl karşılaştırılacağı. Eşittir büyük/küçük harfe duyarlıdır; "
                 "İçerir duyarlı değildir.",
@@ -45,7 +46,7 @@ FIELD_HELP = {
     "title": "Pencerenin üstünde görünen başlık.",
     "text": "Sabit metin veya ${değişken}; ikisi birlikte de yazılabilir.",
     "value": "Sabit bir değer veya ${değişken}.",
-    "name": "Harfle başlayan, boşluksuz bir ad (ör. sayac). Sonra ${sayac} olarak kullanılır.",
+    "name": "Harfle başlayan, boşluksuz bir ad (ör. sayac). Yalnız adı yazın; ${ } işaretleri burada yazılmaz.",
     "spreadsheet_id": "Google Sheets tablosunun tarayıcıdaki adresinin tamamını yapıştırabilirsiniz.",
     "cell": "Hücre adresi (ör. C5). Döngüde geçerli satır için C${row.row_number} yazın.",
     "max_rows": "Okunacak en fazla satır sayısı. İlk denemede 1–2 yapın.",
@@ -184,8 +185,10 @@ GUIDES = {
     "desktop.find_window": guide(
         ["Otomasyon yapılacak uygulamayı açın.",
          "Açık pencerelerden seç ile pencereyi seçin; başlık değişiyorsa sabit kısmını yazıp İçerir seçin.",
-         "Şimdi kontrol et ile bulunduğunu doğrulayın."],
-        "${erp_window}: pencere. Sonraki pencere adımlarının Pencere değişkeni alanına yazılır.",
+         "Şimdi kontrol et ile bulunduğunu doğrulayın.",
+         "Pencereye verilecek ad alanına kısa bir ad yazın (ör. erp_window). Yalnız ad; ${ } işaretleri olmadan."],
+        "Pencere bu adla saklanır. Sonraki pencere adımlarının Pencere alanında listeden seçilir. "
+        "${erp_window.found}, pencerenin açık olup olmadığını verir.",
         "Akışın ilk adımlarından biri olmalı. Her pencere adımı bu çıktıyı kullanır."),
     "desktop.window_click": guide(
         [WINDOW_FIRST, PICK_TARGET, "Kayıt açmak için Tıklama sayısını Çift tık yapın."],

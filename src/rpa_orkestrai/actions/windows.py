@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from ..desktop.windows import WindowError
+from ..desktop.windows import WindowError, found_window
 from ..errors import WorkflowError
 from . import handler
 from .common import choice, integer, number
 
 
 def _window(p):
-    window = p.get("window")
-    if not isinstance(window, dict) or window.get("found") is not True:
-        raise WorkflowError("Pencere değişkeni bulunan bir pencere olmalıdır. Önce Pencereyi tanı adımı ekleyin; "
-                            "pencere bulunamadıysa bu adımı ${erp_window.found} koşuluna bağlayın.")
-    return window
+    try:
+        return found_window(p.get("window"))
+    except WindowError as exc:
+        raise WorkflowError(str(exc)) from exc
 
 
 @handler("window.activate")

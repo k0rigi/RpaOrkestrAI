@@ -27,6 +27,7 @@
     testValues: {},
     connections: [],
     quickGuide: [],
+    manualFields: new Set(),
     diagram: { x: 0, y: 0, k: 1, workflowId: null, fitted: false, hiddenRun: null, moving: null },
     diagramLibraryHidden: (() => { try { return localStorage.getItem("rpa.diagramLibrary") !== "shown"; } catch { return true; } })(),
     canvasView: (() => { try { return localStorage.getItem("rpa.canvasView") || "list"; } catch { return "list"; } })(),
@@ -627,7 +628,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.7.2"}`),
+      node("span", "version", `v${state.version || "0.7.3"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1319,6 +1320,12 @@
     (spec.fields || []).forEach((f) => {
       if (f.default !== undefined && f.default !== null)
         params[f.name] = clone(f.default);
+    });
+    (spec.fields || []).forEach((f) => {
+      if (f.reference !== "window") return;
+      const names = [...windowSources(null).keys()];
+      const current = String(params[f.name] || "").match(/^\$\{([^}.]+)\}$/)?.[1];
+      if (names.length && !names.includes(current)) params[f.name] = "${" + names.at(-1) + "}";
     });
     if (spec.type === "desktop.window_fill" && parentId) {
       const loop = [...(enclosingSteps(parentId) || []), findStep(parentId)?.step].filter(Boolean).reverse()
@@ -2842,11 +2849,30 @@
         inputs.set(name, input);
         return field("${" + name + "}", input, help);
       };
-      if (plan.manual.length) {
+      const reasons = new Map((plan.manual_details || []).map((item) => [item.variable, item]));
+      const missing = plan.manual.filter((name) => reasons.get(name)?.reason === "missing");
+      const acting = plan.manual.filter((name) => !missing.includes(name));
+      if (missing.length) {
+        // No earlier step gives this name: the flow itself has to be corrected, not the test.
+        body.append(node("h3", "", "Bulunamayan değerler"));
+        missing.forEach((name) => {
+          const suggestion = reasons.get(name).suggestion;
+          body.append(note(`\${${name}} adını veren bir adım bu adımdan önce yok.${suggestion ? ` Şunu mu demek istediniz: \${${suggestion}}?` : ""} Adımdaki adı düzeltin veya bu adı veren adımı (ör. Pencereyi tanı, Değişken ata) ekleyin.`, "warning"));
+        });
+        const typed = node("details", "step-test-custom step-test-missing");
+        typed.append(node("summary", "", "Yine de bir değer yazarak denemek istiyorum"));
+        missing.forEach((name) => {
+          typed.append(valueInput(name));
+          inputs.get(name).value = state.testValues[name] ?? "";
+        });
+        body.append(typed);
+      }
+      if (acting.length) {
         body.append(node("h3", "", "Girmeniz gereken değerler"),
-          node("p", "help", "Bu değerleri üreten adım testte kendiliğinden çalıştırılamıyor (ör. tıklama yapan veya size soru soran bir adım). Örnek bir değer yazın; nesne için JSON kullanılabilir: {\"form_id\": \"INV-1\"}."));
-        plan.manual.forEach((name) => {
-          const wrap = valueInput(name);
+          node("p", "help", "Bu değerleri üreten adım tıklama yaptığı veya size soru sorduğu için testte kendiliğinden çalıştırılmaz. Örnek bir değer yazın; nesne için JSON kullanılabilir: {\"form_id\": \"INV-1\"}."));
+        acting.forEach((name) => {
+          const source = reasons.get(name)?.title;
+          const wrap = valueInput(name, source ? `“${source}” adımı üretir.` : "");
           inputs.get(name).value = state.testValues[name] ?? "";
           body.append(wrap);
         });
@@ -2886,7 +2912,8 @@
         const variables = {};
         inputs.forEach((input, name) => {
           if (plan.manual.includes(name)) state.testValues[name] = input.value;
-          if (input.value.trim() || plan.manual.includes(name)) variables[name] = parseTestValue(input.value);
+          // An empty box sends nothing: the run then names the missing value instead of using "".
+          if (input.value.trim()) variables[name] = parseTestValue(input.value);
         });
         result.replaceChildren(node("p", "help", "Test başlatılıyor…"));
         try {
@@ -3080,13 +3107,120 @@
     }
     return null;
   }
-  function recognizedWindowFor(step) {
+  // ----- names a step gives to its result, and the windows earlier steps named ----------
+  const VARIABLE_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+  function unwrapName(value) {
+    // ${erp_window} typed where only the name belongs means erp_window.
+    const wrapped = String(value).trim().match(/^\$\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}$/);
+    return wrapped ? wrapped[1] : String(value);
+  }
+  function tidyName(value) {
+    // On leaving the field, what was typed becomes a valid name: "Fatura No" → Fatura_No, müşteri → musteri.
+    const plain = { ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u", Ç: "C", Ğ: "G", İ: "I", Ö: "O", Ş: "S", Ü: "U" };
+    return String(value).replace(/[${}]/g, "").trim()
+      .replace(/[çğıöşüÇĞİÖŞÜ]/g, (letter) => plain[letter])
+      .replace(/[^A-Za-z0-9_]+/g, "_").replace(/^[0-9_]+/, "").replace(/_+$/, "").slice(0, 64);
+  }
+  function windowSources(step) {
+    // Every window an earlier step named, in flow order: name → the step that named it.
+    const flow = allSteps(state.workflow?.steps || []);
+    const index = flow.indexOf(step);
+    const sources = new Map();
+    flow.slice(0, index < 0 ? flow.length : index).forEach((item) => {
+      if (!["desktop.find_window", "window.move"].includes(item.action)) return;
+      const name = parameterValue(item, "output");
+      if (typeof name !== "string" || !VARIABLE_NAME.test(name)) return;
+      if (item.action === "desktop.find_window" || !sources.has(name)) sources.set(name, item);
+    });
+    return sources;
+  }
+  function recognizedWindowFor(step, depth = 0) {
     const reference = String(parameterValue(step, "window") || "").match(/^\$\{([^}.]+)\}$/);
     if (!reference) return null;
-    return (precedingSteps(step.id) || []).reverse().find(
-      (candidate) => candidate.action === "desktop.find_window" &&
-        parameterValue(candidate, "output") === reference[1],
-    ) || null;
+    const source = windowSources(step).get(reference[1]);
+    if (!source) return null;
+    // A moved window keeps the identity of the step that found it.
+    if (source.action === "desktop.find_window") return source;
+    return depth < 5 ? recognizedWindowFor(source, depth + 1) : null;
+  }
+  function windowReferenceField(step, f, changed) {
+    // "Pencere": chosen from the windows named so far, so nobody has to type ${erp_window}.
+    const key = `${step.id}:${f.name}`;
+    const value = parameterValue(step, f.name);
+    const text = typeof value === "string" ? value : "";
+    const sources = windowSources(step);
+    const reference = text.match(/^\$\{([A-Za-z][A-Za-z0-9_]*)\}$/);
+    const known = Boolean(reference && sources.has(reference[1]));
+    const manual = state.manualFields.has(key) || !sources.size || (text !== "" && !reference);
+    const id = `window-reference-${step.id}-${f.name}`;
+    const rerender = () => {
+      renderInspector();
+      document.getElementById(id)?.focus({ preventScroll: true });
+    };
+    let control;
+    if (manual) {
+      control = textInput(text, "${erp_window}");
+      control.spellcheck = false;
+      control.addEventListener("input", () => {
+        step.params[f.name] = control.value.trim();
+        markDirty();
+        paintState();
+        changed();
+      });
+    } else {
+      control = node("select");
+      const option = (optionValue, label) => {
+        const el = node("option", "", label);
+        el.value = optionValue;
+        control.append(el);
+      };
+      if (text === "") option("", "Pencere seçin…");
+      sources.forEach((item, name) =>
+        option("${" + name + "}", `${item.title || specFor(item.action).label} · \${${name}}`));
+      if (reference && !known) option(text, `${text} · bu adı veren adım yok`);
+      option("__manual__", "Elle yaz…");
+      control.value = text;
+      control.addEventListener("change", () => {
+        if (control.value === "__manual__") state.manualFields.add(key);
+        else {
+          state.manualFields.delete(key);
+          step.params[f.name] = control.value;
+          markDirty();
+        }
+        rerender();
+      });
+    }
+    control.id = id;
+    const wrap = field(f.label || "Pencere", control, f.help, f.required);
+    wrap.classList.add("window-reference");
+    const status = node("div", "window-reference-state");
+    wrap.append(status);
+    function paintState() {
+      const current = String(parameterValue(step, f.name) ?? "");
+      const named = current.match(/^\$\{([A-Za-z][A-Za-z0-9_]*)\}$/);
+      status.replaceChildren();
+      if (!sources.size)
+        status.append(note("Bu adımdan önce pencereye ad veren bir Pencereyi tanı adımı yok. Önce onu ekleyin; pencere burada listelenir.", "warning"));
+      else if (current === "")
+        status.append(note("Bu adımın çalışacağı pencereyi seçin.", "warning"));
+      else if (named && !sources.has(named[1]))
+        status.append(note(`${current} adını veren bir adım bu adımdan önce yok. Listeden bir pencere seçin.`, "warning"));
+      else if (!named)
+        status.append(note("Pencere, Pencereyi tanı adımında verilen adla ${ad} biçiminde yazılır.", "warning"));
+    }
+    paintState();
+    if (manual && sources.size) {
+      wrap.append(linkButton("Listeden seç", () => {
+        state.manualFields.delete(key);
+        const current = String(parameterValue(step, f.name) ?? "").match(/^\$\{([A-Za-z][A-Za-z0-9_]*)\}$/);
+        if (!current || !sources.has(current[1])) {
+          step.params[f.name] = "${" + [...sources.keys()].at(-1) + "}";
+          markDirty();
+        }
+        rerender();
+      }, "menu"));
+    }
+    return wrap;
   }
   function applyStepParams(step, values) {
     Object.assign(step.params, values);
@@ -3111,7 +3245,7 @@
     if (recognized) {
       tools.append(node("p", "help", `Pencere: ${recognized.params?.title || recognized.title}. Ekranda seç ile geri sayımdan sonra fare konumunu alın veya görsel alanını sürükleyerek seçin. Uygulama alan kimliği veriyorsa alan, ekran boyutundan bağımsız olarak kimliğiyle bulunur.`));
     } else {
-      tools.append(node("p", "help", "Önce bu adımın önüne Pencereyi tanıt ekleyin. Pencere alanında onun çıktısını kullanın; örneğin ${erp_window}."));
+      tools.append(node("p", "help", "Hedefi ekrandan seçmek için önce aşağıdaki Pencere alanından pencereyi seçin. Listede, önceki Pencereyi tanı adımlarında ad verdiğiniz pencereler görünür."));
     }
     tools.append(availability);
     if (busy) availability.textContent = "Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya akışı durdurun.";
@@ -3849,6 +3983,15 @@
         pane.append(connectionField(step, f));
         return;
       }
+      if (f.reference === "window") {
+        pane.append(windowReferenceField(step, f, () => {
+          if (!targetTools) return;
+          const updated = windowTargetTools(step);
+          targetTools.replaceWith(updated);
+          targetTools = updated;
+        }));
+        return;
+      }
       let control, jsonMode;
       const value = parameterValue(step, f.name);
       if (state.drafts.has(key)) state.fieldErrors.add(key);
@@ -3971,7 +4114,35 @@
         control.classList.add("invalid");
         error.textContent = "Değer, seçilen veri türüne uygun değil.";
       }
+      let paintUsage = null;
+      if (f.variable) {
+        // Only the name is typed here; the line below shows how later steps use it.
+        control.spellcheck = false;
+        const usage = node("p", "help variable-usage");
+        wrap.append(usage);
+        paintUsage = () => {
+          const name = control.value.trim();
+          const valid = VARIABLE_NAME.test(name);
+          usage.classList.toggle("invalid", !valid);
+          usage.replaceChildren();
+          if (valid) usage.append(node("span", "", "Sonraki adımlarda şöyle kullanılır: "), node("code", "mono", "${" + name + "}"));
+          else usage.textContent = "Yalnız adı yazın: harfle başlar; İngilizce harf, rakam ve alt çizgi içerir (ör. erp_window).";
+        };
+        paintUsage();
+        control.addEventListener("change", () => {
+          const tidy = tidyName(control.value);
+          if (tidy && tidy !== control.value) {
+            control.value = tidy;
+            change();
+          }
+        });
+      }
       const change = () => {
+        if (f.variable) {
+          const bare = unwrapName(control.value);
+          if (bare !== control.value) control.value = bare;
+          paintUsage();
+        }
         let next = control.value;
         const invalid = (message) => {
           state.fieldErrors.add(key);
@@ -4032,11 +4203,6 @@
         else step.params[f.name] = next;
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();
-        if (f.name === "window" && targetTools) {
-          const updated = windowTargetTools(step);
-          targetTools.replaceWith(updated);
-          targetTools = updated;
-        }
         markDirty();
         if (f.name === "output") renderCanvas();
         if ((spec.fields || []).some((definition) => Object.hasOwn(definition.visible_when || {}, f.name)) ||

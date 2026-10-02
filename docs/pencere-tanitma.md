@@ -9,9 +9,10 @@ Bu rehber 0.6.0 sürümündeki pencere tanıma, fareyle hedef seçimi ve alan ki
 3. Sağ panelde **Açık pencerelerden seç** düğmesine basıp ERP penceresini seçin. Uygulama adı ve başlığı doldurulur.
 4. **Şimdi kontrol et** ile eşleşmeyi doğrulayın. Bu düğme pencere bilgilerini okur; tıklama veya yazma yapmaz.
 5. Başlık belge numarası gibi değişken bilgi içeriyorsa sabit kısmını yazıp **İçerir** seçin. Uygulama adı tam eşleşir. Birden fazla pencere eşleşirse daha belirgin başlık kullanın.
-6. Akışı kaydedin. Pencere her çalıştırmada yeniden bulunur; geçici pencere kimliği akış dosyasına kaydedilmez.
+6. **Pencereye verilecek ad** alanında pencereye kısa bir ad verin; varsayılan `erp_window`. Buraya yalnız ad yazılır, `${ }` işaretleri yazılmaz. `${erp_window}` yazarsanız uygulama bunu `erp_window` olarak düzeltir.
+7. Akışı kaydedin. Pencere her çalıştırmada yeniden bulunur; geçici pencere kimliği akış dosyasına kaydedilmez.
 
-Varsayılan çıktı `erp_window` olur. `${erp_window.found}` pencerenin bulunup bulunmadığını, `${erp_window}` ise sonraki pencere adımlarına verilecek pencere bilgisini taşır. Bulunan sonuç ayrıca `title`, `application`, `x`, `y`, `width`, `height` alanlarını içerir. Bulunamayan sonuç yalnız `found: false` içerir.
+Sonraki pencere adımlarında (**Pencerede tıkla**, **Alanı doldur** vb.) **Pencere** alanı bir listedir: önceki **Pencereyi tanı** adımlarında ad verdiğiniz pencereler görünür, yazmanız gerekmez. `${erp_window.found}` pencerenin bulunup bulunmadığını verir. Bulunan sonuç ayrıca `title`, `application`, `x`, `y`, `width`, `height` alanlarını içerir. Bulunamayan sonuç yalnız `found: false` içerir.
 
 Varsayılan olarak pencere 5 saniye beklenir; bulunamazsa akış durur. Alternatif olarak **Bulunamadı sonucu ile devam et** seçip sonraki **Koşul** adımında `${erp_window.found}` değerini **Dolu / doğru** ile değerlendirin. ERP işlemlerini koşulun Evet dalına yerleştirin.
 
@@ -21,7 +22,7 @@ Pencere tanıma uygulama adı ve başlığını denetler. Aynı başlık altınd
 
 **Alanı doldur**, hedef alanı bulur, tıklar ve değeri yazar. Bu işlem için ayrıca **Pencerede tıkla** eklemek gerekmez.
 
-- **Pencere değişkeni:** `${erp_window}`.
+- **Pencere:** listeden, **Pencereyi tanı** adımında ad verdiğiniz pencereyi seçin.
 - **Yazılacak değer:** tek hücre okuduysanız `${cell_value}`; **Sheets satırlarını oku** adımında B sütununa `form_id` adını verdiyseniz `${row.form_id}`. Eski **Sheets sütununu oku** akışlarında `${row.value}` geçerlidir.
 - **Önce alandaki mevcut değeri temizle:** açık bırakın. Önceki satırın değeri temizlenip yenisi yazılır; kapatırsanız mevcut değere ekleme yapılır.
 

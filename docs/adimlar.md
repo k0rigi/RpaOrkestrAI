@@ -51,6 +51,15 @@ Studio'nun kendi pencerelerindeki ve kayıt kutusundaki tıklamalar kaydedilmez.
 - **Windows:** Yönetici olarak çalışan uygulamalardaki hareketler, RpaOrkestrAI de yönetici olarak çalışmıyorsa kaydedilemez.
 - Kayıt en fazla 30 dakika ve 5.000 hareket sürer. Şifre yazmayın; yazdığınız her şey adım olur.
 
+## Adlar ve değişkenler
+
+Bir adımın sonucu bir **adla** saklanır, sonraki adımlar o adı `${ad}` biçiminde kullanır.
+
+- **Ad verilen alanlar** (ör. **Pencereye verilecek ad**, **Sonucu değişkene kaydet**, **Değişken adı**): yalnız adı yazın, ör. `erp_window`. `${ }` işaretleri burada yazılmaz. Ad harfle başlar; İngilizce harf, rakam ve alt çizgi içerir. `${erp_window}` yazarsanız `erp_window` olarak, alandan çıkınca `Fatura No` gibi bir yazım `Fatura_No` olarak düzeltilir. Alanın altında adın sonraki adımlarda nasıl kullanılacağı görünür.
+- **Değerin kullanıldığı alanlar** (ör. **Yazılacak değer**, **Sol değer**): `${erp_window}`, `${row.form_id}` gibi `${ }` ile yazılır. Sağ paneldeki **Akış değişkenleri** etiketine tıklayınca kopyalanır.
+- **Pencere** alanı listedir: önceki **Pencereyi tanı** adımlarında ad verdiğiniz pencerelerden seçilir. Seçili ad önceki adımlarda yoksa alanın altında uyarı çıkar.
+- Bir adımın kullandığı adı hiçbir önceki adım vermiyorsa **Bu adımı test et** bunu "Bulunamayan değerler" başlığıyla söyler ve yakın bir ad varsa önerir.
+
 ## Hazır değişkenler
 
 Her çalışmada `${sistem}` hazır gelir. Aynı akış Windows'ta ve Mac'te doğru klasörü bulur.

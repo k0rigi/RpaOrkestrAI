@@ -4309,3 +4309,27 @@ body.dragging-step .edge-insert,
   background: var(--bg);
   color: var(--ink);
 }
+
+/* ----- names and window choice --------------------------------------------------------- */
+.variable-usage code {
+  padding: 1px 5px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-s);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+.variable-usage.invalid {
+  color: var(--err);
+}
+.window-reference-state .note {
+  margin-top: 8px;
+}
+.window-reference-state:empty {
+  display: none;
+}
+.window-reference .link-button {
+  margin-top: 6px;
+}
+.step-test-missing {
+  margin-bottom: 12px;
+}

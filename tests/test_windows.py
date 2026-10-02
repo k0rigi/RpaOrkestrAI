@@ -90,8 +90,11 @@ def test_lost_focus_and_missing_result_stop_input(service, window, monkeypatch):
     monkeypatch.setattr('rpa_orkestrai.desktop.windows.time.monotonic', Mock(side_effect=[0, 3]))
     with pytest.raises(WindowError, match='öne getirilemedi'):
         service.write(window.result(), 'invoice', desktop)
-    with pytest.raises(WindowError, match='Önce'):
+    with pytest.raises(WindowError, match='Pencere bulunamadığı için'):
         service.click({'found': False}, 10, 10, desktop)
+    # A value that is not a window at all (an empty or mistyped Pencere field) says where to fix it.
+    with pytest.raises(WindowError, match='Pencere alanındaki değer bir pencere değil'):
+        service.click('', 10, 10, desktop)
     desktop.write.assert_not_called()
     desktop.click.assert_not_called()
 

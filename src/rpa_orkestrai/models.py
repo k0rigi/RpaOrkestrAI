@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
@@ -19,6 +20,12 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+# Parameters that hold the *name* a step gives to its result; "name" only for these two steps.
+NAME_PARAMETERS = ("output", "item_name", "error_name")
+NAMING_ACTIONS = {"core.set", "data.append"}
+WRAPPED_NAME = re.compile(r"\$\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}")
+
+
 class Step(Model):
     id: str = Field(default_factory=uid, pattern=r"^[a-zA-Z0-9_-]{1,80}$")
     title: str = Field(default="", max_length=200)
@@ -35,6 +42,17 @@ class Step(Model):
         if value is not None and any(abs(part) > 5000 for part in value):
             raise ValueError("Kutu konumu geçerli aralıkta olmalıdır.")
         return value
+
+    @model_validator(mode="after")
+    def bare_result_names(self) -> Step:
+        """A name typed the way it is later used (${erp_window}) means the name itself (erp_window)."""
+        keys = (*NAME_PARAMETERS, "name") if self.action in NAMING_ACTIONS else NAME_PARAMETERS
+        for key in keys:
+            value = self.params.get(key)
+            if isinstance(value, str):
+                wrapped = WRAPPED_NAME.fullmatch(value.strip())
+                self.params[key] = wrapped.group(1) if wrapped else value.strip()
+        return self
 
 
 class WorkflowInput(Model):

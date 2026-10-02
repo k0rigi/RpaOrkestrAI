@@ -258,7 +258,10 @@ def test_picker_coordinates_reference_offset_legacy_conversion_and_saved_loop(tm
             assert "item_name" not in saved["steps"][4]["params"]
             assert saved["steps"][5]["params"]["template"] == "captured-reference.png"
             # A reference to a missing recognizer disables capture without touching ERP.
-            page.get_by_label("Pencere değişkeni", exact=False).fill("${missing_window}")
+            # (The window is chosen from a list; typing a name that no step gives is still possible.)
+            page.locator("#inspector .window-reference select").select_option("__manual__")
+            page.locator("#inspector .window-reference input").fill("${missing_window}")
+            playwright.expect(page.locator("#inspector .window-reference-state")).to_contain_text("bu adımdan önce yok")
             playwright.expect(page.get_by_role("button", name="Görüntü üzerinde seç", exact=True)).to_be_disabled()
             playwright.expect(page.get_by_role("button", name="Ekranda seç", exact=True)).to_be_disabled()
             page.locator(".library-action").filter(has_text="Her satır için").click()
@@ -418,6 +421,9 @@ def test_drag_drop_library_search_and_single_step_test(tmp_path):
             page.locator('[data-step-id="calc"]').click()
             page.get_by_role("button", name="Bu adımı test et", exact=True).click()
             dialog = page.locator("dialog.step-test-dialog")
+            # Nothing before this step gives these names: the dialog says so, and a value can still be typed.
+            playwright.expect(dialog).to_contain_text("${sayac} adını veren bir adım bu adımdan önce yok")
+            dialog.locator(".step-test-missing summary").click()
             playwright.expect(dialog.get_by_label("${sayac}")).to_be_visible()
             dialog.get_by_label("${sayac}").fill("40")
             dialog.get_by_label("${adet}").fill("2")
@@ -811,4 +817,98 @@ def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
             dialog.get_by_role("button", name="Tekrar test et").click()
             playwright.expect(dialog.locator(".step-test-log")).to_contain_text("Koşul: Değilse")
             browser.close()
+    assert not errors
+
+
+def test_names_are_typed_bare_and_windows_are_chosen_from_a_list(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors, shots = [], os.environ.get("RPA_UI_SHOTS")
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        # The name was typed the way it is used later (${erp_window}); the flow must still work.
+        response = client.post("/api/workflows", json={"name": "Adlar", "steps": [
+            {"id": "window", "action": "desktop.find_window", "title": "CaniasBsgt31", "params": {
+                "application": "", "title": "CANIAS", "match": "contains", "output": "${erp_window}"}},
+            {"id": "click", "action": "desktop.window_click", "title": "Ara'ya tıkla", "params": {
+                "window": "${erp_window}", "target_mode": "coordinates", "x": 40, "y": 60}},
+            {"id": "note", "action": "core.log", "title": "Not", "params": {"message": "${erp_windov.title}"}},
+        ]})
+        assert response.status_code == 201, response.text
+        workflow_id = response.json()["id"]
+        assert response.json()["steps"][0]["params"]["output"] == "erp_window"
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Adlar", exact=True).click()
+            inspector = page.locator("#inspector")
+
+            # The click step finds its window: the list offers it and the picker is not blocked by it.
+            page.locator('[data-step-id="click"]').click()
+            choice = inspector.locator(".window-reference select")
+            playwright.expect(choice).to_have_value("${erp_window}")
+            assert any("CaniasBsgt31" in text for text in choice.locator("option").all_inner_texts())
+            playwright.expect(inspector.locator(".window-reference-state")).to_be_hidden()
+            inspector.get_by_role("button", name="Bu adımı test et").click()
+            dialog = page.locator("dialog.step-test-dialog")
+            playwright.expect(dialog.locator(".step-test-sources")).to_contain_text("${erp_window}")
+            playwright.expect(dialog.locator("textarea:visible")).to_have_count(0)
+            dialog.get_by_role("button", name="Kapat").click()
+
+            # In the name field ${canias} becomes canias, and the line below shows how it is used.
+            page.locator('[data-step-id="window"]').click()
+            name = inspector.get_by_label("Pencereye verilecek ad", exact=False)
+            playwright.expect(name).to_have_value("erp_window")
+            name.fill("${canias}")
+            playwright.expect(name).to_have_value("canias")
+            playwright.expect(inspector.locator(".variable-usage")).to_contain_text("${canias}")
+            name.fill("Canias penceresi")
+            playwright.expect(inspector.locator(".variable-usage.invalid")).to_contain_text("Yalnız adı yazın")
+            name.blur()
+            playwright.expect(name).to_have_value("Canias_penceresi")
+            playwright.expect(inspector.locator(".variable-usage")).to_contain_text("${Canias_penceresi}")
+            if shots:
+                page.screenshot(path=f"{shots}/name-field.png")
+
+            # The click step still points at the old name: it says so and offers the list.
+            page.locator('[data-step-id="click"]').click()
+            playwright.expect(inspector.locator(".window-reference-state")).to_contain_text(
+                "${erp_window} adını veren bir adım bu adımdan önce yok")
+            if shots:
+                page.screenshot(path=f"{shots}/window-missing.png")
+            inspector.locator(".window-reference select").select_option("${Canias_penceresi}")
+            playwright.expect(inspector.locator(".window-reference-state")).to_be_hidden()
+
+            # A step added now starts with the window this flow named.
+            page.get_by_role("button", name="Liste", exact=True).click()
+            page.locator(".library-action").filter(has_text="Alanı doldur").click()
+            playwright.expect(inspector.locator(".window-reference select")).to_have_value("${Canias_penceresi}")
+
+            # A misspelt name in another step: the test explains it and suggests the close one.
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            page.locator('[data-step-id="note"]').click()
+            inspector.get_by_role("button", name="Bu adımı test et").click()
+            playwright.expect(dialog).to_contain_text("${erp_windov} adını veren bir adım bu adımdan önce yok")
+            playwright.expect(dialog.locator("textarea:visible")).to_have_count(0)
+            if shots:
+                page.screenshot(path=f"{shots}/test-missing.png")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        assert saved["steps"][0]["params"]["output"] == "Canias_penceresi"
+        assert saved["steps"][1]["params"]["window"] == "${Canias_penceresi}"
     assert not errors

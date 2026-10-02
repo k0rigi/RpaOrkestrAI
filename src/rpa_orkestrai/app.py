@@ -472,7 +472,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         plan = step_test_plan(store.workflow(workflow_id), step_id)
         return {"prepare": [{"variable": entry["variable"], "kind": entry["kind"], "title": entry["title"],
                              "action": entry["step"].action} for entry in plan["prepare"]],
-                "manual": plan["manual"], "locatable": plan["locatable"], "external": plan["external"],
+                "manual": plan["manual"], "manual_details": plan["manual_details"],
+                "locatable": plan["locatable"], "external": plan["external"],
                 "in_loop": plan["in_loop"]}
 
     @app.post("/api/workflows/{workflow_id}/steps/{step_id}/test", status_code=202)

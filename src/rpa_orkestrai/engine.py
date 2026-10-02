@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import difflib
 import json
 import math
 import operator
@@ -56,9 +57,13 @@ REFERENCE = re.compile(r"\$\{([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)\}")
 VARIABLE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
 
+NAME_RULE = ("Ad harfle başlamalı; yalnız İngilizce harf, rakam ve alt çizgi içerebilir "
+             "(boşluk ve ç, ğ, ı, ö, ş, ü olmaz). Örnek: erp_window")
+
+
 def variable_name(value: Any) -> str:
     if not isinstance(value, str) or not VARIABLE.fullmatch(value):
-        raise WorkflowError("Değişken adı harfle başlamalı; yalnız harf, rakam ve alt çizgi içermelidir.")
+        raise WorkflowError(f"Değişken adı geçersiz. {NAME_RULE}")
     return value
 
 
@@ -141,9 +146,13 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool =
                                 or not math.isfinite(value) or value < f.get("min", -math.inf)
                                 or value > f.get("max", math.inf)):
                             raise WorkflowError(f"{step.title or step.action}: {f['label']} geçerli aralıkta olmalıdır.")
-                for key in ("output", "name", "item_name"):
-                    if key in parameters:
-                        variable_name(parameters[key])
+                for key in ("output", "name", "item_name", "error_name"):
+                    if key in parameters and not (isinstance(parameters[key], str)
+                                                  and VARIABLE.fullmatch(parameters[key])):
+                        label = next((f["label"] for f in fields if f["name"] == key), key)
+                        raise WorkflowError(
+                            f"{step.title or BY_TYPE[step.action]['label']}: “{label}” alanına yalnız bir ad yazın; "
+                            f"şu an “{str(parameters[key])[:60]}” yazıyor. {NAME_RULE}")
                 if parameters.get("item_name") == "loop_index":
                     raise WorkflowError("loop_index döngü sayacı için ayrılmıştır; başka bir öğe adı seçin.")
                 if step.action in {"control.break", "control.continue"} and not in_loop:
@@ -922,7 +931,20 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict
     if target_frames is None:
         raise KeyError(step_id)
     target = target_frames[-1][0][target_frames[-1][1]]
-    provided, entries, manual, planned = set(provided), [], [], set()
+    provided, entries, manual, details, planned = set(provided), [], [], [], set()
+    flat = [item for top in workflow.steps for item in descendants(top)]
+    earlier = flat[:next(index for index, item in enumerate(flat) if item.id == step_id)]
+
+    def unknown(name: str) -> dict:
+        """No earlier step gives this name: usually a typing difference, so offer the closest name."""
+        names = {}
+        for item in earlier:
+            p = parameters(item)
+            for key in ("output", "item_name", "error_name", *(("name",) if item.action in {"core.set", "data.append"} else ())):
+                if isinstance(p.get(key), str) and VARIABLE.fullmatch(p[key]):
+                    names[p[key].casefold()] = p[key]
+        close = difflib.get_close_matches(name.casefold(), list(names), n=1, cutoff=0.6)
+        return {"variable": name, "reason": "missing", "suggestion": names[close[0]] if close else None}
 
     def find(name: str, frames: list):
         chain = levels(frames)
@@ -955,6 +977,12 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict
         if kind is None or (kind == "step" and not preparable(producer)):
             if not optional and name not in manual:
                 manual.append(name)
+                # An earlier "Başka akışı çalıştır" shares its variables, so the name may come from there.
+                source = producer if kind else next(
+                    (item for item in reversed(earlier) if item.action == "control.run_workflow"), None)
+                details.append(unknown(name) if source is None else {
+                    "variable": name, "reason": "acting",
+                    "title": source.title or BY_TYPE[source.action]["label"]})
             return
         if (kind, producer.id) in planned:
             return
@@ -974,7 +1002,7 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict
     for name in reads:
         need(name, target_frames, optional=name in assigned)
     chain = levels(target_frames)
-    return {"step": target, "prepare": entries, "manual": manual,
+    return {"step": target, "prepare": entries, "manual": manual, "manual_details": details,
             "in_loop": any(owner is not None and owner.action in LOOPS for _, _, owner, _ in chain),
             "locatable": target.action in LOCATABLE,
             "external": any(item.action.startswith(EXTERNAL_PREFIXES) for item in descendants(target))}

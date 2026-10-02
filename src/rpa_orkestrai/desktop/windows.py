@@ -24,6 +24,17 @@ class WindowError(RuntimeError):
     """Public window/permission error, suitable for the Studio inspector."""
 
 
+def found_window(target: Any) -> dict:
+    """What a window step received must be a window that "Pencereyi tanı" found."""
+    if isinstance(target, dict) and target.get("found") is False:
+        raise WindowError("Pencere bulunamadığı için bu adım çalışamaz. Pencereyi açın; her zaman açık değilse adımı "
+                          "pencerenin .found değerini kontrol eden bir Koşul adımının içine alın.")
+    if not isinstance(target, dict) or target.get("found") is not True:
+        raise WindowError("Bu adımın Pencere alanındaki değer bir pencere değil. Adımın Pencere alanından, "
+                          "Pencereyi tanı adımında ad verdiğiniz pencereyi seçin.")
+    return target
+
+
 @dataclass(frozen=True)
 class WindowInfo:
     window_id: int
@@ -108,8 +119,7 @@ class WindowService:
                 self._check()
 
     def current(self, target: dict) -> WindowInfo:
-        if not isinstance(target, dict) or target.get("found") is not True:
-            raise WindowError("Önce Pencereyi tanı adımının bulunan pencere sonucunu seçin.")
+        found_window(target)
         if target.get("platform") != platform.system():
             raise WindowError("Pencere başka bir işletim sisteminde tanınmış. Bu bilgisayarda yeniden tanıtın.")
         for window in self.list_windows():
@@ -353,8 +363,7 @@ class WindowService:
         desktop.write(text)
 
     def _identified(self, target: dict) -> dict:
-        if not isinstance(target, dict) or target.get("found") is not True:
-            raise WindowError("Önce Pencereyi tanı adımının bulunan pencere sonucunu seçin.")
+        found_window(target)
         if target.get("platform") != platform.system():
             raise WindowError("Pencere başka bir işletim sisteminde tanınmış. Bu bilgisayarda yeniden tanıtın.")
         return target

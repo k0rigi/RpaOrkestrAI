@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .guide import apply as apply_guides
+from .models import NAME_PARAMETERS, NAMING_ACTIONS
 
 
 def field(name: str, label: str, kind: str = "text", default: Any = "", **kwargs: Any) -> dict:
@@ -31,7 +33,7 @@ OPERATORS = [
     {"value": "one_of", "label": "Listedeki değerlerden biri"},
 ]
 
-WINDOW = field("window", "Pencere değişkeni", default="${erp_window}", required=True)
+WINDOW = field("window", "Pencere", default="${erp_window}", required=True)
 SHEETS_CONNECTION = field("connection", "Google Sheets bağlantısı", "connection", "", connection_type="google_sheets",
                           help="Boş bırakılırsa varsayılan Google Sheets bağlantısı kullanılır.")
 DATABASE_CONNECTION = field("connection", "Veritabanı bağlantısı", "connection", "", connection_type="database",
@@ -167,8 +169,9 @@ CATALOG: list[dict[str, Any]] = [
             field("on_missing", "Pencere bulunamazsa", "select", "stop", required=True,
                   options=[{"value": "stop", "label": "Akışı durdur"},
                            {"value": "continue", "label": "Bulunamadı sonucu ile devam et"}]),
-            field("output", "Pencere değişkeni", default="erp_window", required=True,
-                  help="${erp_window.found}: açık mı? Diğer pencere adımlarına ${erp_window} verin.")]),
+            field("output", "Pencereye verilecek ad", default="erp_window", required=True,
+                  help="Yalnız adı yazın (ör. erp_window). Sonraki pencere adımlarının Pencere alanında bu adla "
+                       "seçilir.")]),
     action("desktop.window_click", "Pencerede tıkla", "Pencere",
            "Bir butonu veya alanı konumuyla ya da görseliyle bulup tıklar; metin yazmaz.",
            [WINDOW, *target_fields(),
@@ -278,7 +281,7 @@ def area_fields(required: bool = False) -> list[dict]:
         field("relative_to", "Bölge neye göre?", "select", "screen", required=True,
               options=[{"value": "screen", "label": "Ana ekran"},
                        {"value": "window", "label": "Tanıtılan pencere (pencere taşınsa da doğru kalır)"}]),
-        field("window", "Pencere değişkeni", default="${erp_window}", required=True,
+        field("window", "Pencere", default="${erp_window}", required=True,
               visible_when={"relative_to": "window"}),
         field("region", "Bölge [x, y, genişlik, yükseklik]", "json", None, required=required,
               help="Boş bırakılırsa tüm ekran/pencere kullanılır. Bölgeyi fareyle al düğmesiyle seçebilirsiniz."),
@@ -592,6 +595,15 @@ CATALOG = sorted(CATALOG + LIBRARY, key=lambda entry: CATEGORY_ORDER.index(entry
 for entry in ACTION_DEFINITIONS + CATALOG:
     # Field definitions are shared between steps; each step gets its own copy before help is filled in.
     entry["fields"] = [dict(item) for item in entry["fields"]]
+    for item in entry["fields"]:
+        if item["name"] in NAME_PARAMETERS or (item["name"] == "name" and entry["type"] in NAMING_ACTIONS):
+            # The name a step gives to its result: the form takes only the name and shows how it is used.
+            item["variable"] = True
+            if re.fullmatch(r"Sonraki adım(lar)?da \$\{\w+\} ile kullanın\.", item.get("help", "")):
+                del item["help"]
+        elif item["name"] == "window":
+            # Chosen from the windows that earlier steps named.
+            item["reference"] = "window"
 apply_guides(ACTION_DEFINITIONS + CATALOG)
 BY_TYPE = {entry["type"]: entry for entry in ACTION_DEFINITIONS + CATALOG}
 # Preview runs skip these (they touch the screen, files, network or other programs).

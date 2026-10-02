@@ -109,8 +109,10 @@ def test_window_management_steps(runner, window):
     go(runner, "window.close", window=target)
     go(runner, "window.wait_close", window=target, timeout=5)
     windows.wait_closed.assert_called_once_with(target, 5.0)
-    with pytest.raises(WorkflowError, match="Pencereyi tanı"):
+    with pytest.raises(WorkflowError, match="Pencere bulunamadığı için"):
         go(runner, "window.activate", window={"found": False})
+    with pytest.raises(WorkflowError, match="Pencereyi tanı adımında ad verdiğiniz pencereyi seçin"):
+        go(runner, "window.activate", window="")
 
 
 def test_read_field_passes_the_structural_target(runner, window):
