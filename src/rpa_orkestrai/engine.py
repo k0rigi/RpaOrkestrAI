@@ -1087,11 +1087,11 @@ class RunManager:
             if run.test_step_id:
                 run.variables = snapshot(runner.variables)
             run.finished_at = now()
-            try:
-                self.store.save_run(run)
-            finally:
-                with self._lock:
-                    self._active = None
+            # Free the worker before the result becomes visible: whoever sees the finished run can
+            # start the next one at once. The single worker thread still writes this file first.
+            with self._lock:
+                self._active = None
+            self.store.save_run(run)
 
     def cancel(self, run_id: str) -> Run:
         with self._lock:
