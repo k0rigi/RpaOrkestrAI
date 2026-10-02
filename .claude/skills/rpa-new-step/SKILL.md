@@ -18,6 +18,8 @@ Kullanıcının akışına adım eklemesi yereldir. **Yeni adım türü** ise ko
 - Yeni adımı `CATALOG` listesine `action(type, label, category, description, fields)` ile ekle. Tür adı `alan.eylem` biçimindedir; dış sistem adımları `desktop.`, `sheets.`, `browser.` veya `database.` önekini kullanır. Önizleme modu bu önekli adımları atlar.
 - Alanlar `field(name, label, kind, default, ...)` ile tanımlanır. Türler: `text`, `number` (`min`/`max`), `select` (`options`), `boolean`, `json`, `columns`, `element`. Koşullu alan için `visible_when={"alan": değer}` ya da birden fazla değer için `{"alan": [değer1, değer2]}` kullan.
 - Pencere hedefli adımlar `WINDOW` ve `target_fields()` alanlarını yeniden kullanır.
+- Adımın kullanım özetini `src/rpa_orkestrai/guide.py` içindeki `GUIDES` tablosuna ekle (`how`: sırayla yapılacaklar, `result`: ürettiği değer, `tip`). Açıklaması olmayan her alan için `STEP_FIELD_HELP` veya `FIELD_HELP` içine bir cümle yaz. `tests/test_step_tests.py` kılavuzu veya açıklaması eksik adımı yakalar.
+- Adım yalnız okuyor veya hesaplıyorsa (tıklamıyor, yazmıyor, kaydetmiyor) `catalog.TEST_PREPARE` kümesine ekle: tek adım testi, sonraki adımların ihtiyaç duyduğu değeri bu adımı çalıştırarak alır. Bir noktaya tıklıyor veya yazıyorsa `catalog.LOCATABLE` kümesine ekleyip motorun `show_target()` işlevinde hedef noktasını hesapla (Yeri göster).
 - Eski bir adım kütüphaneden kaldırılacaksa tanımını `ACTION_DEFINITIONS` listesine taşı. Kayıtlı akışlar açılmaya ve çalışmaya devam etmelidir.
 
 ## 3. Çalıştırıcı (`src/rpa_orkestrai/actions/`)

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def uid() -> str:
@@ -26,6 +26,15 @@ class Step(Model):
     params: dict[str, Any] = Field(default_factory=dict)
     children: list[Step] = Field(default_factory=list)
     otherwise: list[Step] = Field(default_factory=list)
+    # Where the user dragged the box in the diagram, relative to its automatic place: [dx, dy].
+    offset: tuple[float, float] | None = None
+
+    @field_validator("offset")
+    @classmethod
+    def bounded_offset(cls, value: tuple[float, float] | None) -> tuple[float, float] | None:
+        if value is not None and any(abs(part) > 5000 for part in value):
+            raise ValueError("Kutu konumu geçerli aralıkta olmalıdır.")
+        return value
 
 
 class WorkflowInput(Model):
@@ -123,6 +132,8 @@ class PathRequest(Model):
 class StepTestRequest(Model):
     variables: dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
+    # Only move the pointer to the step's target; nothing is clicked or typed.
+    locate: bool = False
 
 
 class LicenseLoginRequest(Model):

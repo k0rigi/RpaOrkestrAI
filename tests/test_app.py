@@ -37,6 +37,10 @@ def test_studio_bootstrap_and_static(client):
     assert client.get("/api/catalog").json() == bootstrap["catalog"]
     assert any(a["type"] == "control.for_each" for a in bootstrap["action_definitions"])
     assert client.get("/app.js").status_code == 200
+    # The theme script and the bundled fonts are served locally; nothing is fetched from the internet.
+    assert "rpa.theme" in client.get("/theme.js").text
+    assert client.get("/fonts/barlow-400-latin.woff2").content[:4] == b"wOF2"
+    assert "fonts.googleapis" not in client.get("/styles.css").text
 
 
 def test_native_instance_metadata_identifies_workspace_without_exposing_path(client):

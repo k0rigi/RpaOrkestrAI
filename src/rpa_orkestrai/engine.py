@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import json
 import math
@@ -14,7 +15,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
-from .catalog import BY_TYPE, EXTERNAL_PREFIXES, LOOPS, defaults
+from .catalog import BY_TYPE, EXTERNAL_PREFIXES, LOCATABLE, LOOPS, TEST_PREPARE, defaults
 from .config import Settings
 from .desktop.windows import WindowError, validate_selector
 from .errors import BreakLoop, Cancelled, ContinueLoop, StopWorkflow, WorkflowError
@@ -114,7 +115,7 @@ def active_fields(action: str, parameters: dict) -> list[dict]:
     )]
 
 
-def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
+def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool = False) -> None:
     def walk(steps: list[Step], in_loop: bool = False) -> None:
         for step in steps:
             if step.action not in BY_TYPE:
@@ -160,7 +161,7 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True) -> None:
             walk(step.children, nested)
             walk(step.otherwise, in_loop)
 
-    walk(workflow.steps)
+    walk(workflow.steps, in_loop)
     if ready and not workflow.steps:
         raise WorkflowError("Çalıştırmadan önce akışa en az bir adım ekleyin.")
 
@@ -234,6 +235,7 @@ class Executor:
             self.variables["sistem"] = system_variables()
         self.held_keys: set[str] = set()
         self.call_stack: list[str] = []
+        self.locate = False  # a test that only shows where the step points
         from .connections import Connections
 
         self.connections = Connections(settings.data_dir, settings)
@@ -299,6 +301,60 @@ class Executor:
                 self.check_cancelled()
         finally:
             self.release_keys()
+
+    def prepare(self, entries: list[dict]) -> None:
+        """Before a single-step test: obtain the values the step needs from earlier read-only steps."""
+        for entry in entries:
+            self.check_cancelled()
+            step, name, label = entry["step"], entry["variable"], entry["title"]
+            try:
+                if entry["kind"] == "step":
+                    self.log(f"Hazırlık: {label} çalıştırılıyor (${{{name}}} için).")
+                    self.steps([step.model_copy(update={"children": [], "otherwise": []})])
+                elif entry["kind"] == "item":
+                    items = resolve({**defaults(step.action), **step.params}["items"], self.variables)
+                    if has_unknown(items):
+                        self.variables[name] = UNKNOWN
+                        continue
+                    if not isinstance(items, list) or not items:
+                        raise WorkflowError("listede hiç öğe yok; test için en az bir satır gerekir.")
+                    self.variables[name] = items[0]
+                    self.variables.setdefault("loop_index", 0)
+                    self.log(f"Hazırlık: {label} listesindeki ilk öğe ${{{name}}} olarak kullanılıyor "
+                             f"({len(items)} öğe var).")
+                elif entry["kind"] == "error":
+                    self.variables[name] = "Örnek hata mesajı (test)"
+                else:
+                    self.variables.setdefault("loop_index", 0)
+            except CONTROL_SIGNALS:
+                raise
+            except Exception as exc:
+                raise WorkflowError(f"Test hazırlığı tamamlanamadı ({label}): {describe_error(exc)}") from exc
+
+    def show_target(self, action: str, p: dict) -> dict:
+        """Move the pointer to where the step would click or type, without clicking."""
+        from .actions.common import number
+
+        desktop = self.desktop()
+        if action in {"desktop.window_click", "desktop.window_fill", "window.read_field"}:
+            x, y = self.windows().locate_target(p["window"], desktop, **self.window_target(p))
+        elif action == "screen.click_image":
+            from .actions.screen import search
+
+            found = search(self, p)
+            if found.pop("timed_out", False) or not found["found"]:
+                raise WorkflowError("Görsel bekleme süresi içinde ekranda bulunamadı.")
+            x = found["center_x"] + number(p.get("offset_x", 0), "Yatay fark", -10_000, 10_000)
+            y = found["center_y"] + number(p.get("offset_y", 0), "Dikey fark", -10_000, 10_000)
+        else:
+            x, y = number(p.get("x"), "X", -100_000, 100_000), number(p.get("y"), "Y", -100_000, 100_000)
+        try:
+            desktop.move(x, y, duration=0.4)
+        except ValueError as exc:
+            raise WorkflowError("Hedef nokta ana ekranın dışında.") from exc
+        self.log(f"Hedef gösterildi: fare ekranda ({round(x)}, {round(y)}) noktasına götürüldü. "
+                 "Tıklama veya yazma yapılmadı.")
+        return {"x": round(x), "y": round(y)}
 
     def release_keys(self) -> None:
         """A key held with 'Tuşu basılı tut' must never stay down after a run."""
@@ -579,6 +635,9 @@ class Executor:
     def perform(self, action: str, p: dict) -> Any:
         from . import actions
 
+        if self.locate and action in LOCATABLE:
+            return self.show_target(action, p)
+
         handler = actions.get(action)
         if handler is not None:
             return handler(self, p)
@@ -768,6 +827,159 @@ class Executor:
         self.save()
 
 
+def referenced(value: Any) -> list[str]:
+    """Variable names used as ${name} or ${name.field} anywhere in a parameter value."""
+    if isinstance(value, str):
+        return [match.group(1) for match in re.finditer(r"\$\{([A-Za-z][A-Za-z0-9_]*)", value)]
+    if isinstance(value, dict):
+        value = list(value.values())
+    return [name for item in value for name in referenced(item)] if isinstance(value, list) else []
+
+
+def step_reads(step: Step, *, nested: bool = True) -> tuple[list[str], set[str]]:
+    """Names a step (with its inner steps) reads; the second set is also written somewhere inside it."""
+    scoped, assigned, found = {"sistem"}, set(), []
+
+    def visit(item: Step, top: bool) -> None:
+        parameters = {**defaults(item.action), **item.params} if item.action in BY_TYPE else dict(item.params)
+        if nested:
+            for key in ("item_name", "error_name"):
+                if isinstance(parameters.get(key), str) and parameters[key]:
+                    scoped.add(parameters[key])
+            if item.action in LOOPS:
+                scoped.add("loop_index")
+        if not top:
+            if isinstance(parameters.get("output"), str) and parameters["output"]:
+                assigned.add(parameters["output"])
+            if item.action in {"core.set", "data.append"} and isinstance(parameters.get("name"), str):
+                assigned.add(parameters["name"])
+        found.extend(referenced(parameters))
+        if item.action == "data.calculate":
+            from .actions.data import FUNCTIONS
+
+            source = re.sub(r"\$\{[^}]*\}", " 0 ", str(parameters.get("expression") or ""))
+            try:
+                names = [node.id for node in ast.walk(ast.parse(source.strip(), mode="eval"))
+                         if isinstance(node, ast.Name)]
+            except (SyntaxError, ValueError):
+                names = []
+            reserved = set(FUNCTIONS) | {"true", "false", "doğru", "dogru", "yanlış", "yanlis", "True", "False", "None"}
+            found.extend(name for name in names if name not in reserved and VARIABLE.fullmatch(name))
+        if nested:
+            for child in [*item.children, *item.otherwise]:
+                visit(child, False)
+
+    visit(step, True)
+    return list(dict.fromkeys(name for name in found if name not in scoped)), assigned
+
+
+def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict:
+    """What a single-step test prepares by itself, and what only the user can supply.
+
+    Earlier steps that only read or compute (the window lookup, constants, a Sheets read,
+    OCR of the current screen) are run for real, and a loop variable takes the first item
+    of its list. A value produced by a step that acts (a click, a question to the user)
+    cannot be obtained safely and is asked for.
+    """
+    def frames_of(target: str, steps: list[Step], trail: list) -> list | None:
+        for index, item in enumerate(steps):
+            here = [*trail, (steps, index)]
+            if item.id == target:
+                return here
+            for branch in ("children", "otherwise"):
+                found = frames_of(target, getattr(item, branch), [*here, branch])
+                if found:
+                    return found
+        return None
+
+    def levels(frames: list) -> list[tuple[list[Step], int, Step | None, str | None]]:
+        # (list, index, owner, branch) from the outermost list to the one that holds the step
+        result, owner, branch = [], None, None
+        for entry in frames:
+            if isinstance(entry, str):
+                branch = entry
+            else:
+                steps, index = entry
+                result.append((steps, index, owner, branch))
+                owner = steps[index]
+        return result
+
+    def parameters(item: Step) -> dict:
+        return {**defaults(item.action), **item.params} if item.action in BY_TYPE else dict(item.params)
+
+    def produces(item: Step, name: str) -> bool:
+        p = parameters(item)
+        return p.get("output") == name or (item.action in {"core.set", "data.append"} and p.get("name") == name)
+
+    def preparable(item: Step) -> bool:
+        return item.action in TEST_PREPARE or (
+            item.action == "window.read_field" and parameters(item).get("target_mode") == "element")
+
+    def descendants(item: Step) -> list[Step]:
+        return [item, *(d for child in [*item.children, *item.otherwise] for d in descendants(child))]
+
+    target_frames = frames_of(step_id, workflow.steps, [])
+    if target_frames is None:
+        raise KeyError(step_id)
+    target = target_frames[-1][0][target_frames[-1][1]]
+    provided, entries, manual, planned = set(provided), [], [], set()
+
+    def find(name: str, frames: list):
+        chain = levels(frames)
+        for depth in range(len(chain) - 1, -1, -1):
+            steps, index, owner, branch = chain[depth]
+            for position in range(index - 1, -1, -1):
+                if produces(steps[position], name):
+                    return "step", steps[position]
+            if owner is not None:
+                p = parameters(owner)
+                if owner.action == "control.for_each" and p.get("item_name") == name:
+                    return "item", owner
+                if owner.action == "control.try" and branch == "otherwise" and p.get("error_name") == name:
+                    return "error", owner
+                if name == "loop_index" and owner.action in LOOPS:
+                    return "index", owner
+        # A value set inside an earlier block (a branch or a loop): the last such step before this one.
+        for depth in range(len(chain) - 1, -1, -1):
+            steps, index, _, _ = chain[depth]
+            for position in range(index - 1, -1, -1):
+                for item in reversed(descendants(steps[position])[1:]):
+                    if produces(item, name):
+                        return "step", item
+        return None, None
+
+    def need(name: str, frames: list, optional: bool = False) -> None:
+        if name in provided or name == "sistem":
+            return
+        kind, producer = find(name, frames)
+        if kind is None or (kind == "step" and not preparable(producer)):
+            if not optional and name not in manual:
+                manual.append(name)
+            return
+        if (kind, producer.id) in planned:
+            return
+        planned.add((kind, producer.id))
+        # Every producer lies earlier in the flow than its reader, so this recursion ends.
+        producer_frames = frames_of(producer.id, workflow.steps, [])
+        if kind == "step":
+            for dependency in step_reads(producer, nested=False)[0]:
+                need(dependency, producer_frames)
+        elif kind == "item":
+            for dependency in dict.fromkeys(referenced(parameters(producer).get("items"))):
+                need(dependency, producer_frames)
+        entries.append({"kind": kind, "variable": name, "step": producer,
+                        "title": producer.title or BY_TYPE[producer.action]["label"]})
+
+    reads, assigned = step_reads(target)
+    for name in reads:
+        need(name, target_frames, optional=name in assigned)
+    chain = levels(target_frames)
+    return {"step": target, "prepare": entries, "manual": manual,
+            "in_loop": any(owner is not None and owner.action in LOOPS for _, _, owner, _ in chain),
+            "locatable": target.action in LOCATABLE,
+            "external": any(item.action.startswith(EXTERNAL_PREFIXES) for item in descendants(target))}
+
+
 class RunManager:
     """One worker protects the shared mouse/keyboard and owns its browser thread."""
 
@@ -802,32 +1014,22 @@ class RunManager:
             self.release_desktop(token)
 
     def start_step(self, workflow: Workflow, step_id: str, variables: dict[str, Any], *,
-                   dry_run: bool = False) -> Run:
-        """Run one step (with its inner steps) for testing, seeded with sample variables."""
-        found = None
-
-        def search(steps: list[Step]) -> None:
-            nonlocal found
-            for step in steps:
-                if step.id == step_id:
-                    found = step
-                    return
-                search(step.children)
-                search(step.otherwise)
-
-        search(workflow.steps)
-        if found is None:
-            raise KeyError(step_id)
+                   dry_run: bool = False, locate: bool = False) -> Run:
+        """Test one step (with its inner steps); what it needs from earlier steps is prepared first."""
         if not isinstance(variables, dict) or len(variables) > 100:
             raise WorkflowError("Test değişkenleri en fazla 100 alanlı bir nesne olmalıdır.")
         for name in variables:
             variable_name(name)
-        single = workflow.model_copy(update={"steps": [found.model_copy(deep=True)]}, deep=True)
-        return self.start(single, dry_run=dry_run, variables=variables, test_step_id=step_id)
+        plan = step_test_plan(workflow, step_id, variables)
+        if locate and not plan["locatable"]:
+            raise WorkflowError("Yeri göster yalnız tıklama ve alan doldurma adımlarında kullanılabilir.")
+        single = workflow.model_copy(update={"steps": [plan["step"].model_copy(deep=True)]}, deep=True)
+        return self.start(single, dry_run=dry_run, variables=variables, test_step_id=step_id, plan=plan,
+                          locate=locate)
 
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
-              test_step_id: str | None = None) -> Run:
-        validate_workflow(workflow)
+              test_step_id: str | None = None, plan: dict | None = None, locate: bool = False) -> Run:
+        validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]))
         with self._lock:
             if self._setup_cancel is not None:
                 raise RuntimeError("Bir hedef seçimi devam ediyor. Tamamlanmasını bekleyin veya iptal edin.")
@@ -838,11 +1040,12 @@ class RunManager:
             cancel = threading.Event()
             self.store.save_run(run)
             self._active = (run.id, cancel)
-            self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel, dict(variables or {}))
+            self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel, dict(variables or {}),
+                             plan, locate)
             return run.model_copy(deep=True)
 
     def _work(self, workflow: Workflow, run: Run, cancel: threading.Event,
-              variables: dict[str, Any] | None = None) -> None:
+              variables: dict[str, Any] | None = None, plan: dict | None = None, locate: bool = False) -> None:
         runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables)
         try:
             run.status = "running"
@@ -850,7 +1053,13 @@ class RunManager:
                 runner.log("Adım testi: yalnız seçilen adım çalıştırılıyor.")
             runner.log("Önizleme başladı; ekran, dosya ve bağlantı adımları atlanacak." if run.dry_run
                        else "Akış çalıştırılıyor.")
-            runner.execute(workflow)
+            if plan:
+                with runner.resources:
+                    runner.prepare(plan["prepare"])
+                    runner.locate = locate
+                    runner.execute(workflow)
+            else:
+                runner.execute(workflow)
             run.status = "succeeded"
         except StopWorkflow as signal:
             run.status = "succeeded" if signal.succeeded else "failed"
@@ -860,10 +1069,16 @@ class RunManager:
         except (Cancelled, InterruptedError):
             run.status = "cancelled"
             runner.log("Çalışma kullanıcı tarafından durduruldu.", level="warning")
-        except (BreakLoop, ContinueLoop):
-            run.status = "failed"
-            run.error = "Döngüden çık / Sonraki tura geç adımı bir döngünün içinde olmalıdır."
-            runner.log(run.error, level="error")
+        except (BreakLoop, ContinueLoop) as signal:
+            if plan and plan["in_loop"]:
+                # The tested step sits in a loop: leaving the turn here is its expected result.
+                run.status = "succeeded"
+                runner.log("Test: akışta bu noktada döngüden çıkılır." if isinstance(signal, BreakLoop)
+                           else "Test: akışta bu noktada bu satır atlanır ve sonraki satıra geçilir.")
+            else:
+                run.status = "failed"
+                run.error = "Döngüden çık / Sonraki tura geç adımı bir döngünün içinde olmalıdır."
+                runner.log(run.error, level="error")
         except Exception as exc:
             run.status = "failed"
             run.error = describe_error(exc)

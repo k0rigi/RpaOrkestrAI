@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .guide import apply as apply_guides
+
 
 def field(name: str, label: str, kind: str = "text", default: Any = "", **kwargs: Any) -> dict:
     return {"name": name, "label": label, "type": kind, "default": default, **kwargs}
@@ -587,6 +589,10 @@ for entry in CATALOG:
     if entry["type"] in BRANCHES:
         entry["branches"] = BRANCHES[entry["type"]]
 CATALOG = sorted(CATALOG + LIBRARY, key=lambda entry: CATEGORY_ORDER.index(entry["category"]))
+for entry in ACTION_DEFINITIONS + CATALOG:
+    # Field definitions are shared between steps; each step gets its own copy before help is filled in.
+    entry["fields"] = [dict(item) for item in entry["fields"]]
+apply_guides(ACTION_DEFINITIONS + CATALOG)
 BY_TYPE = {entry["type"]: entry for entry in ACTION_DEFINITIONS + CATALOG}
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
@@ -594,6 +600,16 @@ EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "
 CONTAINERS = {"control.for_each": ("children",), "control.while": ("children",), "control.repeat": ("children",),
               "control.if": ("children", "otherwise"), "control.try": ("children", "otherwise")}
 LOOPS = {"control.for_each", "control.while", "control.repeat"}
+# A single-step test may run these earlier steps by itself to get the values the tested step needs:
+# they only compute or read, and never click, type or write.
+TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",
+                "desktop.find_window", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
+                "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
+                "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
+                "database.read"}
+# A test can show where these steps point (the mouse moves there) without clicking or typing.
+LOCATABLE = {"desktop.window_click", "desktop.window_fill", "window.read_field", "input.mouse_click",
+             "input.mouse_move", "screen.click_image"}
 
 
 def library_catalog() -> list[dict[str, Any]]:

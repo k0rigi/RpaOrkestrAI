@@ -322,6 +322,12 @@ class WindowService:
         self._guard(target, window)
         desktop.click(*point, clicks=clicks, button=button)
 
+    def locate_target(self, target: dict, desktop: Any, **targeting: Any) -> tuple[int, int]:
+        """The screen point a click or fill would use; nothing is clicked."""
+        window, point = self._resolve_target(target, desktop, **targeting)
+        self._guard(target, window)
+        return point
+
     def fill_target(self, target: dict, text: str, desktop: Any, *, clear: bool = True, **targeting: Any) -> None:
         if not isinstance(text, str) or not text:
             raise WindowError("Yazılacak metin boş olmamalıdır.")

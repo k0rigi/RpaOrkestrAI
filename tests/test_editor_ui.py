@@ -195,7 +195,10 @@ def test_picker_coordinates_reference_offset_legacy_conversion_and_saved_loop(tm
             playwright.expect(page.get_by_label("Referans görsel", exact=False)).to_have_value("captured-reference.png")
             playwright.expect(page.get_by_label("Görsel merkezinden sağa / sola", exact=True)).to_have_value("220")
             playwright.expect(page.get_by_label("Görsel merkezinden aşağı / yukarı", exact=True)).to_have_value("10")
-            assert crops == [{"capture_id": "capture-2", "x": 100, "y": 100, "width": 201, "height": 81}]
+            # The screenshot is shown scaled down, so a mouse position maps to the image within one pixel.
+            assert len(crops) == 1 and crops[0]["capture_id"] == "capture-2"
+            assert all(abs(crops[0][key] - value) <= 1
+                       for key, value in {"x": 100, "y": 100, "width": 201, "height": 81}.items())
 
             page.get_by_role("button", name="Ekranda seç", exact=True).click()
             page.get_by_role("button", name="Tamam, geri sayımı başlat", exact=True).click()
@@ -673,7 +676,25 @@ def test_diagram_view_draws_branches_inserts_moves_and_shows_the_last_run(tmp_pa
             # Move the first step into the try block by dropping it on a + handle inside the branch.
             playwright.expect(viewport.locator(".edge-insert")).not_to_have_count(0)
             page.get_by_role("button", name="Tümünü sığdır").click()
-            page.locator('[data-step-id="rows"]').drag_to(page.locator('[data-step-id="boom"]'), target_position={"x": 5, "y": 30})
+            # Dragging a box moves it freely; the flow order does not change.
+            before = box("loop")
+            page.mouse.move(before["x"] + 60, before["y"] + 20)
+            page.mouse.down()
+            page.mouse.move(before["x"] + 90, before["y"] + 80, steps=6)
+            page.mouse.up()
+            after = box("loop")
+            assert after["x"] - before["x"] > 20 and after["y"] - before["y"] > 40
+            playwright.expect(viewport.locator('[data-step-id="loop"].moved')).to_have_count(1)
+            playwright.expect(page.locator("#diagram-tidy")).to_be_enabled()
+            # Dropped on a +, a box takes that place in the flow: the first step goes into the try block.
+            start = box("rows")
+            handle = viewport.locator('.edge-insert[data-owner="guard"][data-branch="children"][data-index="0"]')
+            goal = handle.bounding_box()
+            page.mouse.move(start["x"] + 60, start["y"] + 20)
+            page.mouse.down()
+            page.mouse.move(goal["x"] + goal["width"] / 2, goal["y"] + goal["height"] / 2, steps=8)
+            page.mouse.up()
+            playwright.expect(viewport.locator(".dnode.moving")).to_have_count(0)
             zoom = viewport.locator(".zoom-level").inner_text()
             page.get_by_role("button", name="Yakınlaştır").click()
             playwright.expect(viewport.locator(".zoom-level")).not_to_have_text(zoom)
@@ -692,6 +713,102 @@ def test_diagram_view_draws_branches_inserts_moves_and_shows_the_last_run(tmp_pa
         saved = client.get(f"/api/workflows/{workflow_id}").json()
         assert [step["id"] for step in saved["steps"]] == ["loop", "guard"]
         assert [step["id"] for step in saved["steps"][1]["children"]] == ["rows", "boom"]
+        # The dragged box keeps its place; the one moved in the flow is laid out automatically again.
+        moved = saved["steps"][0]["offset"]
+        assert moved[0] > 20 and moved[1] > 40 and saved["steps"][1]["children"][0]["offset"] is None
         otherwise = saved["steps"][0]["children"][0]["otherwise"]
         assert [step["action"] for step in otherwise] == ["core.wait"]
+    assert not errors
+
+
+def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors, shots = [], os.environ.get("RPA_UI_SHOTS")
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Kılavuzlu akış", "steps": [
+            {"id": "window", "action": "desktop.find_window", "title": "ERP'yi tanı", "params": {
+                "application": "", "title": "ERP", "match": "contains", "output": "erp_window"}},
+            {"id": "rows", "action": "core.set", "title": "Satırlar", "params": {
+                "name": "satirlar", "value": [{"form_id": "inv-1", "durum": "TAMAM"}]}},
+            {"id": "loop", "action": "control.for_each", "title": "Her satır", "params": {
+                "items": "${satirlar}", "item_name": "row"}, "children": [
+                    {"id": "skip", "action": "control.if", "title": "Bekliyor değil mi?", "params": {
+                        "left": "${row.durum}", "operator": "ne", "right": "BEKLIYOR"}, "children": [
+                            {"id": "next", "action": "control.continue", "params": {}}]},
+                    {"id": "upper", "action": "text.transform", "title": "Büyük harf", "params": {
+                        "text": "${row.form_id}", "operation": "upper", "output": "kod"}},
+                    {"id": "click", "action": "desktop.window_click", "title": "Ara'ya tıkla", "params": {
+                        "window": "${erp_window}", "target_mode": "coordinates", "x": 40, "y": 60}},
+                ]},
+        ]})
+        assert response.status_code == 201, response.text
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Kılavuzlu akış", exact=True).click()
+            inspector = page.locator("#inspector")
+            # Nothing selected: the short guide to building a flow.
+            playwright.expect(inspector.locator(".quick-guide li")).to_have_count(6)
+
+            # A selected step explains how it is used, and every field carries a help line.
+            page.locator('[data-step-id="click"]').click()
+            guide = inspector.locator(".step-guide")
+            playwright.expect(guide).to_contain_text("Nasıl kullanılır?")
+            playwright.expect(guide).to_contain_text("Ekranda seç")
+            fields = inspector.locator(".field")
+            assert fields.count() == inspector.locator(".field:has(.help)").count()
+            if shots:
+                page.screenshot(path=f"{shots}/step-guide.png")
+
+            # A click step: no values to type, and the target can be shown without clicking.
+            inspector.get_by_role("button", name="Bu adımı test et").click()
+            dialog = page.locator("dialog.step-test-dialog")
+            playwright.expect(dialog.locator(".step-test-sources")).to_contain_text("${erp_window}")
+            playwright.expect(dialog.locator("textarea:visible")).to_have_count(0)
+            playwright.expect(dialog.get_by_role("button", name="Yeri göster (tıklamadan)")).to_be_visible()
+            playwright.expect(dialog.get_by_role("button", name="Gerçekten çalıştır")).to_be_visible()
+            if shots:
+                page.screenshot(path=f"{shots}/step-test-click.png")
+            dialog.get_by_role("button", name="Kapat").click()
+
+            # A data step inside the loop: the first row is taken from the list by itself.
+            page.locator('[data-step-id="upper"]').click()
+            inspector.get_by_role("button", name="Bu adımı test et").click()
+            playwright.expect(dialog.locator(".step-test-sources")).to_contain_text("listesinin ilk satırı")
+            playwright.expect(dialog.locator("textarea:visible")).to_have_count(0)
+            dialog.get_by_role("button", name="Testi çalıştır").click()
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            playwright.expect(dialog.locator(".step-test-values")).to_contain_text("İNV-1")
+            if shots:
+                page.screenshot(path=f"{shots}/step-test-auto.png")
+            dialog.get_by_role("button", name="Kapat").click()
+
+            # "Sonraki tura geç" inside the tested condition is reported as the result, not as an error.
+            page.locator('[data-step-id="skip"]').click()
+            inspector.get_by_role("button", name="Bu adımı test et").click()
+            dialog.get_by_role("button", name="Testi çalıştır").click()
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            playwright.expect(dialog.locator(".step-test-log")).to_contain_text("sonraki satıra geçilir")
+            # Another value can still be tried by choice.
+            dialog.locator(".step-test-custom summary").click()
+            dialog.get_by_label("${row}").fill('{"durum": "BEKLIYOR"}')
+            dialog.get_by_role("button", name="Tekrar test et").click()
+            playwright.expect(dialog.locator(".step-test-log")).to_contain_text("Koşul: Değilse")
+            browser.close()
     assert not errors

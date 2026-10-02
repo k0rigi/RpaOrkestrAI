@@ -19,6 +19,7 @@ from . import __version__
 from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
 from .engine import ARTIFACT_TYPES, RunManager, WorkflowError, validate_workflow
+from .guide import QUICK_GUIDE
 from .instance import identity
 from .licensing import OPEN_PATHS, LicenseError, LicenseService, LicenseUnavailable
 from .locking import WorkspaceLock
@@ -200,7 +201,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
                 "runs": store.runs(), "catalog": library_catalog(), "settings": settings.public(),
                 "action_definitions": ACTION_DEFINITIONS + library_catalog(),
-                "favorites": store.favorites(), "updates": update_status(), "connections": connections.list()}
+                "favorites": store.favorites(), "updates": update_status(), "connections": connections.list(),
+                "quick_guide": QUICK_GUIDE}
 
     def update_status():
         from .update_service import source_status
@@ -462,10 +464,22 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    @app.get("/api/workflows/{workflow_id}/steps/{step_id}/test-plan")
+    def step_test_plan(workflow_id: str, step_id: str):
+        """What the test obtains by itself from earlier steps, and what the user has to enter."""
+        from .engine import step_test_plan
+
+        plan = step_test_plan(store.workflow(workflow_id), step_id)
+        return {"prepare": [{"variable": entry["variable"], "kind": entry["kind"], "title": entry["title"],
+                             "action": entry["step"].action} for entry in plan["prepare"]],
+                "manual": plan["manual"], "locatable": plan["locatable"], "external": plan["external"],
+                "in_loop": plan["in_loop"]}
+
     @app.post("/api/workflows/{workflow_id}/steps/{step_id}/test", status_code=202)
     def test_step(workflow_id: str, step_id: str, body: StepTestRequest):
         try:
-            return manager.start_step(store.workflow(workflow_id), step_id, body.variables, dry_run=body.dry_run)
+            return manager.start_step(store.workflow(workflow_id), step_id, body.variables, dry_run=body.dry_run,
+                                      locate=body.locate)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

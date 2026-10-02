@@ -26,7 +26,8 @@
     librarySearch: "",
     testValues: {},
     connections: [],
-    diagram: { x: 0, y: 0, k: 1, workflowId: null, fitted: false, hiddenRun: null },
+    quickGuide: [],
+    diagram: { x: 0, y: 0, k: 1, workflowId: null, fitted: false, hiddenRun: null, moving: null },
     diagramLibraryHidden: (() => { try { return localStorage.getItem("rpa.diagramLibrary") !== "shown"; } catch { return true; } })(),
     canvasView: (() => { try { return localStorage.getItem("rpa.canvasView") || "list"; } catch { return "list"; } })(),
     run: null,
@@ -99,9 +100,49 @@
     window: "M3 4h18v16H3z M3 8h18",
     shield2: "M12 2l8 3v7c0 5-8 10-8 10S4 17 4 12V5z",
     message: "M4 4h16v12H8l-4 4z",
+    sun: "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M12 2v2 M12 20v2 M2 12h2 M20 12h2 M5 5l1.5 1.5 M17.5 17.5L19 19 M19 5l-1.5 1.5 M6.5 17.5L5 19",
+    moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z",
+    layout: "M4 5h6v6H4z M14 5h6v6h-6z M9 15h6v5H9z M7 11v2h10v-2 M12 13v2",
     target: "M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 12h.01",
     key: "M14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M13 12l8 8 M17 16l2-2 M19 18l2-2",
   };
+
+  // ----- theme: light (drafting paper), dark (blueprint) or the system's choice ------
+  const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+  function themeChoice() {
+    try {
+      return localStorage.getItem("rpa.theme") || "auto";
+    } catch {
+      return "auto";
+    }
+  }
+  function darkTheme() {
+    return document.documentElement.dataset.theme === "dark";
+  }
+  function applyTheme(choice) {
+    if (choice) {
+      try {
+        localStorage.setItem("rpa.theme", choice);
+      } catch {}
+    }
+    const current = choice || themeChoice();
+    const dark = current === "dark" || (current !== "light" && systemDark.matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const toggle = document.getElementById("theme-toggle");
+    if (toggle) paintThemeToggle(toggle);
+  }
+  function paintThemeToggle(toggle) {
+    const label = darkTheme() ? "Açık temaya geç" : "Koyu temaya geç";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.replaceChildren(icon(darkTheme() ? "sun" : "moon"));
+  }
+  systemDark.addEventListener?.("change", () => {
+    if (themeChoice() === "auto") applyTheme();
+  });
+  function cssColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
 
   function node(tag, className, text) {
     const el = document.createElement(tag);
@@ -580,9 +621,13 @@
           : state.platform?.system || "Yerel ortam",
       ),
     );
+    const theme = iconButton("", "moon", () => applyTheme(darkTheme() ? "light" : "dark"), "theme-toggle");
+    theme.id = "theme-toggle";
+    paintThemeToggle(theme);
     right.append(
+      theme,
       platform,
-      node("span", "version", `v${state.version || "0.7.1"}`),
+      node("span", "version", `v${state.version || "0.7.2"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1343,6 +1388,7 @@
     if (located.list === list && located.index === target) return;
     located.list.splice(located.index, 1);
     list.splice(Math.max(0, Math.min(target, list.length)), 0, located.step);
+    delete located.step.offset;
     state.selected = located.step.id;
     markDirty();
     renderCanvas();
@@ -1485,9 +1531,9 @@
   // ----- Diagram view: the same steps drawn left → right, n8n style ------------------
   const DG = { w: 188, h: 56, gx: 48, bx: 108, gy: 36, lane: 34, emptyW: 168, emptyH: 42, merge: 40, term: 84, pad: 48 };
   const categoryTones = {
-    "Pencere": "#3b72a5", "Fare ve klavye": "#7a5bb5", "Ekran ve görsel": "#b07a1b",
-    "Uygulama ve sistem": "#56656b", "Dosya ve Excel": "#2f8a55", "Veri ve metin": "#187968",
-    "Google Sheets": "#1e8e3e", "Akış": "#c2622d", "Kullanıcı etkileşimi": "#b24a78", "Web ve API": "#4b5fc2",
+    "Pencere": "window", "Fare ve klavye": "input", "Ekran ve görsel": "screen",
+    "Uygulama ve sistem": "system", "Dosya ve Excel": "file", "Veri ve metin": "data",
+    "Google Sheets": "sheets", "Akış": "flow", "Kullanıcı etkileşimi": "ui", "Web ve API": "web",
   };
   const branchWords = {
     "control.for_each": { children: "Her öğe" },
@@ -1497,7 +1543,7 @@
     "control.try": { children: "Dene", otherwise: "Hata olursa" },
   };
   function toneFor(spec) {
-    return categoryTones[spec.category] || "#56656b";
+    return `var(--cat-${categoryTones[spec.category] || "system"})`;
   }
   function branchWord(step, branch) {
     return branchWords[step.action]?.[branch] || (branch === "otherwise" ? "Değilse" : "İç adımlar");
@@ -1555,18 +1601,26 @@
     });
     return { entry: first, exit: previous };
   }
+  function stepOffset(step) {
+    const [dx, dy] = Array.isArray(step.offset) ? step.offset : [0, 0];
+    return [Number.isFinite(dx) ? dx : 0, Number.isFinite(dy) ? dy : 0];
+  }
   function placeNode(step, x, spine, m, list, owner, out) {
-    out.nodes.push({ step, x, y: spine - DG.h / 2, list, owner, shape: m.shape });
-    const entry = { x, y: spine };
-    if (!m.shape) return { entry, exit: { x: x + DG.w, y: spine } };
+    // The automatic place plus where the user dragged the box; branches keep their own places.
+    const [dx, dy] = stepOffset(step);
+    const nx = x + dx;
+    const ny = spine + dy;
+    out.nodes.push({ step, x: nx, y: ny - DG.h / 2, list, owner, shape: m.shape, moved: Boolean(dx || dy) });
+    const entry = { x: nx, y: ny };
+    if (!m.shape) return { entry, exit: { x: nx + DG.w, y: ny } };
     const top = spine - m.spine;
     const bx = x + DG.w + DG.bx;
     const merge = { x: x + m.w - 8, y: spine };
-    const centre = x + DG.w / 2;
+    const centre = nx + DG.w / 2;
     if (m.shape.loop) {
       step.children ||= [];
       const body = placeSequence(step.children, bx, spine, step, "children", m.rows[0], out);
-      out.edges.push({ from: { x: x + DG.w, y: spine }, to: body.entry, arrow: !body.empty, port: true,
+      out.edges.push({ from: { x: nx + DG.w, y: ny }, to: body.entry, arrow: !body.empty, port: true,
         label: branchWord(step, "children"), insertAt: 0.74,
         insert: body.empty ? null : { list: step.children, index: 0, owner: step, branch: "children" } });
       const high = top + DG.lane / 2;
@@ -1574,11 +1628,11 @@
       const turn = body.exit.x + 14;
       out.edges.push({ kind: "back", arrow: true, label: "Sonraki tur", labelPoint: { x: (turn + centre) / 2, y: high },
         points: [body.exit, { x: turn, y: body.exit.y }, { x: turn, y: high }, { x: centre, y: high },
-          { x: centre, y: spine - DG.h / 2 }],
+          { x: centre, y: ny - DG.h / 2 }],
         insert: body.empty ? null : { list: step.children, index: step.children.length, owner: step, branch: "children" },
         insertPoint: { x: turn, y: (body.exit.y + high) / 2 } });
       out.edges.push({ kind: "done", label: "Bitince", labelPoint: { x: centre + 58, y: low },
-        points: [{ x: centre, y: spine + DG.h / 2 }, { x: centre, y: low }, { x: merge.x, y: low }, merge] });
+        points: [{ x: centre, y: ny + DG.h / 2 }, { x: centre, y: low }, { x: merge.x, y: low }, merge] });
     } else {
       let rowTop = top + m.offset;
       const count = m.shape.branches.length;
@@ -1586,7 +1640,7 @@
         step[branch] ||= [];
         const row = m.rows[index];
         const placed = placeSequence(step[branch], bx, rowTop + row.spine, step, branch, row, out);
-        const from = { x: x + DG.w, y: spine + (index - (count - 1) / 2) * 20 };
+        const from = { x: nx + DG.w, y: ny + (index - (count - 1) / 2) * 20 };
         const tone = branch === "otherwise" && step.action === "control.try" ? "error" : "";
         out.edges.push({ from, to: placed.entry, arrow: !placed.empty, port: true, label: branchWord(step, branch),
           tone, insertAt: 0.74,
@@ -1612,7 +1666,15 @@
     out.edges.push({ from: main.exit, to: end, arrow: true,
       insert: main.empty ? null : { list: steps, index: steps.length, owner: null, branch: null } });
     out.terminals = [{ kind: "start", x: DG.pad, y: spine }, { kind: "end", x: end.x, y: spine }];
-    return { ...out, width: end.x + DG.term + DG.pad, height: spine + Math.max(m.h - m.spine, 24) + DG.pad };
+    const width = end.x + DG.term + DG.pad;
+    const height = spine + Math.max(m.h - m.spine, 24) + DG.pad;
+    // Boxes the user dragged may lie outside the automatic drawing.
+    const xs = out.nodes.map((item) => item.x);
+    const ys = out.nodes.map((item) => item.y);
+    return { ...out, width, height,
+      left: Math.min(0, ...xs.map((value) => value - DG.pad)), top: Math.min(0, ...ys.map((value) => value - DG.pad)),
+      right: Math.max(width, ...xs.map((value) => value + DG.w + DG.pad)),
+      bottom: Math.max(height, ...ys.map((value) => value + DG.h + DG.pad)) };
   }
   function curve(edge) {
     const { from: a, to: b } = edge;
@@ -1688,22 +1750,28 @@
     pane.classList.add("diagram-mode");
     if (state.diagram.workflowId !== state.workflow.id)
       Object.assign(state.diagram, { workflowId: state.workflow.id, fitted: false, runId: null });
-    const layout = diagramLayout();
-    state.diagram.layout = layout;
+    let layout;
+    let places = [];
     const latest = lastRun();
     const run = latest && latest.id !== state.diagram.hiddenRun ? latest : null;
     const viewport = node("div", "diagram-viewport");
     viewport.id = "diagram-viewport";
     const world = node("div", "diagram-world");
+    drawWorld();
+    function drawWorld() {
+    layout = diagramLayout();
+    state.diagram.layout = layout;
+    places = [];
+    world.replaceChildren();
     world.style.width = `${layout.width}px`;
     world.style.height = `${layout.height}px`;
     const svg = svgNode("svg", { class: "diagram-edges", width: layout.width, height: layout.height,
       viewBox: `0 0 ${layout.width} ${layout.height}`, "aria-hidden": "true" });
     const defs = svgNode("defs");
-    for (const [id, color] of [["arrow", "#98aaa0"], ["arrow-back", "#bba374"], ["arrow-error", "#d1968e"]]) {
+    for (const id of ["arrow", "arrow-back", "arrow-error"]) {
       const marker = svgNode("marker", { id: `diagram-${id}`, viewBox: "0 0 10 10", refX: "9", refY: "5",
         markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
-      marker.append(svgNode("path", { d: "M0,1 L9,5 L0,9 z", fill: color }));
+      marker.append(svgNode("path", { d: "M0,1 L9,5 L0,9 z", class: `marker-${id}` }));
       defs.append(marker);
     }
     svg.append(defs);
@@ -1731,6 +1799,9 @@
         handle.append(icon("plus"));
         handle.style.left = `${at.x}px`;
         handle.style.top = `${at.y}px`;
+        handle.dataset.owner = edge.insert.owner?.id || "";
+        handle.dataset.branch = edge.insert.branch || "";
+        handle.dataset.index = String(edge.insert.index);
         handle.addEventListener("click", (event) => {
           event.stopPropagation();
           openInsertMenu(handle, edge.insert);
@@ -1739,6 +1810,7 @@
         handle.addEventListener("mouseleave", () => path.classList.remove("hover"));
         dropZone(handle, () => ({ list: edge.insert.list, index: edge.insert.index,
           ownerId: edge.insert.owner?.id || null, mark: "inside", target: handle }));
+        places.push({ x: at.x, y: at.y, radius: 20, place: edge.insert, el: handle });
         overlay.push(handle);
       }
     });
@@ -1771,10 +1843,12 @@
         openInsertMenu(el, place);
       });
       dropZone(el, () => ({ list: slot.list, index: 0, ownerId: slot.owner?.id || null, mark: "inside", target: el }));
+      places.push({ x: slot.x + DG.emptyW / 2, y: slot.y + DG.emptyH / 2, radius: DG.emptyH, place, el });
       world.append(el);
     });
     layout.nodes.forEach((item) => world.append(diagramNode(item, run)));
     world.append(...overlay);
+    }
     viewport.append(world);
     if (run) {
       const chip = node("div", "diagram-run");
@@ -1786,7 +1860,7 @@
         }));
       viewport.append(chip);
     }
-    const hint = node("div", "diagram-hint", "Sürükleyerek veya kaydırarak gezinin · Ctrl/⌘ + kaydırma: yakınlaştır");
+    const hint = node("div", "diagram-hint", "Kutuyu sürükleyin: yerini değiştirir · + üzerine bırakın: sırasını değiştirir · Boş alanı sürükleyin: gezinir");
     const zoomLabel = node("span", "zoom-level");
     const controls = node("div", "diagram-controls");
     controls.append(
@@ -1798,6 +1872,14 @@
         paint();
       }),
     );
+    const tidy = iconButton("Kutuları otomatik diz (taşıdıklarınızı yerine alır)", "layout", () => {
+      allSteps(state.workflow.steps).forEach((item) => delete item.offset);
+      markDirty();
+      renderCanvas();
+    });
+    tidy.id = "diagram-tidy";
+    tidy.disabled = !allSteps(state.workflow.steps).some((item) => stepOffset(item).some(Boolean));
+    controls.append(tidy);
     viewport.append(hint, controls);
     pane.append(caption, viewport);
 
@@ -1806,10 +1888,12 @@
       const width = viewport.clientWidth;
       const height = viewport.clientHeight;
       // Keep part of the flow on screen whatever the pan.
-      d.x = Math.min(width - 80, Math.max(80 - layout.width * d.k, d.x));
-      d.y = Math.min(height - 60, Math.max(60 - layout.height * d.k, d.y));
+      d.x = Math.min(width - 80 - layout.left * d.k, Math.max(80 - layout.right * d.k, d.x));
+      d.y = Math.min(height - 60 - layout.top * d.k, Math.max(60 - layout.bottom * d.k, d.y));
       world.style.transform = `translate(${d.x}px, ${d.y}px) scale(${d.k})`;
-      viewport.style.backgroundSize = `${20 * d.k}px ${20 * d.k}px`;
+      const minor = `${20 * d.k}px ${20 * d.k}px`;
+      const major = `${100 * d.k}px ${100 * d.k}px`;
+      viewport.style.backgroundSize = `${major}, ${major}, ${minor}, ${minor}`;
       viewport.style.backgroundPosition = `${d.x}px ${d.y}px`;
       zoomLabel.textContent = `${Math.round(d.k * 100)}%`;
     }
@@ -1848,7 +1932,94 @@
         paint();
       }
     }, { passive: false });
+    // ----- moving a box: drag it anywhere; drop it on a + to change its place in the flow
+    function placeAt(clientX, clientY, movingId) {
+      const rect = viewport.getBoundingClientRect();
+      const x = (clientX - rect.left - d.x) / d.k;
+      const y = (clientY - rect.top - d.y) / d.k;
+      const moving = findStep(movingId)?.step;
+      let best = null;
+      for (const candidate of places) {
+        const distance = Math.hypot(candidate.x - x, candidate.y - y);
+        if (distance > candidate.radius / Math.min(1, d.k) || (best && distance >= best.distance)) continue;
+        // A box cannot be dropped into its own block.
+        if (moving && candidate.place.owner && containsStep(moving, candidate.place.owner.id)) continue;
+        best = { ...candidate, distance };
+      }
+      return best;
+    }
+    function startNodeMove(event, id) {
+      const located = findStep(id);
+      if (!located) return;
+      const step = located.step;
+      const origin = { x: event.clientX, y: event.clientY, offset: stepOffset(step) };
+      let moving = false;
+      let frame = 0;
+      let last = event;
+      const redraw = () => {
+        frame = 0;
+        drawWorld();
+        placeAt(last.clientX, last.clientY, id)?.el.classList.add("drop-inside");
+      };
+      const move = (next) => {
+        last = next;
+        if (!moving) {
+          if (Math.hypot(next.clientX - origin.x, next.clientY - origin.y) < 5) return;
+          moving = true;
+          closeInsertMenu();
+          viewport.setPointerCapture(event.pointerId);
+          viewport.classList.add("moving-node");
+          state.diagram.moving = id;
+        }
+        const limit = (value) => Math.max(-4000, Math.min(4000, Math.round(value)));
+        step.offset = [limit(origin.offset[0] + (next.clientX - origin.x) / d.k),
+          limit(origin.offset[1] + (next.clientY - origin.y) / d.k)];
+        if (!frame) frame = requestAnimationFrame(redraw);
+      };
+      const stop = (finish) => {
+        viewport.removeEventListener("pointermove", move);
+        viewport.removeEventListener("pointerup", stop);
+        viewport.removeEventListener("pointercancel", stop);
+        if (!moving) return;
+        if (frame) cancelAnimationFrame(frame);
+        viewport.classList.remove("moving-node");
+        state.diagram.moving = null;
+        // The click that ends a drag must not select or open anything.
+        const swallow = (click) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+        const target = finish.type === "pointerup" ? placeAt(finish.clientX, finish.clientY, id) : null;
+        const restore = () => {
+          if (origin.offset.some(Boolean)) step.offset = origin.offset;
+          else delete step.offset;
+        };
+        if (finish.type === "pointercancel") restore();
+        else if (target) {
+          // Dropped on a +: the box takes that place in the flow and is laid out automatically again.
+          restore();
+          state.drag = { kind: "move", id };
+          dropInto(target.place.list, target.place.index, target.place.owner?.id || null);
+        } else {
+          if (!stepOffset(step).some(Boolean)) delete step.offset;
+          state.selected = id;
+          markDirty();
+          renderInspector();
+        }
+        renderCanvas();
+      };
+      viewport.addEventListener("pointermove", move);
+      viewport.addEventListener("pointerup", stop);
+      viewport.addEventListener("pointercancel", stop);
+    }
     viewport.addEventListener("pointerdown", (event) => {
+      const box = event.target.closest(".dnode");
+      if (box && event.button === 0 && !event.target.closest("button")) {
+        startNodeMove(event, box.dataset.stepId);
+        return;
+      }
       const onBackground = !event.target.closest(".dnode, button, .diagram-insert, .diagram-run, .diagram-controls");
       if (!(event.button === 1 || (event.button === 0 && onBackground))) return;
       event.preventDefault();
@@ -1901,18 +2072,20 @@
     const width = viewport.clientWidth || 800;
     const height = viewport.clientHeight || 500;
     // Never shrink below a readable size; a long flow starts at its beginning and pans sideways.
-    const k = Math.max(0.6, Math.min(1, (width - 40) / layout.width, (height - 40) / layout.height));
+    const wide = layout.right - layout.left;
+    const tall = layout.bottom - layout.top;
+    const k = Math.max(0.6, Math.min(1, (width - 40) / wide, (height - 40) / tall));
     Object.assign(state.diagram, {
       k,
-      x: layout.width * k < width ? (width - layout.width * k) / 2 : 0,
-      y: layout.height * k < height ? (height - layout.height * k) / 2 : 0,
+      x: (wide * k < width ? (width - wide * k) / 2 : 0) - layout.left * k,
+      y: (tall * k < height ? (height - tall * k) / 2 : 0) - layout.top * k,
     });
   }
   function diagramNode(item, run) {
     const { step } = item;
     const spec = specFor(step.action);
     const status = run ? stepStatus(run.step_stats?.[step.id], step, run) : null;
-    const el = node("div", `dnode${item.shape ? " dnode-container" : ""}${state.selected === step.id ? " selected" : ""}${status ? ` status-${status.kind}` : ""}`);
+    const el = node("div", `dnode${item.shape ? " dnode-container" : ""}${state.selected === step.id ? " selected" : ""}${status ? ` status-${status.kind}` : ""}${item.moved ? " moved" : ""}${state.diagram.moving === step.id ? " moving" : ""}`);
     el.dataset.stepId = step.id;
     el.tabIndex = 0;
     el.setAttribute("role", "button");
@@ -1924,7 +2097,6 @@
     el.style.height = `${DG.h}px`;
     const tone = toneFor(spec);
     el.style.setProperty("--tone", tone);
-    el.style.setProperty("--tone-bg", `${tone}1a`);
     const tile = node("span", "dnode-icon");
     tile.append(icon(actionIcon(step.action)));
     const copy = node("span", "dnode-copy");
@@ -1973,18 +2145,18 @@
       } else if (["Delete", "Backspace"].includes(event.key)) {
         event.preventDefault();
         removeStep(step.id);
+      } else if (event.altKey && event.key.startsWith("Arrow")) {
+        // Alt + arrow keys nudge the box, as dragging does.
+        event.preventDefault();
+        const [dx, dy] = stepOffset(step);
+        const size = event.shiftKey ? 40 : 10;
+        const delta = { ArrowLeft: [-size, 0], ArrowRight: [size, 0], ArrowUp: [0, -size], ArrowDown: [0, size] }[event.key];
+        step.offset = [dx + delta[0], dy + delta[1]];
+        if (!step.offset.some(Boolean)) delete step.offset;
+        markDirty();
+        renderCanvas();
+        document.querySelector(`#diagram-viewport [data-step-id="${CSS.escape(step.id)}"]`)?.focus({ preventScroll: true });
       }
-    });
-    el.draggable = true;
-    el.addEventListener("dragstart", (event) => {
-      event.stopPropagation();
-      closeInsertMenu();
-      startDrag(event, { kind: "move", id: step.id });
-      requestAnimationFrame(() => el.classList.add("drag-source"));
-    });
-    el.addEventListener("dragend", () => {
-      el.classList.remove("drag-source");
-      endDrag();
     });
     dropZone(el, (event) => {
       const bounds = el.getBoundingClientRect();
@@ -2054,7 +2226,6 @@
         option.title = spec.description || spec.label;
         const tone = toneFor(spec);
         option.style.setProperty("--tone", tone);
-        option.style.setProperty("--tone-bg", `${tone}1a`);
         const tile = node("span", "dnode-icon");
         tile.append(icon(actionIcon(spec.type)));
         option.append(tile, node("span", "", spec.label));
@@ -2392,14 +2563,14 @@
         context.drawImage(image, 0, 0);
         context.lineWidth = Math.max(2, canvas.width / 600);
         if (rect) {
-          context.strokeStyle = "#137c6b";
-          context.fillStyle = "#137c6b26";
+          context.strokeStyle = cssColor("--accent");
+          context.fillStyle = cssColor("--accent-glow");
           context.fillRect(rect.x, rect.y, rect.width, rect.height);
           context.strokeRect(rect.x, rect.y, rect.width, rect.height);
         }
         if (point) {
           const radius = Math.max(7, canvas.width / 100);
-          context.strokeStyle = "#d16a17";
+          context.strokeStyle = cssColor("--cat-flow");
           context.beginPath();
           context.arc(point.x, point.y, radius, 0, Math.PI * 2);
           context.stroke();
@@ -2619,36 +2790,6 @@
     });
   }
   // ----- single step test -----------------------------------------------------
-  const EXPRESSION_WORDS = new Set(["and", "or", "not", "if", "else", "in", "is", "true", "false", "none",
-    "round", "abs", "min", "max", "int", "float", "number", "str", "len", "sum", "floor", "ceil", "doğru", "yanlış"]);
-  function referencedVariables(step) {
-    const produced = new Set(["sistem"]);
-    if (allSteps([step]).some((item) => ["control.for_each", "control.while", "control.repeat"].includes(item.action)))
-      produced.add("loop_index");
-    const found = new Set();
-    allSteps([step]).forEach((item) => {
-      ["output", "item_name", "error_name"].forEach((key) => {
-        const value = parameterValue(item, key);
-        if (typeof value === "string" && value) produced.add(value);
-      });
-    });
-    const scan = (value) => {
-      if (typeof value === "string") {
-        for (const match of value.matchAll(/\$\{([A-Za-z][A-Za-z0-9_]*)/g)) found.add(match[1]);
-      } else if (Array.isArray(value)) value.forEach(scan);
-      else if (value && typeof value === "object") Object.values(value).forEach(scan);
-    };
-    allSteps([step]).forEach((item) => {
-      scan(item.params || {});
-      if (item.action === "data.calculate") {
-        const expression = String(parameterValue(item, "expression") || "").replace(/\$\{[^}]*\}/g, " ")
-          .replace(/'[^']*'|"[^"]*"/g, " ");
-        for (const match of expression.matchAll(/(?<![\w.])([A-Za-zçğıöşüÇĞİÖŞÜ_][\wçğıöşüÇĞİÖŞÜ]*)/g))
-          if (!EXPRESSION_WORDS.has(match[1].toLowerCase())) found.add(match[1]);
-      }
-    });
-    return [...found].filter((name) => !produced.has(name));
-  }
   function parseTestValue(raw) {
     const text = raw.trim();
     if (!text) return "";
@@ -2666,60 +2807,98 @@
     if (!stepExists(step)) return;
     const workflowId = state.workflow.id;
     const spec = specFor(step.action);
-    const external = allSteps([step]).some((item) =>
-      /^(desktop|input|window|screen|system|clipboard|file|ui|http|sheets|database|browser)\./.test(item.action));
-    const needed = referencedVariables(step);
+    const base = `/api/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(step.id)}`;
+    // The Studio works out what the step needs from earlier steps, so nothing has to be typed.
+    const plan = await attempt(() => api(`${base}/test-plan`));
+    if (!plan || !stepExists(step)) return;
     dialog(`Adımı test et: ${step.title || spec.label}`, (body, d) => {
       d.classList.add("step-test-dialog");
       const inputs = new Map();
-      body.append(note(external
-        ? "Bu test gerçek işlem yapar: fare, klavye, ekran, dosya veya bağlantı adımları uygulanır. Hedef uygulamayı hazırlayın."
-        : "Bu adım yalnız veri işler; ekrana ve dosyalara dokunmaz.", external ? "warning" : "info"));
-      if (needed.length) {
-        body.append(node("h3", "", "Test değerleri"),
-          node("p", "help", "Adımın kullandığı değişkenler için örnek değer girin. Metin yazabilir veya JSON kullanabilirsiniz: {\"form_id\": \"INV-1\"}, [1, 2], 42."));
-        needed.forEach((name) => {
-          const input = node("textarea", "mono");
-          input.rows = 2;
-          input.value = state.testValues[name] ?? "";
-          inputs.set(name, input);
-          body.append(field("${" + name + "}", input));
+      body.append(note(plan.external
+        ? "Yalnız bu adım çalışır ve gerçek işlem yapar (tıklar, yazar veya kaydeder). Hedef uygulamayı hazırlayın."
+        : "Yalnız bu adım çalışır; ekrana ve dosyalara dokunmaz.", plan.external ? "warning" : "info"));
+      const sourceText = (entry) =>
+        entry.kind === "item" ? `“${entry.title}” listesinin ilk satırı`
+          : entry.kind === "error" ? "örnek bir hata mesajı"
+            : entry.kind === "index" ? "ilk tur (0)"
+              : /^(core\.set|data\.|text\.)/.test(entry.action) ? `“${entry.title}” adımındaki değer`
+                : `“${entry.title}” adımı şimdi çalıştırılarak`;
+      if (plan.prepare.length) {
+        const auto = node("div", "step-test-auto");
+        auto.append(node("h3", "", "Otomatik hazırlanan değerler"),
+          node("p", "help", "Bu değerleri girmeniz gerekmez; test başlarken önceki adımlardan alınır."));
+        const list = node("ul", "step-test-sources");
+        plan.prepare.forEach((entry) => {
+          const line = node("li");
+          line.append(node("code", "mono", "${" + entry.variable + "}"), node("span", "", sourceText(entry)));
+          list.append(line);
         });
+        auto.append(list);
+        body.append(auto);
+      }
+      const valueInput = (name, help) => {
+        const input = node("textarea", "mono");
+        input.rows = 2;
+        inputs.set(name, input);
+        return field("${" + name + "}", input, help);
+      };
+      if (plan.manual.length) {
+        body.append(node("h3", "", "Girmeniz gereken değerler"),
+          node("p", "help", "Bu değerleri üreten adım testte kendiliğinden çalıştırılamıyor (ör. tıklama yapan veya size soru soran bir adım). Örnek bir değer yazın; nesne için JSON kullanılabilir: {\"form_id\": \"INV-1\"}."));
+        plan.manual.forEach((name) => {
+          const wrap = valueInput(name);
+          inputs.get(name).value = state.testValues[name] ?? "";
+          body.append(wrap);
+        });
+      }
+      if (plan.prepare.length) {
+        const custom = node("details", "step-test-custom");
+        custom.append(node("summary", "", "Başka bir değerle denemek istiyorum (isteğe bağlı)"),
+          node("p", "help", "Doldurduğunuz değer otomatik olanın yerine kullanılır; boş bıraktıklarınız otomatik hazırlanır."));
+        plan.prepare.forEach((entry) => custom.append(valueInput(entry.variable)));
+        body.append(custom);
       }
       const previewLabel = node("label", "checkbox-label");
       const preview = node("input");
       preview.type = "checkbox";
       previewLabel.append(preview, node("span", "", "Önizleme olarak çalıştır (ekrana dokunmadan)"));
+      previewLabel.hidden = !plan.external;
       const result = node("div", "step-test-result");
       result.setAttribute("aria-live", "polite");
-      const runButton = button("Testi çalıştır", "play", run, "primary");
+      const runLabel = plan.locatable ? "Gerçekten çalıştır" : "Testi çalıştır";
+      const runButton = button(runLabel, "play", () => run(false), plan.locatable ? "" : "primary");
+      const locateButton = button("Yeri göster (tıklamadan)", "target", () => run(true), "primary");
+      locateButton.title = "Fareyi adımın hedefine götürür; tıklama veya yazma yapmaz.";
+      locateButton.hidden = !plan.locatable;
       const cancelButton = button("Durdur", "stop", async () => {
         if (current) await api(`/api/runs/${encodeURIComponent(current)}/cancel`, { method: "POST" }).catch(() => {});
       }, "small");
       cancelButton.hidden = true;
       const controls = node("div", "target-picker-actions");
-      controls.append(runButton, cancelButton);
+      controls.append(locateButton, runButton, cancelButton);
+      if (plan.locatable)
+        body.append(node("p", "help", "Yeri göster, pencereyi öne getirip fareyi hedefin üzerine götürür. Doğru yerdeyse hedef doğru seçilmiştir."));
       body.append(previewLabel, controls, result);
       let current = null, timer = null;
       d.addEventListener("close", () => clearTimeout(timer));
-      async function run() {
-        runButton.disabled = true;
+      async function run(locate) {
+        runButton.disabled = locateButton.disabled = true;
         const variables = {};
         inputs.forEach((input, name) => {
-          state.testValues[name] = input.value;
-          variables[name] = parseTestValue(input.value);
+          if (plan.manual.includes(name)) state.testValues[name] = input.value;
+          if (input.value.trim() || plan.manual.includes(name)) variables[name] = parseTestValue(input.value);
         });
         result.replaceChildren(node("p", "help", "Test başlatılıyor…"));
         try {
-          const started = await api(`/api/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(step.id)}/test`, {
-            method: "POST", body: JSON.stringify({ variables, dry_run: preview.checked }),
+          const started = await api(`${base}/test`, {
+            method: "POST", body: JSON.stringify({ variables, dry_run: preview.checked && !locate, locate }),
           });
           current = started.id;
           cancelButton.hidden = false;
           poll();
         } catch (error) {
-          result.replaceChildren(note(error.message));
-          runButton.disabled = false;
+          result.replaceChildren(note(error.message, "error"));
+          runButton.disabled = locateButton.disabled = false;
         }
       }
       async function poll() {
@@ -2732,11 +2911,11 @@
           }
           upsert(state.runs, test);
         } catch (error) {
-          result.replaceChildren(note(error.message));
+          result.replaceChildren(note(error.message, "error"));
         }
-        runButton.disabled = false;
+        runButton.disabled = locateButton.disabled = false;
         cancelButton.hidden = true;
-        runButton.querySelector("span").textContent = "Tekrar test et";
+        if (!plan.locatable) runButton.querySelector("span").textContent = "Tekrar test et";
       }
       function show(test) {
         result.replaceChildren();
@@ -2751,9 +2930,9 @@
         });
         result.append(log);
         const values = test.variables || {};
-        const shown = Object.keys(values).filter((name) => !inputs.has(name));
+        const shown = Object.keys(values).filter((name) => name !== "sistem");
         if (shown.length) {
-          result.append(node("h3", "", "Adımın ürettiği değerler"));
+          result.append(node("h3", "", "Kullanılan ve üretilen değerler"));
           const list = node("dl", "step-test-values");
           shown.forEach((name) => {
             const value = values[name];
@@ -3145,15 +3324,15 @@
         const thickness = Math.max(2, canvas.width / 600);
         context.lineWidth = thickness;
         if (rectangle) {
-          context.strokeStyle = "#137c6b";
-          context.fillStyle = "#137c6b26";
+          context.strokeStyle = cssColor("--accent");
+          context.fillStyle = cssColor("--accent-glow");
           context.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
           context.strokeRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
           selection.textContent = `Referans: ${rectangle.width} × ${rectangle.height}`;
         }
         if (point) {
           const radius = Math.max(7, canvas.width / 100);
-          context.strokeStyle = "#d16a17";
+          context.strokeStyle = cssColor("--cat-flow");
           context.beginPath();
           context.arc(point.x, point.y, radius, 0, Math.PI * 2);
           context.moveTo(point.x - radius * 1.5, point.y);
@@ -3517,6 +3696,37 @@
       ? Object.keys(columns) : ["value", "cell"];
     return [item, `${item}.row_number`, ...fields.map((name) => `${item}.${name}`)];
   }
+  function stepGuide(guide) {
+    // The short "how to use" box at the top of a step; closing it once keeps it closed.
+    const box = node("details", "step-guide");
+    let closed = false;
+    try {
+      closed = localStorage.getItem("rpa.stepGuide") === "closed";
+    } catch {}
+    box.open = !closed;
+    const summary = node("summary");
+    summary.append(icon("info"), node("span", "", "Nasıl kullanılır?"));
+    box.append(summary);
+    const steps = node("ol");
+    guide.how.forEach((text) => steps.append(node("li", "", text)));
+    box.append(steps);
+    if (guide.result) {
+      const line = node("p", "step-guide-line");
+      line.append(node("strong", "", "Sonuç: "), node("span", "", guide.result));
+      box.append(line);
+    }
+    if (guide.tip) {
+      const line = node("p", "step-guide-line");
+      line.append(node("strong", "", "İpucu: "), node("span", "", guide.tip));
+      box.append(line);
+    }
+    box.addEventListener("toggle", () => {
+      try {
+        localStorage.setItem("rpa.stepGuide", box.open ? "open" : "closed");
+      } catch {}
+    });
+    return box;
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -3527,21 +3737,22 @@
         node("div", "pane-heading", "Adım ayarları"),
         node("p", "pane-caption", "Her adımın davranışını buradan tanımlayın."),
       );
-      const blank = node("div", "inspector-empty");
-      blank.append(
-        icon("settings"),
-        node("h3", "", "Bir adım seçin"),
-        node(
-          "p",
-          "",
-          "Parametrelerini düzenlemek için akıştaki bir adıma tıklayın.",
-        ),
-      );
+      pane.append(node("p", "inspector-hint", "Ayarlarını ve kullanım açıklamasını görmek için akıştaki bir adıma tıklayın."));
+      if (state.quickGuide.length) {
+        const quick = node("section", "quick-guide");
+        quick.append(node("h3", "", "Akış nasıl kurulur?"));
+        const list = node("ol");
+        state.quickGuide.forEach(([title, text]) => {
+          const item = node("li");
+          item.append(node("strong", "", title), node("span", "", text));
+          list.append(item);
+        });
+        quick.append(list);
+        pane.append(quick);
+      }
       pane.append(
-        blank,
-        node("div", "inspector-divider"),
         note(
-          "Çalıştır, adımları gerçekten uygular. Önizleme seçeneği ekran, dosya ve bağlantı adımlarını atlar. Bir adımı tek başına denemek için adımı seçip Bu adımı test et düğmesini kullanın.",
+          "Çalıştır, adımları gerçekten uygular. Önizleme seçeneği ekran, dosya ve bağlantı adımlarını atlar.",
         ),
       );
       return;
@@ -3553,6 +3764,7 @@
       node("div", "pane-heading", spec.label),
       node("p", "pane-caption", spec.description),
     );
+    if (spec.guide) pane.append(stepGuide(spec.guide));
     const title = textInput(step.title || spec.label);
     title.maxLength = 200;
     title.addEventListener("input", () => {
@@ -3560,10 +3772,10 @@
       markDirty();
       renderCanvas();
     });
-    pane.append(field("Adım adı", title));
+    pane.append(field("Adım adı", title, "Akışta ve çalışma günlüğünde görünen ad. İşi anlatan bir ad verin (ör. Form ID yaz)."));
     if (!["control.break", "control.continue"].includes(step.action)) {
       const tester = button("Bu adımı test et", "play", () => openStepTest(step), "small step-test-button");
-      tester.title = "Yalnız bu adımı (iç adımlarıyla) örnek değerlerle çalıştırır.";
+      tester.title = "Yalnız bu adımı (iç adımlarıyla) çalıştırır; gereken değerleri önceki adımlardan kendisi alır.";
       pane.append(tester);
     }
     pane.append(node("div", "inspector-divider"));
@@ -4167,7 +4379,7 @@
       const row = node("div", `log-row ${event.level || "info"}`);
       row.append(
         node("span", "log-time mono", when(event.timestamp, true)),
-        node("span", "log-level mono", event.level || "info"),
+        node("span", "log-level mono", { info: "Bilgi", warning: "Uyarı", error: "Hata" }[event.level] || event.level || "Bilgi"),
         node("span", "log-message", event.message),
       );
       list.append(row);
@@ -4716,6 +4928,25 @@
     updateActions.append(checkUpdate, downloads);
     updatePanel.append(updateMessage, updateActions);
     form.append(updatePanel);
+    const appearance = panel("Görünüm", "sun",
+      "Açık tema çizim kâğıdı, koyu tema teknik çizim (blueprint) görünümündedir. Sistem seçeneği bilgisayarınızın ayarını izler.");
+    appearance.classList.add("settings-appearance");
+    const choices = node("div", "theme-choices");
+    choices.setAttribute("role", "group");
+    choices.setAttribute("aria-label", "Tema");
+    const paintChoices = () => choices.querySelectorAll("button").forEach((item) =>
+      item.setAttribute("aria-pressed", String(item.dataset.theme === themeChoice())));
+    for (const [value, label, glyph] of [["auto", "Sistem", "desktop"], ["light", "Açık", "sun"], ["dark", "Koyu", "moon"]]) {
+      const choice = button(label, glyph, () => {
+        applyTheme(value);
+        paintChoices();
+      });
+      choice.dataset.theme = value;
+      choices.append(choice);
+    }
+    paintChoices();
+    appearance.append(choices);
+    form.append(appearance);
     const advanced = node("details", "panel settings-panel settings-advanced");
     const summary = node("summary");
     summary.append(icon("settings"), node("span", "", "Gelişmiş: OCR ve görsel şablonlar"));
@@ -5035,6 +5266,7 @@
       state.version = data.version || "";
       state.updates = data.updates || {};
       state.connections = data.connections || [];
+      state.quickGuide = data.quick_guide || [];
       render();
       pollRunList();
       pollUpdates();

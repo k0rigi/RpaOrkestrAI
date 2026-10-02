@@ -141,7 +141,9 @@ def run_check(report: Path) -> int:
                 time.sleep(0.05)
             opener = build_opener(ProxyHandler({}))
             for route, expected in (("/", b"RpaOrkestrAI"), ("/app.js", b"showLicenseGate"),
-                                    ("/styles.css", b"step-library"), ("/api/license", b"login_required")):
+                                    ("/styles.css", b"step-library"), ("/theme.js", b"rpa.theme"),
+                                    ("/fonts/barlow-400-latin.woff2", b"wOF2"),
+                                    ("/api/license", b"login_required")):
                 with opener.open(url + route, timeout=5) as response:
                     if response.status != 200 or expected not in response.read():
                         raise RuntimeError(f"Paket kaynağı doğrulanamadı: {route}")
