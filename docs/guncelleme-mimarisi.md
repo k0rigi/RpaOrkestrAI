@@ -126,8 +126,10 @@ paket açılış kontrolleri yayın hazırlanmadan önce yapılmalıdır.
 Sunucuya önce `releases/<sürüm>/` altındaki paketler, ardından indirme sayfası
 aktarılır. Paketler sunucudan indirilebildikten ve özetleri doğrulandıktan sonra
 **`stable.manifest` en son, geçici dosyadan atomik yeniden adlandırmayla** yayımlanır.
-Böylece istemciler henüz aktarımı bitmemiş bir sürüme yönlendirilmez. Önceki sürümün
-paketleri tutulur; aynı sürüm numarasındaki dosyaların içeriği değiştirilmez.
+Böylece istemciler henüz aktarımı bitmemiş bir sürüme yönlendirilmez. Aynı sürüm
+numarasındaki dosyaların içeriği değiştirilmez. Yeni sürüm doğrulandıktan sonra önceki
+sürümlerin paketleri `prune` eylemiyle kaldırılır: sunucuda yalnız güncel sürümün
+paketleri durur, lisans denetimi daha zayıf olan eski kurulum paketleri indirilemez.
 
 ## Mevcut hosting deposuyla yayına alma
 
@@ -164,6 +166,10 @@ anahtarı otomatik kabul edilmez.
 5. Başarılı işten sonra indirme sayfasını, bildirimi ve iki platformun paketlerini
    HTTPS üzerinden kontrol edin. Süresi dolan aktarım URL'siyle yeniden denemek
    gerekirse yeni bir kısa ömürlü URL alın; arşiv değişmediyse özeti değişmez.
+6. Eski paketleri kaldırmak için `action: prune` ve `version` alanına **güncel**
+   sürümü yazarak çalıştırın. Betik yalnız `stable.manifest` içindeki güncel sürümü
+   tutar; `releases/` altında sürüm klasörü ve kurulum paketi dışında bir şey görürse
+   hiçbir dosyayı silmeden durur. Ardından GitHub'daki önceki ön sürümleri de silin.
 
 Bu yayın adımı her sürüm için bilinçli olarak elle başlatılır. Kurulu masaüstü
 uygulamalarının yeni yayını bulması, indirmesi ve sonraki açılışta kurması otomatik

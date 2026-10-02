@@ -97,13 +97,51 @@ def current_version():
         raise ValueError('Existing manifest version is invalid.')
     return version
 
+def published_versions():
+    releases = ROOT / 'releases'
+    if not releases.exists():
+        return []
+    if releases.is_symlink() or not releases.is_dir():
+        raise ValueError('Existing releases path is not a directory.')
+    names = sorted(entry.name for entry in releases.iterdir())
+    if len(names) > 500:
+        raise ValueError('Too many entries in the releases directory.')
+    return names
+
 def inspect_root():
     ensure_root()
     return {'ok': True, 'action': 'inspect', 'exists': ROOT.exists(),
             'readable': os.access(ROOT if ROOT.exists() else ROOT.parent, os.R_OK),
             'writable': os.access(ROOT if ROOT.exists() else ROOT.parent, os.W_OK),
             'current_version': current_version(),
+            'versions': published_versions() if ROOT.exists() else [],
             'python_version': '.'.join(str(part) for part in sys.version_info[:3])}
+
+def prune(keep):
+    # Older installers stay downloadable by their guessable address, including builds that
+    # predate the license gate. Only the current stable version may be kept.
+    ensure_root()
+    if not re.fullmatch(VERSION_PATTERN, keep) or current_version() != keep:
+        raise ValueError('Only the current stable version can be kept.')
+    package = r'[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.(?:exe|dmg)'
+    plan = []
+    for name in published_versions():
+        if name == keep:
+            continue
+        entry = ROOT / 'releases' / name
+        if entry.is_symlink() or not entry.is_dir() or not re.fullmatch(VERSION_PATTERN, name):
+            raise ValueError('Unexpected entry in the releases directory.')
+        files = sorted(entry.iterdir())
+        if len(files) > 5 or any(item.is_symlink() or not item.is_file() or not re.fullmatch(package, item.name)
+                                 for item in files):
+            raise ValueError('A release directory holds unexpected files.')
+        plan.append((entry, files))
+    # Everything was checked before the first deletion.
+    for entry, files in plan:
+        for item in files:
+            item.unlink()
+        entry.rmdir()
+    return {'ok': True, 'action': 'prune', 'kept': keep, 'removed': [entry.name for entry, _ in plan]}
 
 def utc_timestamp(value):
     # The publisher emits UTC Z timestamps. strptime also works on Python 3.6,
@@ -243,6 +281,8 @@ def main():
         result = {'ok': True, 'action': 'prepare'}
     elif action == 'publish':
         result = publish(*sys.argv[2:])
+    elif action == 'prune':
+        result = prune(*sys.argv[2:])
     else:
         raise ValueError('Unknown publication action.')
     print(json.dumps(result))
@@ -336,7 +376,7 @@ def remote_failure_diagnostic(action: str, result: dict) -> None:
     }
     error_type = result.get("error_type")
     diagnostic = {
-        "action": action if action in {"inspect", "prepare", "publish"} else "operation",
+        "action": action if action in {"inspect", "prepare", "publish", "prune"} else "operation",
         "error_type": error_type if error_type in allowed_types else "RemoteError",
     }
     # Only literal messages from our trusted remote source may reach logs;
@@ -384,9 +424,9 @@ def main() -> int:
     logging.getLogger("paramiko").disabled = True
     config = settings()
     action = config["action"]
-    if action not in {"inspect", "publish"}:
-        raise ValueError("RPA_ACTION must be inspect or publish.")
-    if action == "publish" and not re.fullmatch(r"\d+\.\d+\.\d+", config["version"]):
+    if action not in {"inspect", "publish", "prune"}:
+        raise ValueError("RPA_ACTION must be inspect, publish or prune.")
+    if action in {"publish", "prune"} and not re.fullmatch(r"\d+\.\d+\.\d+", config["version"]):
         raise ValueError("A stable publication version is required.")
     host, username, password = (os.environ[name] for name in ("HOST", "USERNAME", "PASSWORD"))
     client = paramiko.SSHClient()
@@ -397,6 +437,10 @@ def main() -> int:
                        timeout=20, banner_timeout=20, auth_timeout=20)
         if action == "inspect":
             print(json.dumps(remote(client, "inspect")))
+            return 0
+        if action == "prune":
+            # RPA_VERSION is the one version to keep; the server refuses anything but the current stable one.
+            print(json.dumps(remote(client, "prune", config["version"])))
             return 0
         with tempfile.TemporaryDirectory(prefix="rpa-publish-") as folder:
             bundle = Path(folder) / "publish-bundle.tar.gz"

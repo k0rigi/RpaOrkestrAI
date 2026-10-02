@@ -58,7 +58,7 @@ git push -u origin feature/yeni-erp-akisi
 
 ## Masaüstü kurulum paketleri
 
-`.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Paketler kendi Python 3.12 yorumlayıcısını içerir. Windows `.exe` kurulum paketi ve macOS `.dmg` disk imajı **Artifacts** olarak üretilir; derleme işi tek başına Release veya güncelleme sunucusu yayını yapmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).
+`.github/workflows/desktop-build.yml`, **Actions → Build desktop apps → Run workflow** üzerinden elle çalıştırılır. Paketler kendi Python 3.12 yorumlayıcısını içerir. Windows `.exe` kurulum paketi ve macOS `.dmg` disk imajı **Artifacts** olarak üretilir ve bir gün sonra silinir; derleme işi tek başına Release veya güncelleme sunucusu yayını yapmaz. [Dağıtım, veri klasörleri ve paket kontrolleri](masaustu-dagitim.md).
 
 Kullanıcı indirmeleri için [orkestrai.net/rpa](https://orkestrai.net/rpa/) adresi ve GitHub alternatifi olarak [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümü kullanılır. 0.2.0 test yayınının etiketi `v0.2.0-test.1` olarak ayrılmıştır. **Code → Download ZIP** bu paketleri içermez; kaynak kodu indirir.
 

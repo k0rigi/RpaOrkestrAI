@@ -94,7 +94,7 @@ RULES="../orkestrai/.agents/rules/orkestrai.md"   # SSH adresi ve şifresi bu pr
 export HOST=$(sed -n 's/.*ssh ip: "\([^"]*\)".*/\1/p' "$RULES" | head -1)
 export USERNAME=<SSH kullanıcı adı: kullanıcıya sor, depoya yazma>
 export PASSWORD=$(sed -n 's/.*şifre: "\([^"]*\)".*/\1/p' "$RULES" | head -1)
-RPA_ACTION=inspect "$SCRATCH/pubvenv/bin/python" scripts/deploy_update_bundle.py
+RPA_ACTION=inspect "$SCRATCH/pubvenv/bin/python" scripts/deploy_update_bundle.py   # current_version + versions
 RPA_ACTION=publish RPA_VERSION=$V RPA_BUNDLE_SHA256=<sha> RPA_BUNDLE_URL="$URL" \
   "$SCRATCH/pubvenv/bin/python" scripts/deploy_update_bundle.py
 ```
@@ -111,4 +111,12 @@ curl -sI https://orkestrai.net/rpa/releases/$V/RpaOrkestrAI-$V-macOS-arm64.dmg |
 
 İndirme sayfasının (`https://orkestrai.net/rpa/`) yeni sürümü gösterdiğini kontrol et. Kurulu uygulamalar yeni sürümü arka planda indirir ve bir sonraki açılışta kurar.
 
-Son olarak geçici klasördeki paketleri, arşivi ve sanal ortamları sil; dosyalar GitHub ön sürümünde durur. Kullanıcıya yayınlanan sürümü, paket adlarını ve gerçek bilgisayarda yapılması gereken açılış kontrolünü bildir.
+## 7. Eski paketleri kaldır
+
+Yalnız güncel sürümün kurulum paketleri erişilebilir kalır; eski paketler (özellikle lisans denetimi daha zayıf olanlar) hiçbir yerde durmaz. Yeni sürüm doğrulandıktan sonra:
+
+- **Sunucu:** `publish-rpa.yml` iş akışını `action: prune`, `version: $V` ile çalıştır (yerelden yayın yapıldıysa aynı onayla `RPA_ACTION=prune RPA_VERSION=$V`). Betik yalnız güncel kararlı sürümü tutar, `releases/` altındaki diğer sürüm klasörlerini siler ve beklenmeyen bir dosya görürse hiçbir şey silmeden durur. Sonra eski bir paketin adresinin `404` verdiğini kontrol et.
+- **GitHub:** Önceki ön sürümleri ve etiketlerini sil (`GET /repos/k0rigi/RpaOrkestrAI/releases`, her eski kayıt için `DELETE /repos/k0rigi/RpaOrkestrAI/releases/<id>` ve `DELETE /repos/k0rigi/RpaOrkestrAI/git/refs/tags/<etiket>`). Derleme artefaktları bir gün sonra kendiliğinden silinir; beklemeden silmek için `DELETE /repos/k0rigi/RpaOrkestrAI/actions/artifacts/<id>`.
+- **En düşük sürüm:** Yeni sürüm lisans veya güvenlik açığı kapatıyorsa, kullanıcının kendi kurulumu güncellendikten sonra orkestrai deposunda `api/app.py` içindeki `RPA_ASGARI_SURUM` değerini bu sürüme yükseltmeyi kullanıcıya öner. Onay verirse commit + push ile gönder (`Deploy to Server`). Bundan sonra eski sürümler lisans alamaz; güncelleme düzeneği lisanstan bağımsız çalıştığı için kendilerini güncelleyebilirler.
+
+Son olarak geçici klasördeki paketleri, arşivi ve sanal ortamları sil; güncel dosyalar GitHub ön sürümünde ve orkestrai.net/rpa adresinde durur. Kullanıcıya yayınlanan sürümü, paket adlarını ve gerçek bilgisayarda yapılması gereken açılış kontrolünü bildir.

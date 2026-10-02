@@ -11,9 +11,8 @@ class LicensedForTests:
         return True
 
     def status(self):
-        return {"state": "valid", "message": "", "online": True, "remembered": True,
-                "license": {"user": "test", "full_name": "Test", "company": "Test",
-                            "ends_on": None, "valid_until": None}}
+        return {"state": "valid", "message": "", "online": True, "remembered": True, "detail": None,
+                "license": {"user": "test", "full_name": "Test", "company": "Test", "ends_on": None}}
 
     def start(self):
         pass

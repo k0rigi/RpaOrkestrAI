@@ -16,6 +16,7 @@
     updatePoll: null,
     license: null,
     licenseTimer: null,
+    licenseWatch: null,
     page: "dashboard",
     workflow: null,
     selected: null,
@@ -345,6 +346,7 @@
     if (response.status === 204) return null;
     return response.json();
   }
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   async function attempt(fn) {
     try {
       return await fn();
@@ -628,7 +630,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.7.3"}`),
+      node("span", "version", `v${state.version || "0.8.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -5224,7 +5226,8 @@
     const account = state.license?.license || {};
     const section = panel(
       "RpaOrkestrAI lisansı", "key",
-      "Lisans orkestrai.net hesabınıza bağlıdır. İnternet yokken son doğrulamadan sonra en fazla 7 gün kullanılabilir.",
+      "Lisans orkestrai.net hesabınıza bağlıdır ve her açılışta, ardından birkaç dakikada bir orkestrai.net üzerinden doğrulanır; "
+        + "açmak için internet gerekir. Hesabınız aynı anda tek bilgisayarda çalışır.",
     );
     const rows = node("dl", "license-facts");
     const days = licenseDaysLeft(account);
@@ -5232,8 +5235,8 @@
       ["Kullanıcı", account.full_name ? `${account.full_name} (${account.user})` : account.user],
       ["Firma", account.company],
       ["Bitiş", account.ends_on ? `${licenseDate(account.ends_on)}${days !== null ? ` · ${days} gün kaldı` : ""}` : "Süresiz"],
-      ["Son doğrulama", state.license?.online === false
-        ? `Çevrimdışı; ${when(account.valid_until)} tarihine kadar geçerli`
+      ["Doğrulama", state.license?.online === false
+        ? "orkestrai.net'e şu anda ulaşılamıyor; bağlantı gelmezse Studio bir süre sonra kilitlenir"
         : "orkestrai.net ile doğrulandı"],
     ]) {
       if (!value) continue;
@@ -5246,7 +5249,9 @@
         const result = await api("/api/license/refresh", { method: "POST" });
         if (result.state !== "valid") return showLicenseGate(result);
         state.license = result;
-        toast(result.online === false ? "orkestrai.net'e ulaşılamadı; kayıtlı lisans kullanılıyor." : "Lisans doğrulandı.");
+        toast(result.online === false
+          ? "orkestrai.net'e ulaşılamadı. Bağlantı gelmezse Studio bir süre sonra kilitlenir."
+          : "Lisans doğrulandı.", result.online === false);
         render();
       } finally {
         verify.disabled = false;
@@ -5259,7 +5264,7 @@
   async function logoutLicense() {
     const ok = await confirmDialog(
       "Oturumu kapat",
-      "Bu bilgisayardaki lisans oturumu kapatılır. Akışlarınız ve bağlantı ayarlarınız korunur; yeniden giriş için internet gerekir.",
+      "Bu bilgisayardaki lisans oturumu kapatılır. Akışlarınız ve bağlantı ayarlarınız korunur; yeniden giriş için şifreniz ve internet gerekir.",
       "Oturumu kapat",
     );
     if (!ok) return;
@@ -5269,15 +5274,33 @@
       "Kaydetmeden çık",
       true,
     ))) return;
+    state.dirty = false;
     await attempt(async () => showLicenseGate(await api("/api/license/logout", { method: "POST" })));
+  }
+  function watchLicense() {
+    // Work is refused by the local API either way; this only brings the right screen up promptly.
+    clearInterval(state.licenseWatch);
+    state.licenseWatch = setInterval(async () => {
+      try {
+        const license = await api("/api/license");
+        if (root.querySelector(".license-screen")) return;
+        if (license.state !== "valid") showLicenseGate(license);
+        else state.license = license;
+      } catch (_) {
+        // The local Studio is closing; there is nothing to show.
+      }
+    }, 30000);
   }
   function showLicenseGate(status) {
     stopPolling();
     clearTimeout(state.updatePoll);
     clearInterval(state.licenseTimer);
+    clearInterval(state.licenseWatch);
     document.querySelectorAll("dialog").forEach((el) => el.close());
     state.license = status;
-    state.dirty = false;
+    // The open flow and its unsaved changes stay in memory: once the license is confirmed again
+    // (the connection returns, the user signs in), the Studio continues where it was.
+    const waiting = status.state === "verifying" || status.state === "verification_required";
     root.replaceChildren();
     root.setAttribute("aria-busy", "false");
     const screen = node("main", "boot-screen license-screen");
@@ -5286,9 +5309,87 @@
     mark.append(node("span"));
     card.append(mark);
     if (status.state === "expired" || status.state === "denied") closingNotice(card, status);
+    else if (waiting) verificationNotice(card, status);
     else loginForm(card, status);
     screen.append(card);
     root.append(screen);
+  }
+  function verificationNotice(card, status) {
+    const checking = status.state === "verifying";
+    card.append(
+      node("h1", "", checking ? "Lisans doğrulanıyor…" : "Lisans doğrulanamadı"),
+      node("p", "", checking
+        ? "RpaOrkestrAI her açılışta lisansınızı orkestrai.net üzerinden doğrular."
+        : status.message || "RpaOrkestrAI'yi açmak için internet bağlantısı ve orkestrai.net erişimi gerekir."),
+    );
+    const message = node("div", "license-message");
+    message.setAttribute("role", "status");
+    const show = (text, variant = "warning") => message.replaceChildren(text ? note(text, variant) : "");
+    card.append(message);
+    if (status.license?.user) card.append(node("p", "license-footnote", `Kullanıcı: ${status.license.user}`));
+    if (state.dirty) card.append(node("p", "license-footnote",
+      "Açık akıştaki kaydedilmemiş değişiklikler duruyor; doğrulama tamamlanınca kaldığınız yerden devam edersiniz."));
+    // The Studio keeps asking orkestrai.net in the background; this screen follows the result.
+    let settled = false;
+    const settle = (result) => {
+      if (settled) return true;
+      if (result.state === status.state) return false;
+      settled = true;
+      clearInterval(state.licenseTimer);
+      if (result.state === "valid") boot();
+      else showLicenseGate(result);
+      return true;
+    };
+    let asking = false;
+    state.licenseTimer = setInterval(async () => {
+      if (asking) return;
+      asking = true;
+      try {
+        settle(await api("/api/license"));
+      } catch (_) {
+        // The local Studio is closing or restarting; the next tick asks again.
+      } finally {
+        asking = false;
+      }
+    }, checking ? 500 : 3000);
+    if (checking) return;
+    const actions = node("div", "license-actions");
+    const retry = button("Yeniden dene", "refresh", async () => {
+      retry.disabled = true;
+      show("");
+      try {
+        const result = await api("/api/license/refresh", { method: "POST" });
+        if (!settle(result)) show(result.online === false
+          ? "orkestrai.net'e hâlâ ulaşılamıyor. İnternet bağlantınızı kontrol edin."
+          : result.message);
+      } catch (error) {
+        show(error.message, "error");
+      } finally {
+        retry.disabled = false;
+      }
+    }, "primary");
+    actions.append(retry);
+    if (status.can_quit) actions.append(button("Uygulamayı kapat", "cross", async () => {
+      if (state.dirty && !(await confirmDialog(
+        "Kaydedilmemiş değişiklikler",
+        "Açık akıştaki kaydedilmemiş değişiklikler kaybolacak. Uygulama kapatılsın mı?",
+        "Kaydetmeden kapat",
+        true,
+      ))) return;
+      state.dirty = false;
+      await attempt(() => api("/api/license/quit", { method: "POST" }));
+    }));
+    actions.append(button("Farklı kullanıcıyla giriş yap", "logout", async () => {
+      if (state.dirty && !(await confirmDialog(
+        "Kaydedilmemiş değişiklikler",
+        "Açık akıştaki kaydedilmemiş değişiklikler kaybolacak. Devam edilsin mi?",
+        "Kaydetmeden çık",
+        true,
+      ))) return;
+      state.dirty = false;
+      await attempt(async () => showLicenseGate(await api("/api/license/logout", { method: "POST" })));
+    }));
+    card.append(actions);
   }
   function loginForm(card, status) {
     card.append(
@@ -5300,24 +5401,6 @@
     const show = (text, variant = "error") => message.replaceChildren(text ? note(text, variant) : "");
     if (status.message) show(status.message, "warning");
     card.append(message);
-    if (status.state === "verification_required" && status.remembered) {
-      const retry = button("Yeniden doğrula", "refresh", async () => {
-        retry.disabled = true;
-        try {
-          const result = await api("/api/license/refresh", { method: "POST" });
-          if (result.state === "valid") return boot();
-          if (result.state !== "verification_required") return showLicenseGate(result);
-          show(result.online === false
-            ? "orkestrai.net'e hâlâ ulaşılamıyor. Bağlantıyı kontrol edip tekrar deneyin."
-            : result.message, "warning");
-        } catch (error) {
-          show(error.message);
-        } finally {
-          retry.disabled = false;
-        }
-      });
-      card.append(retry);
-    }
     const form = node("form", "license-form");
     const username = textInput(status.license?.user || "", "kullanıcı adı veya e-posta");
     username.autocomplete = "username";
@@ -5353,24 +5436,32 @@
         submit.disabled = false;
       }
     });
+    if (state.dirty) card.append(node("p", "license-footnote",
+      "Açık akıştaki kaydedilmemiş değişiklikler duruyor; giriş yapınca kaldığınız yerden devam edersiniz."));
     card.append(form, node("p", "license-footnote", "Hesap ve lisans işlemleri için firma yöneticinize başvurun."));
     queueMicrotask(() => (username.value ? password : username).focus());
   }
   function closingNotice(card, status) {
     const expired = status.state === "expired";
+    // orkestrai.net no longer serves this version: the answer is a newer package, not a new license.
+    const outdated = status.detail === "outdated";
     card.append(
-      node("h1", "", expired ? "Kullanım süreniz dolmuştur" : "Lisans tanımlı değil"),
+      node("h1", "", expired ? "Kullanım süreniz dolmuştur"
+        : outdated ? "Bu sürüm artık desteklenmiyor" : "Lisans tanımlı değil"),
       node("p", "", status.message || (expired
         ? "RpaOrkestrAI kullanım süreniz dolmuştur."
         : "Bu kullanıcı için RpaOrkestrAI lisansı tanımlı değil.")),
     );
     if (status.license?.user) card.append(node("p", "license-footnote", `Kullanıcı: ${status.license.user}`));
-    card.append(node("p", "", "Lisansınızı yenilemek veya yetki almak için firma yöneticinize başvurun."));
+    card.append(node("p", "", outdated
+      ? "Güncelleme arka planda indirilir ve uygulamayı kapatıp açtığınızda kurulur. Akışlarınız ve ayarlarınız olduğu gibi kalır."
+      : "Lisansınızı yenilemek veya yetki almak için firma yöneticinize başvurun."));
     const countdown = node("p", "license-countdown");
     countdown.setAttribute("aria-live", "polite");
     const actions = node("div", "license-actions");
     const quit = async () => {
       clearInterval(state.licenseTimer);
+      state.dirty = false;
       try {
         await api("/api/license/quit", { method: "POST" });
         countdown.textContent = "Uygulama kapanıyor…";
@@ -5378,7 +5469,9 @@
         countdown.textContent = error.message;
       }
     };
-    if (status.can_quit) {
+    if (status.can_quit && outdated) {
+      actions.append(button("Uygulamayı kapat", "cross", quit, "primary"));
+    } else if (status.can_quit) {
       let remaining = 15;
       const paint = () => { countdown.textContent = `Uygulama ${remaining} saniye içinde kapanacak.`; };
       paint();
@@ -5415,7 +5508,13 @@
   }
   async function boot() {
     try {
-      const license = await api("/api/license");
+      clearInterval(state.licenseTimer);
+      let license = await api("/api/license");
+      // orkestrai.net usually answers within a moment; the opening screen stays until it does.
+      for (let tries = 0; license.state === "verifying" && tries < 8; tries += 1) {
+        await pause(250);
+        license = await api("/api/license");
+      }
       if (license.state !== "valid") {
         showLicenseGate(license);
         return;
@@ -5436,6 +5535,7 @@
       render();
       pollRunList();
       pollUpdates();
+      watchLicense();
     } catch (error) {
       root.replaceChildren();
       root.setAttribute("aria-busy", "false");

@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Inspect permissions or publish the verified desktop bundle
+        description: Inspect, publish the verified desktop bundle, or prune every version but the current one
         type: choice
-        options: [inspect, publish]
+        options: [inspect, publish, prune]
         default: inspect
         required: true
       version:
-        description: Stable application version, for example 0.2.0
+        description: Stable application version, for example 0.8.0 (publish - the new version; prune - the current version to keep)
         type: string
         required: false
       bundle_url:
@@ -40,7 +40,7 @@ jobs:
           python-version: '3.12'
       - name: Install SSH client
         run: python -m pip install 'paramiko>=3.5,<5'
-      - name: Inspect or publish only the RpaOrkestrAI directory
+      - name: Inspect, publish or prune only the RpaOrkestrAI directory
         env:
           HOST: ${{ secrets.HOST }}
           USERNAME: ${{ secrets.USERNAME }}

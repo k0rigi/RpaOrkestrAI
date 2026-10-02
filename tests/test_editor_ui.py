@@ -912,3 +912,129 @@ def test_names_are_typed_bare_and_windows_are_chosen_from_a_list(tmp_path):
         assert saved["steps"][0]["params"]["output"] == "Canias_penceresi"
         assert saved["steps"][1]["params"]["window"] == "${Canias_penceresi}"
     assert not errors
+
+
+@pytest.mark.real_license
+def test_license_screens_sign_in_lock_and_keep_unsaved_work(tmp_path):
+    from fastapi.testclient import TestClient
+    from test_licensing import OTHER_COMPUTER, FakeOrkestrai, Timer, service
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    server, timer, errors = FakeOrkestrai(), Timer(), []
+    settings = Settings(tmp_path / "data", dotenv=False)
+    licensing = service(settings.data_dir, server, timer)
+    with TestClient(create_app(settings, licensing=licensing)) as client, playwright.sync_playwright() as runner:
+        browser = runner.chromium.launch()
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def handle(route):
+            request = route.request
+            path = urlsplit(request.url).path
+            if path == "/api/desktop/pick/capabilities":
+                route.fulfill(json={"native": False})
+                return
+            result = client.request(request.method, path, content=request.post_data_buffer,
+                                    headers={"content-type": "application/json"})
+            route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+        page.route("http://127.0.0.1:8765/**", handle)
+        page.goto("http://127.0.0.1:8765/")
+        card = page.locator(".license-card")
+        password = card.locator('input[type="password"]')
+        sign_in = card.get_by_role("button", name="Giriş yap", exact=True)
+
+        # No session on this computer: the Studio asks for the orkestrai.net account.
+        playwright.expect(card).to_contain_text("Şifreniz bu bilgisayara kaydedilmez")
+        card.locator('input[autocomplete="username"]').fill("operator")
+        password.fill("yanlis")
+        sign_in.click()
+        playwright.expect(card.locator(".license-message")).to_contain_text("hatalı")
+        password.fill("dogru")
+        sign_in.click()
+        playwright.expect(page.locator(".license-screen")).to_have_count(0)
+        playwright.expect(page.locator(".owner-text")).to_contain_text("Örnek Lojistik")
+
+        created = client.post("/api/workflows", json={"name": "Sipariş girişi", "steps": [
+            {"id": "note", "action": "core.log", "params": {"message": "ilk"}}]})
+        assert created.status_code == 201, created.text
+        page.reload()
+        page.get_by_role("button", name="Sipariş girişi", exact=True).click()
+        page.locator('[data-step-id="note"]').click()
+        note = page.locator(".field").filter(has_text="Not").locator("input, textarea").first
+        note.fill("kaydedilmemiş not")
+
+        # The connection stays away longer than allowed: the Studio locks, the open flow is kept.
+        server.offline = True
+        timer.value += 3700
+        page.get_by_role("button", name="Kaydet", exact=True).click()
+        playwright.expect(card.get_by_role("heading")).to_have_text("Lisans doğrulanamadı")
+        playwright.expect(card).to_contain_text("kaydedilmemiş değişiklikler duruyor")
+        playwright.expect(card).to_contain_text("operator@ornek.com.tr")
+        card.get_by_role("button", name="Yeniden dene", exact=True).click()
+        playwright.expect(card.locator(".license-message")).to_contain_text("hâlâ ulaşılamıyor")
+        assert client.get("/api/workflows").status_code == 403
+        # The connection returns: the screen follows the background check and the editor is back.
+        server.offline = False
+        licensing.refresh()
+        playwright.expect(page.locator(".license-screen")).to_have_count(0, timeout=10000)
+        page.locator('[data-step-id="note"]').click()
+        playwright.expect(page.locator(".field").filter(has_text="Not").locator("input, textarea").first
+                          ).to_have_value("kaydedilmemiş not")
+
+        # The account is opened on another computer: this one returns to the sign-in form with the reason.
+        service(tmp_path / "other", server, machine="machine-b").login("operator", "dogru")
+        licensing.refresh()
+        page.get_by_role("button", name="Kaydet", exact=True).click()
+        playwright.expect(card.locator(".license-message")).to_contain_text(OTHER_COMPUTER)
+        playwright.expect(card.locator('input[autocomplete="username"]')).to_have_value("operator@ornek.com.tr")
+        password.fill("dogru")
+        sign_in.click()
+        playwright.expect(page.locator(".license-screen")).to_have_count(0)
+        page.get_by_role("button", name="Kaydet", exact=True).click()
+        playwright.expect(page.locator(".toast").last).to_contain_text("kaydedildi")
+        saved = client.get(f"/api/workflows/{created.json()['id']}").json()
+        assert saved["steps"][0]["params"]["message"] == "kaydedilmemiş not"
+
+        # The license is withdrawn on orkestrai.net: the closing notice, not the Studio.
+        server.denial = ("YETKI_YOK", "Bu kullanıcı için RpaOrkestrAI lisansı tanımlı değil.")
+        licensing.refresh()
+        page.reload()
+        playwright.expect(card.get_by_role("heading")).to_have_text("Lisans tanımlı değil")
+        playwright.expect(card).to_contain_text("firma yöneticinize başvurun")
+        # A version orkestrai.net no longer serves is told to update instead.
+        server.denial = ("YETKI_YOK", "Bu RpaOrkestrAI sürümü artık desteklenmiyor. Güncel sürümü "
+                                      "https://orkestrai.net/rpa adresinden kurun.", None, "ESKI_SURUM")
+        licensing.refresh()
+        page.reload()
+        playwright.expect(card.get_by_role("heading")).to_have_text("Bu sürüm artık desteklenmiyor")
+        playwright.expect(card).to_contain_text("https://orkestrai.net/rpa adresinden kurun")
+        playwright.expect(card).to_contain_text("olduğu gibi kalır")
+
+        # A restart with a remembered session waits for orkestrai.net before anything opens.
+        server.denial, server.offline = None, True
+        browser.close()
+    reopened = service(settings.data_dir, server, timer)
+    with TestClient(create_app(settings, licensing=reopened)) as client, playwright.sync_playwright() as runner:
+        browser = runner.chromium.launch()
+        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("http://127.0.0.1:8765/**", lambda route: (lambda result: route.fulfill(
+            status=result.status_code, headers=dict(result.headers), body=result.content))(client.request(
+                route.request.method, urlsplit(route.request.url).path, content=route.request.post_data_buffer,
+                headers={"content-type": "application/json"})))
+        page.goto("http://127.0.0.1:8765/")
+        card = page.locator(".license-card")
+        playwright.expect(card.get_by_role("heading")).to_have_text("Lisans doğrulanamadı")
+        playwright.expect(card).to_contain_text("internet bağlantısı")
+        playwright.expect(card.locator('input[type="password"]')).to_have_count(0)
+        assert client.get("/api/bootstrap").status_code == 403
+        server.offline = False
+        card.get_by_role("button", name="Yeniden dene", exact=True).click()
+        playwright.expect(page.locator(".license-screen")).to_have_count(0)
+        playwright.expect(page.get_by_role("button", name="Sipariş girişi", exact=True)).to_be_visible()
+        browser.close()
+    assert errors == []

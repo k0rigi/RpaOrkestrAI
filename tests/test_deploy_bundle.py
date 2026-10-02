@@ -215,3 +215,54 @@ def test_remote_failure_diagnostics_include_only_safe_metadata(error_type, reaso
         assert "AttributeError" in output
     else:
         assert '"reason"' not in output
+
+
+def test_prune_removes_older_installers_and_keeps_only_the_current_version(publication):
+    archive, _, namespace = publication
+    root = namespace["ROOT"]
+    digest, token = upload_to_fixture(archive, namespace)
+    namespace["publish"]("0.2.0", digest, token)
+    unrelated = root.parent / "index.php"
+    unrelated.write_text("keep main website")
+    for version in ("0.1.0", "0.1.5"):
+        old = root / "releases" / version
+        old.mkdir()
+        (old / f"RpaOrkestrAI-Setup-{version}-Windows-x64.exe").write_bytes(b"old installer")
+        (old / f"RpaOrkestrAI-{version}-macOS-arm64.dmg").write_bytes(b"old image")
+    assert namespace["inspect_root"]()["versions"] == ["0.1.0", "0.1.5", "0.2.0"]
+    # Keeping anything other than the current stable version is refused, and nothing is deleted.
+    for keep in ("0.1.5", "9.9.9", "../0.2.0", ""):
+        with pytest.raises(ValueError, match="current stable version"):
+            namespace["prune"](keep)
+    assert namespace["inspect_root"]()["versions"] == ["0.1.0", "0.1.5", "0.2.0"]
+    result = namespace["prune"]("0.2.0")
+    assert result == {"ok": True, "action": "prune", "kept": "0.2.0", "removed": ["0.1.0", "0.1.5"]}
+    assert namespace["inspect_root"]()["versions"] == ["0.2.0"]
+    assert {item.name for item in (root / "releases" / "0.2.0").iterdir()} == {"Studio.exe", "Studio-arm64.dmg"}
+    assert (root / "stable.manifest").is_file() and (root / "index.html").is_file()
+    assert unrelated.read_text() == "keep main website"
+    assert namespace["prune"]("0.2.0")["removed"] == []
+
+
+@pytest.mark.parametrize("kind", ["foreign-file", "nested-folder", "symlink", "odd-name"])
+def test_prune_deletes_nothing_when_the_releases_directory_holds_something_unexpected(publication, kind):
+    archive, _, namespace = publication
+    root = namespace["ROOT"]
+    digest, token = upload_to_fixture(archive, namespace)
+    namespace["publish"]("0.2.0", digest, token)
+    old = root / "releases" / "0.1.0"
+    old.mkdir()
+    (old / "RpaOrkestrAI-Setup-0.1.0-Windows-x64.exe").write_bytes(b"old installer")
+    if kind == "foreign-file":
+        (old / "notes.txt").write_text("not an installer")
+    elif kind == "nested-folder":
+        (old / "inner").mkdir()
+    elif kind == "symlink":
+        (root / "releases" / "0.0.9").symlink_to(root.parent)
+    else:
+        (root / "releases" / "backup").mkdir()
+    with pytest.raises(ValueError):
+        namespace["prune"]("0.2.0")
+    # The valid old directory is untouched: checks come before the first deletion.
+    assert (old / "RpaOrkestrAI-Setup-0.1.0-Windows-x64.exe").is_file()
+    assert (root / "releases" / "0.2.0").is_dir()

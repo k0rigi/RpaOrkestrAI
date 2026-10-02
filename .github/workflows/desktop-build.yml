@@ -64,6 +64,7 @@ jobs:
           name: RpaOrkestrAI-${{ matrix.artifact }}
           path: dist/installer/*.exe
           if-no-files-found: error
+          retention-days: 1
       - name: Upload macOS application
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
@@ -71,6 +72,7 @@ jobs:
           name: RpaOrkestrAI-${{ matrix.artifact }}
           path: dist/RpaOrkestrAI-macOS-*.dmg
           if-no-files-found: error
+          retention-days: 1
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,3 +82,4 @@ jobs:
             build/package-check.json
             build/pyinstaller/RpaOrkestrAI/warn-RpaOrkestrAI.txt
           if-no-files-found: ignore
+          retention-days: 1

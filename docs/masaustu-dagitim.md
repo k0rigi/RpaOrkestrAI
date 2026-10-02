@@ -41,7 +41,7 @@ Bu dosyalar depoya gönderildikten sonra:
 2. Windows ve macOS işleri, Python 3.12 ile bağımlılık tutarlılığını ve testleri kontrol edip kendi platformlarının uygulamasını oluşturur. Ayrı Python kontrol iş akışı her push'ta 3.12'yi, elle başlatıldığında 3.11–3.14 aralığını tam native/automation bağımlılıkları ve yerel pencere motoru yüklemesiyle sınar.
 3. Derlenmiş uygulama geçici çalışma alanında `--self-test` ile açılır. Yerel API, arayüz dosyaları ve temel bağımlılıkların pakette bulunması kontrol edilir.
 4. Windows işi Inno Setup ile kurulum `.exe` dosyasını üretir; macOS işi `.app` dosyasını Applications kısayoluyla birlikte doğrulanmış bir DMG'ye koyar.
-5. Başarılı çalışmanın **Artifacts** bölümünden `RpaOrkestrAI-Windows-x64` veya `RpaOrkestrAI-macOS` indirilir.
+5. Başarılı çalışmanın **Artifacts** bölümünden `RpaOrkestrAI-Windows-x64` veya `RpaOrkestrAI-macOS` indirilir. Paketler bir gün sonra silinir.
 
 **Code → Download ZIP kaynak koddur; kurulum dosyası değildir.** Derleme iş akışı elle tetiklenir; tek başına GitHub Release veya güncelleme sunucusu yayını yapmaz. Yayın için doğrulanmış dosyalardan `scripts/prepare_update_release.py` ile imzalı bildirim ve indirme sayfası hazırlanır. Paket derlemesi ve gerçek hedef makinedeki açılış doğrulaması tamamlanmadan dağıtımın doğrulandığı varsayılmamalıdır; paket kontrolü ERP ekranına tıklamaz.
 

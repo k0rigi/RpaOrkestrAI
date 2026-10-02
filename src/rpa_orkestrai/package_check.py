@@ -61,17 +61,25 @@ def _check_license_verification() -> None:
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    from .licensing import verify_license
+    from .licensing import LicenseError, verify_license
 
     key = Ed25519PrivateKey.generate()
+    nonce = "ab" * 16
     payload = json.dumps({
         "surum": 1, "urun": "rpa-orkestrai", "modul": "MOD_RPA", "kullanici_id": 1, "kullanici": "paket",
         "firma_id": 1, "bitis": None, "cihaz": "0" * 32, "verildi": "2026-01-01T00:00:00+03:00",
-        "gecerlilik": "2026-01-08T00:00:00+03:00",
+        "gecerlilik": "2026-01-01T01:00:00+03:00", "tolerans": 3600, "aralik": 600, "nonce": nonce,
     }).encode()
     envelope = {"payload": base64.b64encode(payload).decode(), "signature": base64.b64encode(key.sign(payload)).decode()}
-    if verify_license(envelope, key.public_key(), "0" * 32).user != "paket":
+    if verify_license(envelope, key.public_key(), "0" * 32, nonce).user != "paket":
         raise RuntimeError("Paket içindeki lisans doğrulaması çalışmadı.")
+    # The same signed answer must not pass for another request or another computer.
+    for device, value in (("0" * 32, "cd" * 16), ("1" * 32, nonce)):
+        try:
+            verify_license(envelope, key.public_key(), device, value)
+        except LicenseError:
+            continue
+        raise RuntimeError("Paket içindeki lisans doğrulaması başka bir isteğin yanıtını kabul etti.")
 
 
 def run_check(report: Path) -> int:

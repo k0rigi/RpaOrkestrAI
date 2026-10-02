@@ -1018,6 +1018,9 @@ class RunManager:
         self._active: tuple[str, threading.Event] | None = None
         self._setup_cancel: threading.Event | None = None
         self._closed = False
+        # The Studio sets this to its license check; nothing starts while it answers False.
+        self.gate: Callable[[], bool] | None = None
+        self._stop_reason: str | None = None
 
     def reserve_desktop(self, cancel: threading.Event | None = None) -> threading.Event:
         with self._lock:
@@ -1058,6 +1061,8 @@ class RunManager:
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
               test_step_id: str | None = None, plan: dict | None = None, locate: bool = False) -> Run:
         validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]))
+        if self.gate is not None and not self.gate():
+            raise RuntimeError("Lisans doğrulanamadığı için akış başlatılamadı.")
         with self._lock:
             if self._setup_cancel is not None:
                 raise RuntimeError("Bir hedef seçimi devam ediyor. Tamamlanmasını bekleyin veya iptal edin.")
@@ -1096,7 +1101,11 @@ class RunManager:
             runner.log(signal.message or "Akış bitirildi.", level="info" if signal.succeeded else "error")
         except (Cancelled, InterruptedError):
             run.status = "cancelled"
-            runner.log("Çalışma kullanıcı tarafından durduruldu.", level="warning")
+            with self._lock:
+                reason, self._stop_reason = self._stop_reason, None
+            if reason:
+                run.error = reason
+            runner.log(reason or "Çalışma kullanıcı tarafından durduruldu.", level="warning")
         except (BreakLoop, ContinueLoop) as signal:
             if plan and plan["in_loop"]:
                 # The tested step sits in a loop: leaving the turn here is its expected result.
@@ -1118,7 +1127,7 @@ class RunManager:
             # Free the worker before the result becomes visible: whoever sees the finished run can
             # start the next one at once. The single worker thread still writes this file first.
             with self._lock:
-                self._active = None
+                self._active, self._stop_reason = None, None
             self.store.save_run(run)
 
     def cancel(self, run_id: str) -> Run:
@@ -1127,6 +1136,13 @@ class RunManager:
             if self._active and self._active[0] == run_id:
                 self._active[1].set()
             return run
+
+    def stop_active(self, reason: str) -> None:
+        """Stop the running flow, if any, and record why (e.g. the license was withdrawn)."""
+        with self._lock:
+            if self._active:
+                self._stop_reason = reason
+                self._active[1].set()
 
     def close(self) -> None:
         with self._lock:

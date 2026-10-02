@@ -33,7 +33,7 @@ Bağımlılık eklendiyse aynı ortama kur: `.bootstrap/bin/uv pip install -p "$
 | Yol | Görev |
 | --- | --- |
 | `src/rpa_orkestrai/app.py` | Yerel FastAPI uygulaması; kaynak kontrolü, lisans kapısı, Studio uçları |
-| `src/rpa_orkestrai/licensing.py` | orkestrai.net lisansı: imza doğrulama, cihaz bağlama, 7 gün çevrimdışı, yenileme |
+| `src/rpa_orkestrai/licensing.py` | orkestrai.net lisansı: her açılışta ve 10 dakikada bir taze imzalı onay (isteğe özel rastgele değer), cihaz bağlama, tek bilgisayar oturumu, bağlantısız en fazla 60 dk; diskteki hiçbir şey Studio'yu açmaz |
 | `src/rpa_orkestrai/catalog.py` | Adım kütüphanesi ve form alanları (`CATALOG`, eski akışlar için `ACTION_DEFINITIONS`) |
 | `src/rpa_orkestrai/guide.py` | Her adımın "Nasıl kullanılır?" özeti ve alan açıklamaları; yeni adım/alan eklenince burası da doldurulur (test zorunlu kılar) |
 | `src/rpa_orkestrai/connections.py` | Adlandırılmış Sheets/veritabanı bağlantıları (`data/connections.json`); adım `connection` alanıyla seçer, gizli bilgiler dışa aktarılmaz |

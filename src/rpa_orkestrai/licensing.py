@@ -1,11 +1,15 @@
 """orkestrai.net license gate for the local Studio API.
 
-orkestrai.net signs a short-lived license with Ed25519: at most seven days after
-the last successful check and never past the company's MOD_RPA end date. Studio
-verifies it offline with the embedded public key and renews it with a device-bound
-refresh token; the password is never stored. The device id mixes this computer's
-identifier into a random install id, so a copied workspace does not carry the
-license to another computer.
+The Studio opens only after orkestrai.net has confirmed the license during this run.
+At every start, and every few minutes after that, it asks for a fresh license: an
+Ed25519-signed answer that carries a random value the Studio chose for that request,
+so an earlier answer never stands in for a new one. Nothing kept on disk opens the
+Studio. The workspace stores only a device-bound session, never the password, and the
+session advances with every check, so one account runs on one computer at a time.
+
+While the Studio is running and orkestrai.net cannot be reached, work continues for a
+limited time. That time is measured by a clock that does not follow the computer's
+date, and it ends when the Studio is closed: a restart always needs a new confirmation.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ import http.client
 import json
 import platform
 import re
+import secrets
 import ssl
 import subprocess
 import threading
@@ -24,7 +29,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
-from datetime import time as day_time
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -41,10 +45,14 @@ LICENSE_API = "https://orkestrai.net/api/rpa/lisans"
 # Served at LICENSE_API/anahtar; the private key never leaves orkestrai.net.
 LICENSE_PUBLIC_KEY = "ZPxj98IYClRDVdbSPDY4fLrPZBKBhichNXmx6FGTTqA="
 PRODUCT, MODULE = "rpa-orkestrai", "MOD_RPA"
-REFRESH_SECONDS = 3600
-RETRY_SECONDS = 300
-CLOCK_TOLERANCE = 600
-LAST_SEEN_WRITE_INTERVAL = 300
+PROTOCOL = 2
+# The signed license names both values; these apply until the first one arrives and bound it.
+REFRESH_SECONDS, REFRESH_RANGE = 600, (60, 3600)
+TOLERANCE_SECONDS, TOLERANCE_RANGE = 3600, (300, 6 * 3600)
+# An unanswered check is repeated after 5, 10, 20 and then every RETRY_SECONDS seconds.
+RETRY_SECONDS = 30
+# A computer waking from sleep gets this long to reconnect before running work is stopped.
+STOP_GRACE = 60
 RESPONSE_LIMIT = 64 * 1024
 # Everything else under /api/ requires a valid license.
 OPEN_PATHS = frozenset({
@@ -52,11 +60,12 @@ OPEN_PATHS = frozenset({
     "/api/license/refresh", "/api/license/logout", "/api/license/quit",
 })
 DENIALS = {"SURE_DOLDU": "expired", "YETKI_YOK": "denied"}
-OFFLINE_MESSAGE = ("Lisans 7 gündür orkestrai.net üzerinden doğrulanamadı. "
-                   "İnternet bağlantınızı kontrol edip yeniden deneyin.")
-CLOCK_MESSAGE = ("Bilgisayarın tarih ve saati geri alınmış görünüyor. Saati düzeltip "
-                 "lisansı internet bağlantısıyla yeniden doğrulayın.")
+STARTUP_MESSAGE = ("Lisans doğrulanamadı. RpaOrkestrAI'yi açmak için internet bağlantısı ve orkestrai.net "
+                   "erişimi gerekir. Bağlantınızı kontrol edin; uygulama kendiliğinden yeniden dener.")
+TOLERANCE_MESSAGE = ("Lisans uzun süredir doğrulanamadığı için Studio kilitlendi. İnternet bağlantınızı "
+                     "kontrol edin; bağlantı gelince Studio kendiliğinden açılır.")
 UNAVAILABLE_MESSAGE = "orkestrai.net lisans sunucusuna ulaşılamadı. İnternet bağlantınızı kontrol edin."
+SESSION_MESSAGE = "Oturumun süresi doldu. Yeniden giriş yapın."
 
 
 class LicenseError(RuntimeError):
@@ -64,13 +73,13 @@ class LicenseError(RuntimeError):
 
 
 class LicenseUnavailable(LicenseError):
-    """The server could not be reached or answered unexpectedly; keep the cached license."""
+    """The server could not be reached or answered unexpectedly; nothing was confirmed."""
 
 
 class LicenseDenied(LicenseError):
-    def __init__(self, code: str, message: str, ends_on: str | None = None):
+    def __init__(self, code: str, message: str, ends_on: str | None = None, cause: str | None = None):
         super().__init__(message)
-        self.code, self.ends_on = code, ends_on
+        self.code, self.ends_on, self.cause = code, ends_on, cause
 
 
 def expired_message(ends_on: date | None) -> str:
@@ -90,16 +99,13 @@ class License:
     device: str
     issued: datetime
     valid_until: datetime
+    # How often to ask again, and how long a running Studio may go without an answer (seconds).
+    interval: int = REFRESH_SECONDS
+    tolerance: int = TOLERANCE_SECONDS
 
     def public(self) -> dict:
         return {"user": self.user, "full_name": self.full_name, "company": self.company,
-                "ends_on": self.ends_on.isoformat() if self.ends_on else None,
-                "valid_until": self.valid_until.isoformat()}
-
-    def end_of_term(self) -> datetime | None:
-        if self.ends_on is None:
-            return None
-        return datetime.combine(self.ends_on, day_time(23, 59, 59), tzinfo=self.valid_until.tzinfo)
+                "ends_on": self.ends_on.isoformat() if self.ends_on else None}
 
 
 def _base64(value: Any, size: int | None = None) -> bytes:
@@ -123,7 +129,12 @@ def _timestamp(value: Any) -> datetime:
     return parsed
 
 
-def verify_license(envelope: Any, key: Ed25519PublicKey, device: str) -> License:
+def _bounded(value: Any, default: int, limits: tuple[int, int]) -> int:
+    return max(limits[0], min(limits[1], value)) if type(value) is int else default
+
+
+def verify_license(envelope: Any, key: Ed25519PublicKey, device: str, nonce: str | None = None) -> License:
+    """Check the signature, the product, the device and, when given, that it answers this request."""
     if not isinstance(envelope, dict) or set(envelope) != {"payload", "signature"}:
         raise LicenseError("Lisans biçimi geçersiz.")
     payload = _base64(envelope["payload"])
@@ -143,11 +154,15 @@ def verify_license(envelope: Any, key: Ed25519PublicKey, device: str) -> License
             company_id=int(claims["firma_id"]), ends_on=date.fromisoformat(ends_on) if ends_on else None,
             device=str(claims["cihaz"]), issued=_timestamp(claims["verildi"]),
             valid_until=_timestamp(claims["gecerlilik"]),
+            interval=_bounded(claims.get("aralik"), REFRESH_SECONDS, REFRESH_RANGE),
+            tolerance=_bounded(claims.get("tolerans"), TOLERANCE_SECONDS, TOLERANCE_RANGE),
         )
     except (ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         raise LicenseError("Lisans içeriği geçersiz.") from exc
     if result.device != device:
         raise LicenseError("Lisans bu bilgisayara ait değil.")
+    if nonce is not None and claims.get("nonce") != nonce:
+        raise LicenseError("Lisans yanıtı bu isteğe ait değil.")
     return result
 
 
@@ -186,7 +201,7 @@ class _NoRedirect(HTTPRedirectHandler):
 class LicenseService:
     def __init__(
         self, data_dir: Path | str, *, api_url: str = LICENSE_API, public_key: str = LICENSE_PUBLIC_KEY,
-        opener: Any = None, clock: Callable[[], float] = time.time,
+        opener: Any = None, monotonic: Callable[[], float] = time.monotonic,
         machine_id: Callable[[], str] = machine_identifier, timeout: float = 15,
     ):
         self._path = Path(data_dir) / "license.json"
@@ -194,37 +209,38 @@ class LicenseService:
         self._key = Ed25519PublicKey.from_public_bytes(_base64(public_key, 32))
         self._opener = opener or build_opener(
             HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())), _NoRedirect())
-        self._clock, self._timeout = clock, timeout
+        self._monotonic, self._timeout = monotonic, timeout
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._online: bool | None = None
+        # Called when the Studio locks: orkestrai.net refused the license ("expired", "denied"),
+        # closed this session ("session"), or has not confirmed it for too long ("unverified").
+        self.on_locked: Callable[[str], None] | None = None
         stored = self._load()
         install = stored.get("install")
         if not isinstance(install, str) or not re.fullmatch(r"[0-9a-f]{32}", install):
             install = uuid.uuid4().hex
         self._install = install
         self.device = hashlib.sha256(f"{PRODUCT}:{machine_id()}:{install}".encode()).hexdigest()[:32]
-        self._skew = float(stored.get("skew") or 0) if isinstance(stored.get("skew"), (int, float)) else 0.0
-        self._last_seen = float(stored["last_seen"]) if isinstance(stored.get("last_seen"), (int, float)) else 0.0
-        self._last_written = self._last_seen
+        # Names this running Studio, so a request repeated after a lost answer is not taken for a copy.
+        self._instance = secrets.token_hex(16)
         token = stored.get("refresh")
         self._refresh_token = token if isinstance(token, str) and len(token) <= 4096 else None
-        denial = stored.get("denial")
-        self._denial = denial if isinstance(denial, dict) and denial.get("state") in DENIALS.values() else None
+        user = stored.get("user")
+        self._user = user if isinstance(user, str) and len(user) <= 200 else None
+        # Only what orkestrai.net confirmed in this run counts; the file never holds a usable license.
         self._license: License | None = None
-        if stored.get("license") is not None:
-            try:
-                self._license = verify_license(stored["license"], self._key, self.device)
-                self._envelope = stored["license"]
-            except LicenseError:
-                # Tampered, from another computer or signed by a retired key.
-                self._license, self._refresh_token = None, None
-        if self._license is None:
-            self._envelope = None
-        if install != stored.get("install"):
-            self._save()
+        self._verified: float | None = None
+        self._attempted = False
+        self._failures = 0
+        self._locked_since: float | None = None
+        self._online: bool | None = None
+        self._denial: dict | None = None
+        self._notice = ""
+        self._interval, self._tolerance = REFRESH_SECONDS, TOLERANCE_SECONDS
+        if install != stored.get("install") or set(stored) - {"install", "refresh", "user"}:
+            self._save()  # also drops what earlier versions kept here
 
     # ----- persistence -------------------------------------------------------------
     def _load(self) -> dict:
@@ -235,63 +251,47 @@ class LicenseService:
             return {}
 
     def _save(self) -> None:
-        atomic_json(self._path, {
-            "install": self._install, "license": self._envelope, "refresh": self._refresh_token,
-            "skew": self._skew, "last_seen": self._last_seen, "denial": self._denial,
-        })
-        self._last_written = self._last_seen
+        try:
+            atomic_json(self._path, {"install": self._install, "refresh": self._refresh_token, "user": self._user})
+        except OSError:
+            pass  # The session then asks for the password again at the next start.
 
     # ----- evaluation --------------------------------------------------------------
-    def _now(self) -> float:
-        return self._clock() + self._skew
-
     def _evaluate(self) -> tuple[str, str]:
         if self._denial:
             return self._denial["state"], str(self._denial.get("message") or "")
-        current = self._license
-        if current is None:
-            return "login_required", ""
-        now = self._now()
-        if now + CLOCK_TOLERANCE < self._last_seen:
-            return "verification_required", CLOCK_MESSAGE
-        if now >= current.valid_until.timestamp():
-            end = current.end_of_term()
-            if end is not None and now >= end.timestamp():
-                return "expired", expired_message(current.ends_on)
-            return "verification_required", OFFLINE_MESSAGE
+        if self._refresh_token is None:
+            return "login_required", self._notice
+        if self._verified is None or self._license is None:
+            return ("verification_required", STARTUP_MESSAGE) if self._attempted else ("verifying", "")
+        if self._monotonic() - self._verified > self._tolerance:
+            return "verification_required", TOLERANCE_MESSAGE
         return "valid", ""
 
     def allowed(self) -> bool:
         with self._lock:
-            if self._evaluate()[0] != "valid":
-                return False
-            now = self._now()
-            if now > self._last_seen:
-                self._last_seen = now
-                if now - self._last_written >= LAST_SEEN_WRITE_INTERVAL:
-                    try:
-                        self._save()
-                    except OSError:
-                        pass  # The in-memory guard still applies for this session.
-            return True
+            return self._evaluate()[0] == "valid"
 
     def status(self) -> dict:
         with self._lock:
             state, message = self._evaluate()
             public = self._license.public() if self._license else None
-            if public is None and self._denial and self._denial.get("user"):
-                public = {"user": self._denial["user"], "full_name": "", "company": "",
-                          "ends_on": self._denial.get("ends_on"), "valid_until": None}
+            known = (self._denial or {}).get("user") or self._user
+            if public is None and known:
+                public = {"user": known, "full_name": "", "company": "",
+                          "ends_on": (self._denial or {}).get("ends_on")}
+            # "detail" tells the two refusals apart: no license, or a version no longer served.
             return {"state": state, "message": message, "online": self._online, "license": public,
-                    "remembered": self._refresh_token is not None}
+                    "remembered": self._refresh_token is not None,
+                    "detail": (self._denial or {}).get("detail")}
 
     # ----- server ------------------------------------------------------------------
-    def _post(self, endpoint: str, body: dict) -> dict:
+    def _post(self, endpoint: str, body: dict, timeout: float | None = None) -> dict:
         request = Request(f"{self._api}/{endpoint}", data=json.dumps(body).encode("utf-8"), method="POST",
                           headers={"Content-Type": "application/json", "Accept": "application/json",
                                    "User-Agent": f"RpaOrkestrAI/{__version__}"})
         try:
-            with self._opener.open(request, timeout=self._timeout) as response:
+            with self._opener.open(request, timeout=timeout or self._timeout) as response:
                 status, raw = response.status, response.read(RESPONSE_LIMIT + 1)
         except HTTPError as exc:
             status = exc.code
@@ -317,46 +317,62 @@ class LicenseService:
         if status >= 500 or not isinstance(code, str) or not isinstance(message, str):
             raise LicenseUnavailable(UNAVAILABLE_MESSAGE)
         ends_on = data.get("bitis") if isinstance(data.get("bitis"), str) else None
-        raise LicenseDenied(code, message[:300], ends_on)
+        cause = data.get("neden") if isinstance(data.get("neden"), str) else None
+        raise LicenseDenied(code, message[:300], ends_on, cause)
 
-    def _accept(self, response: dict) -> None:
+    def _request(self, endpoint: str, body: dict) -> dict:
+        """Ask for a license that answers this very request; anything else is not a confirmation."""
+        nonce = secrets.token_hex(16)
+        response = self._post(endpoint, {**body, "cihaz": self.device, "surum": __version__,
+                                         "protokol": PROTOCOL, "nonce": nonce, "ornek": self._instance})
         token = response.get("yenileme")
         if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9_\-.]{20,4096}", token):
             raise LicenseUnavailable("Lisans sunucusunun yanıtı geçersiz.")
         try:
-            accepted = verify_license(response.get("lisans"), self._key, self.device)
+            accepted = verify_license(response.get("lisans"), self._key, self.device, nonce)
         except LicenseError as exc:
-            raise LicenseUnavailable("Lisans sunucusunun imzası doğrulanamadı. Uygulamayı güncelleyin.") from exc
+            raise LicenseUnavailable("Lisans sunucusunun yanıtı doğrulanamadı. Uygulamayı güncelleyin.") from exc
         with self._lock:
-            # Server time is authoritative; the skew keeps wrong local clocks usable.
-            self._skew = accepted.issued.timestamp() - self._clock()
-            self._license, self._envelope, self._refresh_token = accepted, response["lisans"], token
-            self._last_seen, self._denial, self._online = self._now(), None, True
+            self._license, self._refresh_token, self._user = accepted, token, accepted.user
+            self._interval, self._tolerance = accepted.interval, accepted.tolerance
+            self._verified, self._attempted, self._online = self._monotonic(), True, True
+            self._denial, self._notice, self._failures = None, "", 0
             self._save()
+        return response
+
+    def _unconfirmed(self) -> None:
+        with self._lock:
+            self._attempted, self._online = True, False
+            self._failures += 1
 
     def _deny(self, exc: LicenseDenied, user: str | None = None) -> None:
         with self._lock:
+            self._license, self._verified = None, None
+            self._attempted, self._online, self._failures = True, True, 0
             if exc.code == "OTURUM_GECERSIZ":
-                self._license = self._envelope = self._refresh_token = None
-                self._denial = None
+                # Closed on orkestrai.net: another computer signed in, the password changed or it expired.
+                self._refresh_token, self._denial = None, None
+                self._notice = str(exc) or SESSION_MESSAGE
+                reason = "session"
             else:
                 ends_on = None
                 try:
                     ends_on = date.fromisoformat(exc.ends_on) if exc.ends_on else None
                 except ValueError:
                     pass
-                state = DENIALS[exc.code]
-                message = expired_message(ends_on) if state == "expired" else str(exc)
-                known = user or (self._license.user if self._license else None)
-                # A renewed license is picked up by the kept refresh token on the next check;
-                # a refused login for another account must not fall back to the previous one.
+                reason = DENIALS[exc.code]
+                message = expired_message(ends_on) if reason == "expired" else str(exc)
+                # A renewed license is picked up by the kept session on the next check; a refused
+                # login for another account must not fall back to the previous one.
                 if user is not None:
                     self._refresh_token = None
-                self._license = self._envelope = None
-                self._denial = {"state": state, "message": message, "user": known,
-                                "ends_on": ends_on.isoformat() if ends_on else None}
-            self._online = True
+                self._denial = {"state": reason, "message": message, "user": user or self._user,
+                                "ends_on": ends_on.isoformat() if ends_on else None,
+                                "detail": "outdated" if exc.cause == "ESKI_SURUM" else None}
             self._save()
+            callback = self.on_locked
+        if callback is not None:
+            callback(reason)
 
     def refresh(self) -> dict:
         with self._refresh_lock:
@@ -365,16 +381,14 @@ class LicenseService:
             if not token:
                 return self.status()
             try:
-                self._accept(self._post("yenile", {"token": token, "cihaz": self.device, "surum": __version__}))
+                self._request("yenile", {"token": token})
             except LicenseDenied as exc:
                 if exc.code in DENIALS or exc.code == "OTURUM_GECERSIZ":
                     self._deny(exc)
                 else:
-                    with self._lock:
-                        self._online = False
+                    self._unconfirmed()
             except LicenseUnavailable:
-                with self._lock:
-                    self._online = False
+                self._unconfirmed()
             return self.status()
 
     def login(self, username: str, password: str) -> dict:
@@ -387,21 +401,26 @@ class LicenseService:
             raise LicenseError("Kullanıcı adı veya şifre çok uzun.")
         with self._refresh_lock:
             try:
-                response = self._post("giris", {"kullanici": username, "sifre": password,
-                                                "cihaz": self.device, "surum": __version__})
+                self._request("giris", {"kullanici": username, "sifre": password})
             except LicenseDenied as exc:
                 if exc.code not in DENIALS:
                     raise LicenseError(str(exc)) from exc
                 self._deny(exc, username)
-                return self.status()
-            self._accept(response)
             return self.status()
 
     def logout(self) -> dict:
-        with self._lock:
-            self._license = self._envelope = self._refresh_token = None
-            self._denial, self._online = None, None
-            self._save()
+        with self._refresh_lock:
+            with self._lock:
+                token = self._refresh_token
+            if token:
+                try:  # Frees this computer's session on orkestrai.net; signing out works without it.
+                    self._post("cikis", {"token": token, "cihaz": self.device}, timeout=5)
+                except LicenseError:
+                    pass
+            with self._lock:
+                self._license, self._verified, self._refresh_token, self._user = None, None, None, None
+                self._denial, self._notice, self._online, self._failures = None, "", None, 0
+                self._save()
         return self.status()
 
     # ----- background renewal ------------------------------------------------------
@@ -412,11 +431,30 @@ class LicenseService:
         self._thread = threading.Thread(target=self._run, name="rpa-license", daemon=True)
         self._thread.start()
 
+    def _tick(self) -> float:
+        """One background check; returns the seconds until the next one."""
+        self.refresh()
+        with self._lock:
+            now = self._monotonic()
+            if self._evaluate()[0] != "verification_required":
+                self._locked_since = None
+            elif self._locked_since is None:
+                self._locked_since = now
+            overdue = self._locked_since is not None and now - self._locked_since >= STOP_GRACE
+            delay = self._interval
+            if self._online is False:
+                delay = min(RETRY_SECONDS, 5 * 2 ** min(self._failures - 1, 3))
+            callback = self.on_locked
+        # Refusals are reported as they arrive. This covers a running Studio that has gone without
+        # an answer for longer than the license allows: whatever is still running stops too.
+        if overdue and callback is not None:
+            callback("unverified")
+        return delay
+
     def _run(self) -> None:
         delay = 0.0
         while not self._stop.wait(delay):
-            self.refresh()
-            delay = RETRY_SECONDS if self._online is False else REFRESH_SECONDS
+            delay = self._tick()
 
     def stop(self) -> None:
         self._stop.set()

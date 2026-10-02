@@ -41,12 +41,22 @@ from .models import (
 )
 from .storage import Store
 
+LICENSE_STOPS = {
+    "unverified": "Lisans uzun süredir doğrulanamadığı için akış durduruldu.",
+    "session": "Bu bilgisayardaki oturum kapandığı için akış durduruldu.",
+}
+
 
 def create_app(settings: Settings | None = None, *, licensing: LicenseService | None = None) -> FastAPI:
     settings = settings or Settings()
     licensing = licensing or LicenseService(settings.data_dir)
     store = Store(settings.data_dir)
     manager = RunManager(settings, store)
+    # The license is checked where work starts as well as at the API, and a flow that is running
+    # when the Studio locks stops at its next step.
+    manager.gate = licensing.allowed
+    licensing.on_locked = lambda reason: manager.stop_active(
+        LICENSE_STOPS.get(reason, "Lisans geçerliliğini yitirdiği için akış durduruldu."))
     from .desktop.pick_jobs import PickJobs
     from .desktop.targets import CaptureStore
 
