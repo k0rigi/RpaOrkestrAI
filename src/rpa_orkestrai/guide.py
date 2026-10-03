@@ -69,6 +69,11 @@ STEP_FIELD_HELP = {
     ("window.read_table", "mode"): "Hücre değeri okumak için Bir hücrenin değeri; aramanın sonuç verip vermediğini "
                                    "anlamak için Kaç satır var?.",
     ("desktop.window_click", "timeout"): "Görsel veya alan bu süre içinde bulunamazsa tıklama yapılmaz, adım durur.",
+    ("desktop.window_wait_image", "on_missing"): "Akışı durdur: görsel gelmezse akış hata ile biter. Devam et: akış "
+                                                 "sürer, ${image.found} yanlış olur; Koşul ile karar verin.",
+    ("input.type", "x"): "Yazmadan önce tıklanacak noktanın ekrandaki yeri. Fare konumunu al ile doldurun; boş "
+                         "bırakılırsa imlecin bulunduğu yere yazılır.",
+    ("input.type", "y"): "X ile birlikte doldurulur.",
     ("desktop.window_fill", "timeout"): "Görsel veya alan bu süre içinde bulunamazsa yazma yapılmaz, adım durur.",
     ("desktop.window_fill", "clear"): "Açıkken alan seçilip silinir, sonra değer yazılır. Mevcut değerin sonuna "
                                       "eklemek için kapatın.",
@@ -213,9 +218,12 @@ GUIDES = {
          "Kısayol gerekiyorsa Birlikte basılacak tuşu seçin."],
         "", "Tuş, pencerede o an seçili olan alana gider. Önce Alanı doldur veya Pencerede tıkla ile doğru alanı seçin."),
     "desktop.window_wait_image": guide(
-        [WINDOW_FIRST, "Ekranda seç ile beklenecek işareti (düğme, başlık, simge) görsel olarak kaydedin.",
-         "Görünsün veya Kaybolsun seçin ve en fazla bekleme süresini yazın."],
-        "", "Sabit Bekle adımı yerine bunu kullanın: ekran hazır olur olmaz devam eder, hazır olmazsa durur."),
+        [WINDOW_FIRST, "Ekranda seç ile beklenecek işareti (düğme, başlık, hata kutusu) görsel olarak kaydedin.",
+         "Görünsün veya Kaybolsun seçin ve en fazla bekleme süresini yazın.",
+         "Görsel çıkmazsa akış dursun mu, devam mı etsin seçin."],
+        "${image.found}: görsel bulundu mu (doğru/yanlış). ${image.center_x}, ${image.center_y}: ekrandaki yeri.",
+        "Sabit Bekle yerine bunu kullanın: ekran hazır olur olmaz devam eder. Bir hata kutusu çıktı mı diye bakmak "
+        "için Süre dolarsa: Devam et seçin, ardından Koşul ile ${image.found} değerini kontrol edin."),
     "window.activate": guide(
         [WINDOW_FIRST, "Klavye adımlarından (Metin yaz, Tuşa bas, Kısayol) hemen önce ekleyin."],
         "", "Pencerede tıkla ve Alanı doldur pencereyi kendileri öne getirir; onlardan önce gerekmez."),
@@ -260,8 +268,12 @@ GUIDES = {
         ["Miktarı yazın: eksi aşağı, artı yukarı kaydırır.",
          "Belirli bir listenin üzerinde kaydırmak için Fare konumunu al ile noktayı alın."]),
     "input.type": guide(
-        ["Önce yazılacak alanı seçin (Pencerede tıkla veya Alanı doldur).", "Metni yazın; ${değişken} kullanılabilir."],
-        "", "Bir uygulama alanına yazmak için Alanı doldur daha güvenlidir: alanı bulur, temizler ve yazar."),
+        ["Metni yazın; ${değişken} kullanılabilir.",
+         "Yazılacak yeri göstermek için Fare konumunu al'a basın ve 3 saniye içinde fareyi o alanın üzerine götürün. "
+         "Adım önce oraya tıklar, sonra yazar.",
+         "X ve Y boş kalırsa metin imlecin o an bulunduğu yere yazılır (ör. Tab ile geçilen alan)."],
+        "", "ERP alanları için Alanı doldur daha güvenlidir: pencereyi izler, pencere kayınca da alanı bulur, "
+            "eski değeri temizler ve odak değişirse yazmaz. Metin yaz ekran koordinatı kullanır."),
     "input.hotkey": guide(
         ["Kısayolu + ile yazın: mod+s, alt+f4, ctrl+shift+n.",
          "mod, Windows'ta Ctrl, Mac'te Command tuşudur; iki sistemde de çalışır."],

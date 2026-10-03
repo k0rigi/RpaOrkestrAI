@@ -16,7 +16,7 @@ Sonraki pencere adımlarında (**Pencerede tıkla**, **Alanı doldur** vb.) **Pe
 
 Varsayılan olarak pencere 5 saniye beklenir; bulunamazsa akış durur. Alternatif olarak **Bulunamadı sonucu ile devam et** seçip sonraki **Koşul** adımında `${erp_window.found}` değerini **Dolu / doğru** ile değerlendirin. ERP işlemlerini koşulun Evet dalına yerleştirin.
 
-Pencere tanıma uygulama adı ve başlığını denetler. Aynı başlık altında birden fazla form açılabiliyorsa doğru formun hazır olduğunu **Pencerede görseli bekle** adımıyla ayrıca kontrol edin.
+Pencere tanıma uygulama adı ve başlığını denetler. Aynı başlık altında birden fazla form açılabiliyorsa doğru formun hazır olduğunu **Pencerede görseli bekle / ara** adımıyla ayrıca kontrol edin.
 
 ## FormID alanına değer yaz
 
@@ -71,7 +71,7 @@ macOS'ta alan kimliğini okumak için RpaOrkestrAI'ye **Erişilebilirlik** izni 
 3. **Seçimi kullan** ile Studio'daki önizlemeye dönün. Araç çubuğu hedefi kapatıyorsa **H** ile taşıyabilir; seçimi **R** ile sıfırlayabilirsiniz.
 4. Önizlemede hem kırpılacak alanı hem hedef noktayı kontrol edip **Hedefi kaydet** seçin. Önizleme üzerinde hedefi değiştirebilir; **Seçimi temizle** ile dikdörtgeni yeniden çizebilirsiniz.
 
-Yalnız seçilen küçük referans görsel kaydedilir; tüm pencere görüntüsü akışa eklenmez. Görselin merkezi ile seçtiğiniz yazı kutusu arasındaki X/Y farkı otomatik hesaplanır. Gerekirse **Görsel merkezinden sağa / sola** ve **aşağı / yukarı** değerlerini sonradan elle düzeltebilirsiniz. **Pencerede görseli bekle** adımında yalnız referans dikdörtgeni seçilir; tıklanacak alan gerekmez. Önizleme onaylanmadan adımın hedefi değiştirilmez.
+Yalnız seçilen küçük referans görsel kaydedilir; tüm pencere görüntüsü akışa eklenmez. Görselin merkezi ile seçtiğiniz yazı kutusu arasındaki X/Y farkı otomatik hesaplanır. Gerekirse **Görsel merkezinden sağa / sola** ve **aşağı / yukarı** değerlerini sonradan elle düzeltebilirsiniz. **Pencerede görseli bekle / ara** adımında yalnız referans dikdörtgeni seçilir; tıklanacak alan gerekmez. Önizleme onaylanmadan adımın hedefi değiştirilmez.
 
 Kutunun içindeki değişen fatura/form numarasını referansa dahil etmeyin; sonraki satırda bu içerik değişecektir. Aynı etiket birden fazla yerde görünüyorsa çevresindeki sabit ayrıntıları da seçerek hedefi ayırt edin.
 
@@ -90,7 +90,7 @@ Konum ve görsel yöntemleri bu sürümde ERP penceresinin **ana ekranda ve tama
 | **Pencerede tıkla** | Hedef butona/öğeye tek, çift veya sağ tık yapar; metin yazmaz. |
 | **Alanı doldur** | Hedef yazı alanına tıklar, istenirse içeriğini temizler, değeri yazar. |
 | **Pencerede tuşa bas** | Tanıtılan pencereye Enter, Tab veya bir kısayol gönderir; hedef alan aramaz. |
-| **Pencerede görseli bekle** | Bir işaretin görünmesini ya da kaybolmasını bekler; fare/klavye işlemi yapmaz. |
+| **Pencerede görseli bekle / ara** | Bir işaretin görünmesini ya da kaybolmasını bekler; fare/klavye işlemi yapmaz. |
 | **Bekle** | Sabit süre bekler; ekranın hazır olduğunu doğrulamaz. |
 
 Eski akışlardaki **Pencereye metin yaz** adımı **Odaktaki alana yaz (eski)** adıyla düzenlenebilir. Bu adım yalnız odaktaki alana ekleme yapar. Yeni kütüphanede alanı açıkça seçen **Alanı doldur** kullanılır; mevcut akışların davranışı sessizce değiştirilmez.

@@ -852,8 +852,23 @@ class Executor:
         elif action == "desktop.window_wait_image":
             if p["state"] not in {"visible", "hidden"}:
                 raise WorkflowError("Görselin beklenen durumu geçersiz.")
-            self.windows().wait_image(p["window"], self.template_path(p["template"]), self.desktop(),
-                                       confidence=p["confidence"], timeout=p["timeout"], visible=p["state"] == "visible")
+            if p.get("on_missing", "stop") not in {"stop", "continue"}:
+                raise WorkflowError("Süre dolarsa yapılacak işlem geçersiz.")
+            visible = p["state"] == "visible"
+            try:
+                match = self.windows().wait_image(p["window"], self.template_path(p["template"]), self.desktop(),
+                                                  confidence=p["confidence"], timeout=p["timeout"], visible=visible)
+            except TimeoutError as exc:
+                if p.get("on_missing", "stop") == "stop":
+                    raise WorkflowError(("Görsel pencerede görünmedi." if visible else "Görsel pencereden kaybolmadı.")
+                                        + " Bekleme süresini artırın veya Süre dolarsa: Devam et seçin.") from exc
+                # Görünmesi beklenen görsel yoksa bulunamadı; kaybolması beklenen hâlâ duruyorsa bulundu.
+                return {"found": not visible}
+            if match is None:
+                return {"found": False}
+            return {"found": True, "x": match.x, "y": match.y, "width": match.width, "height": match.height,
+                    "center_x": match.x + match.width // 2, "center_y": match.y + match.height // 2,
+                    "confidence": round(match.confidence, 3)}
         elif action == "desktop.window_write":
             self.windows().write(p["window"], p["text"], self.desktop())
         elif action == "desktop.click":

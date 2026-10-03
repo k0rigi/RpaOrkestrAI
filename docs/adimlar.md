@@ -90,7 +90,7 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
 | Tablodan değer oku | ERP listesindeki bir hücreyi sütun başlığıyla (ör. Form Id) okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
-| Pencerede görseli bekle | Pencerede bir işaretin görünmesini veya kaybolmasını bekler. | — |
+| Pencerede görseli bekle / ara | Pencerede bir işaretin (düğme, başlık, hata kutusu) görünmesini veya kaybolmasını bekler. **Süre dolarsa:** akışı durdurur ya da "bulunamadı" sonucuyla devam eder; böylece bir hata kutusu çıkıp çıkmadığına Koşul ile karar verilir. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
 | Pencereyi büyüt / küçült | Büyütür, küçültür veya geri yükler. | — |
 | Pencereyi taşı ve boyutlandır | Pencereyi sabit konum ve boyuta getirir. X/Y hedeflerini sabitlemek için akışın başında kullanın. | Güncel pencere |
@@ -98,6 +98,8 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Pencerenin kapanmasını bekle | Kayıt, yazdırma veya yükleme penceresi kapanana kadar bekler. | — |
 
 Alan kimliği, konum ve görsel yöntemleri [pencere tanıtma rehberinde](pencere-tanitma.md) anlatılır.
+
+**Kaldırılan adım:** *Ekranda görsel ara / bekle* kütüphaneden kaldırıldı ve **Pencerede görseli bekle / ara** ile birleştirildi. Kayıtlı akışlarda aynen çalışmaya devam eder; adımın ayarlarındaki **dönüştür** düğmesi ayarları koruyarak yeni adıma çevirir (bölge kullanılmaz, görsel pencerenin tamamında aranır).
 
 ## Fare ve klavye
 
@@ -109,7 +111,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 | Fareyi taşı | İmleci götürür (menü açmak, üzerine gelince açılan listeler). |
 | Sürükle ve bırak | Başlangıçtan bitişe basılı tutarak sürükler. İki konum ayrı ayrı alınır. |
 | Fare tekerleğiyle kaydır | Dikey veya yatay kaydırır; eksi değer aşağı/sağa kaydırır. |
-| Metin yaz | Odaktaki alana yazar. Türkçe karakterler Otomatik yöntemde panodan yapıştırılır; klavye düzeni farkı sorun olmaz. |
+| Metin yaz | Metni yazar. **Fare konumunu al** ile yazılacak yeri gösterirseniz önce oraya tıklar; boş bırakılırsa imlecin bulunduğu yere yazar. Türkçe karakterler Otomatik yöntemde panodan yapıştırılır. ERP alanları için **Alanı doldur** daha güvenlidir: pencereyi izler ve odak değişirse yazmaz. |
 | Klavye kısayolu gönder | `mod+s`, `ctrl+shift+esc`, `alt+f4`, `alt+tab` gibi. `mod`, Windows'ta Ctrl, Mac'te Command'dır. |
 | Tuşa bas | Enter, Tab, F5, ok tuşları; tekrar sayısı ve bekleme ile. |
 | Tuşu basılı tut / bırak | Shift veya Ctrl basılıyken tıklama (çoklu seçim) için. Akış bittiğinde veya hata verdiğinde basılı kalan tuşlar otomatik bırakılır. |
@@ -119,8 +121,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
-| Ekranda görsel ara / bekle | Görselin görünmesini veya kaybolmasını bekler. Süre dolunca akışı durdurur ya da "bulunamadı" sonucuyla devam eder. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
-| Ekranda görsele tıkla | Görseli bulup tıklar; merkezden fark verilebilir. | Bulunan konum |
+| Ekranda görsele tıkla | Görseli bulup tıklar; merkezden fark verilebilir. Aramayı bir bölgeyle sınırlamak için **Bölgeyi fareyle al**. | Bulunan konum |
 | Ekrandan metin oku (OCR) | Bölgedeki yazıyı okur. | `${screen_text}` |
 | Ekranda metni bekle | "Kaydedildi" gibi bir yazı görünene kadar bekler. i/İ/ı/I ve büyük/küçük harf farkı gözetilmez. | `${text_found}` |
 | Piksel rengini oku | Bir noktanın rengini `#RRGGBB` olarak okur. | `${pixel}` |
@@ -200,7 +201,7 @@ Bir akış en fazla 1.000 adım ve 12 seviye iç içe blok içerebilir. Bir çal
 | `Send`, `SendText`, `Send {Enter 3}` | Metin yaz, Klavye kısayolu gönder, Tuşa bas |
 | `WinActivate`, `WinWait`, `WinWaitClose`, `WinMaximize`, `WinMove`, `WinClose` | Pencereyi tanı, Pencereyi öne getir, Pencerenin kapanmasını bekle, Pencereyi büyüt / küçült, Pencereyi taşı ve boyutlandır, Pencereyi kapat |
 | `ControlSetText`, `ControlGetText`, `ControlClick` | Alanı doldur, Alanın değerini oku, Tablodan değer oku, Pencerede tıkla (alan kimliğiyle) |
-| `ImageSearch`, `PixelGetColor` | Ekranda görsel ara / bekle, Ekranda görsele tıkla, Piksel rengini oku |
+| `ImageSearch`, `PixelGetColor` | Pencerede görseli bekle / ara, Ekranda görsele tıkla, Piksel rengini oku |
 | `Run`, `RunWait`, `WinClose` / `ProcessClose` | Uygulama, dosya veya adres aç; Komut çalıştır; Uygulamayı kapat |
 | `FileRead`, `FileAppend`, `Loop Files`, `FileCopy`, `FileMove`, `FileDelete` | Dosya ve Excel adımları |
 | `A_Clipboard` | Panoya kopyala / Panodaki metni oku |

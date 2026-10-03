@@ -485,3 +485,83 @@ def test_native_ocr_works_from_a_workflow_thread_on_windows():
 def test_command_output_decodes_turkish_text(runner):
     command = "echo Çağrı Şule" if platform.system() == "Windows" else "printf 'Çağrı Şule'"
     assert "Çağrı Şule" in go(runner, "system.command", command=command, output="c")["c"]["output"]
+
+
+# ----- merged image wait, Metin yaz with a place, retired steps -----------------------------------
+def wait_image(runner, window, tmp_path, **params):
+    templates = tmp_path / "templates"
+    templates.mkdir(exist_ok=True)
+    (templates / "hata.png").write_bytes(b"image")
+    return go(runner, "desktop.window_wait_image", window=window.result(), template="hata.png",
+              confidence=0.9, timeout=1, output="image", **params)["image"]
+
+
+def test_the_window_image_step_reports_what_it_found(runner, window, tmp_path):
+    from rpa_orkestrai.desktop.vision import Match
+
+    windows = Mock()
+    runner._windows = windows
+    windows.wait_image.return_value = Match(300, 200, 40, 20, 0.97)
+    found = wait_image(runner, window, tmp_path, state="visible")
+    assert found == {"found": True, "x": 300, "y": 200, "width": 40, "height": 20,
+                     "center_x": 320, "center_y": 210, "confidence": 0.97}
+    # A message box that never appears: by default the flow stops and says why.
+    windows.wait_image.side_effect = TimeoutError("timeout")
+    with pytest.raises(WorkflowError, match="Görsel pencerede görünmedi.*Devam et"):
+        wait_image(runner, window, tmp_path, state="visible")
+    # With "Devam et" the flow goes on and a Koşul decides: not there.
+    assert wait_image(runner, window, tmp_path, state="visible", on_missing="continue") == {"found": False}
+    # Waiting for it to disappear: still there when time runs out.
+    assert wait_image(runner, window, tmp_path, state="hidden", on_missing="continue") == {"found": True}
+    with pytest.raises(WorkflowError, match="pencereden kaybolmadı"):
+        wait_image(runner, window, tmp_path, state="hidden")
+
+
+def test_a_saved_flow_without_the_new_fields_behaves_as_before(runner, window, tmp_path):
+    # Steps saved before the merge have no on_missing/output: they stop on timeout as they did.
+    windows = Mock()
+    windows.wait_image.side_effect = TimeoutError("timeout")
+    runner._windows = windows
+    (tmp_path / "templates").mkdir(exist_ok=True)
+    (tmp_path / "templates" / "hata.png").write_bytes(b"image")
+    with pytest.raises(WorkflowError, match="görünmedi"):
+        runner.execute(Workflow(steps=[Step(action="desktop.window_wait_image", params={
+            "window": window.result(), "template": "hata.png", "state": "visible"})]))
+
+
+def test_metin_yaz_clicks_the_shown_place_before_typing(runner):
+    desktop = runner._desktop
+    go(runner, "input.type", text="540767", x=640, y=360, method="type", interval=0)
+    assert desktop.method_calls[0] == ("click", (640, 360), {"clicks": 1, "button": "left"})
+    desktop.write.assert_called_once_with("540767", interval=0)
+    # Without a place it types where the cursor is, as before.
+    desktop.reset_mock()
+    go(runner, "input.type", text="abc", method="type", interval=0)
+    desktop.click.assert_not_called()
+    # Half a place is refused before anything is typed.
+    desktop.reset_mock()
+    with pytest.raises(WorkflowError, match="X ve Y birlikte"):
+        go(runner, "input.type", text="abc", x=640)
+    desktop.write.assert_not_called() and desktop.paste.assert_not_called()
+
+
+def test_retired_steps_leave_the_library_but_keep_running():
+    from rpa_orkestrai.catalog import ACTION_DEFINITIONS, BY_TYPE, RETIRED, library_catalog
+
+    offered = {spec["type"] for spec in library_catalog()}
+    for retired, replacement in RETIRED.items():
+        assert retired not in offered and replacement in offered
+        assert retired in BY_TYPE and BY_TYPE[retired]["retired"] == replacement
+        # The Studio can still open and edit a saved step of this kind.
+        assert any(spec["type"] == retired for spec in ACTION_DEFINITIONS)
+    assert BY_TYPE["desktop.window_wait_image"]["label"] == "Pencerede görseli bekle / ara"
+    # Every image step with a region can take that region from the screen.
+    assert BY_TYPE["screen.click_image"]["region"] is True
+    assert BY_TYPE["input.type"]["pointer"] == [["x", "y"]]
+
+
+def test_a_retired_image_search_still_runs_in_a_saved_flow(runner, monkeypatch):
+    from rpa_orkestrai.actions import screen
+
+    monkeypatch.setattr(screen, "search", lambda ctx, p, visible=True: {"found": True, "x": 1, "y": 2})
+    assert go(runner, "screen.find_image", template="x.png", output="image")["image"] == {"found": True, "x": 1, "y": 2}

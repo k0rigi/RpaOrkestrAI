@@ -199,11 +199,16 @@ CATALOG: list[dict[str, Any]] = [
                   options=[{"value": value, "label": label} for value, label in [
                       ("none", "Yok"), ("mod", "Ctrl (Windows) / Command (Mac)"),
                       ("shift", "Shift"), ("alt", "Alt / Option"), ("ctrl", "Ctrl")]])]),
-    action("desktop.window_wait_image", "Pencerede görseli bekle", "Pencere",
-           "Sonraki işleme geçmeden önce bir işaretin görünmesini veya kaybolmasını bekler; tıklamaz.",
+    action("desktop.window_wait_image", "Pencerede görseli bekle / ara", "Pencere",
+           "Bir işaretin (düğme, başlık, hata kutusu) pencerede görünmesini veya kaybolmasını bekler; tıklamaz. "
+           "Bulunup bulunmadığını Koşul adımında kullanmak için sonucu kaydeder.",
            [WINDOW, *image_fields(), field("state", "Beklenen durum", "select", "visible",
                                           options=[{"value": "visible", "label": "Görünsün"},
-                                                   {"value": "hidden", "label": "Kaybolsun"}])]),
+                                                   {"value": "hidden", "label": "Kaybolsun"}]),
+            field("on_missing", "Süre dolarsa", "select", "stop", required=True,
+                  options=[{"value": "stop", "label": "Akışı durdur"},
+                           {"value": "continue", "label": "Devam et (sonuç: bulunamadı)"}]),
+            field("output", "Sonucu değişkene kaydet", default="image", required=True)]),
     action("sheets.read_cell", "Sheets hücresini oku", "Google Sheets",
            "Bir Google Sheets hücresinin değerini metin olarak alır; yazma adımına aktarabilirsiniz.",
            [SHEETS_CONNECTION, SHEET_ID,
@@ -345,12 +350,15 @@ LIBRARY = [
                                                                      {"value": "horizontal", "label": "Yatay"}]),
             *point_fields(required=False)], pointer=[["x", "y"]]),
     action("input.type", "Metin yaz", "Fare ve klavye",
-           "Odaktaki alana metin yazar. Türkçe karakterler Otomatik yöntemde panoyla yapıştırılır.",
+           "Metni yazar. Yazılacak yeri göstermek için önce tıklanacak noktayı ekrandan alın; boş bırakılırsa imlecin "
+           "o an bulunduğu yere yazar. Türkçe karakterler Otomatik yöntemde panoyla yapıştırılır.",
            [field("text", "Yazılacak metin", default="", required=True, help="Değişken kullanabilirsiniz: ${row.form_id}"),
+            *point_fields(label="Önce tıklanacak ", required=False),
             field("method", "Yazma yöntemi", "select", "auto",
                   options=[{"value": "auto", "label": "Otomatik"}, {"value": "type", "label": "Tuş tuş yaz"},
                            {"value": "paste", "label": "Panodan yapıştır"}]),
-            field("interval", "Harfler arası bekleme (saniye)", "number", 0.02, min=0, max=1)]),
+            field("interval", "Harfler arası bekleme (saniye)", "number", 0.02, min=0, max=1)],
+           pointer=[["x", "y"]]),
     action("input.hotkey", "Klavye kısayolu gönder", "Fare ve klavye",
            "Kısayol tuşlarına birlikte basar: kaydet, kopyala, pencere değiştir, uygulama menüleri.",
            [field("keys", "Kısayol", "keys", "mod+s", required=True,
@@ -386,7 +394,7 @@ LIBRARY = [
             field("offset_x", "Merkezden sağa / sola", "number", 0),
             field("offset_y", "Merkezden aşağı / yukarı", "number", 0),
             field("button", "Fare düğmesi", "select", "left", options=MOUSE_BUTTONS),
-            field("clicks", "Tıklama", "select", 1, options=CLICKS), *area_fields()], template=True),
+            field("clicks", "Tıklama", "select", 1, options=CLICKS), *area_fields()], template=True, region=True),
     action("screen.read_text", "Ekrandan metin oku (OCR)", "Ekran ve görsel",
            "Ekrandaki yazıyı okur: hata mesajları, fatura numaraları, onay metinleri. Kurulum gerektirmez.",
            [*area_fields(), output("screen_text")], region=True),
@@ -622,6 +630,13 @@ for entry in ACTION_DEFINITIONS + CATALOG:
             item["reference"] = "window"
 apply_guides(ACTION_DEFINITIONS + CATALOG)
 BY_TYPE = {entry["type"]: entry for entry in ACTION_DEFINITIONS + CATALOG}
+# No longer offered in the library, still run in saved flows: retired step → the step that replaces it.
+RETIRED = {"screen.find_image": "desktop.window_wait_image"}
+for entry in CATALOG:
+    if entry["type"] in RETIRED:
+        entry["retired"] = RETIRED[entry["type"]]
+ACTION_DEFINITIONS = ACTION_DEFINITIONS + [entry for entry in CATALOG if entry["type"] in RETIRED]
+CATALOG = [entry for entry in CATALOG if entry["type"] not in RETIRED]
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
                      "clipboard.", "file.", "ui.", "http.")
@@ -633,7 +648,7 @@ ENDINGS = {"control.goto", "control.continue", "control.break", "control.stop"}
 # A single-step test may run these earlier steps by itself to get the values the tested step needs:
 # they only compute or read, and never click, type or write.
 TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",
-                "desktop.find_window", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
+                "desktop.find_window", "desktop.window_wait_image", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
                 "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read"}

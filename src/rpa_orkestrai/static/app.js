@@ -636,7 +636,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.8.4"}`),
+      node("span", "version", `v${state.version || "0.8.5"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -4340,6 +4340,39 @@
     }
     return wrap;
   }
+  function retiredImageSearch(step) {
+    // "Ekranda görsel ara / bekle" was merged into the window step; old flows keep running as they are.
+    const replacement = specFor("desktop.window_wait_image");
+    const box = node("div", "legacy-action-help");
+    box.append(
+      note(`Bu adım kütüphaneden kaldırıldı ve «${replacement.label}» adımıyla birleştirildi. Kayıtlı akışınızda `
+        + "aynen çalışmaya devam eder; dilerseniz ayarlarını koruyarak dönüştürebilirsiniz."),
+      button(`«${replacement.label}» adımına dönüştür`, "edit", () => {
+        const previous = { ...step.params };
+        const windows = [...windowSources(step).keys()];
+        const window = previous.relative_to === "window" && previous.window ? previous.window
+          : windows.length ? "${" + windows.at(-1) + "}" : "";
+        const oldLabel = specFor(step.action).label;
+        step.action = replacement.type;
+        step.params = {};
+        (replacement.fields || []).forEach((definition) => {
+          if (definition.default !== undefined && definition.default !== null)
+            step.params[definition.name] = clone(definition.default);
+        });
+        for (const key of ["template", "confidence", "timeout", "state", "on_missing", "output"])
+          if (previous[key] !== undefined) step.params[key] = previous[key];
+        step.params.window = window;
+        if (!step.title || step.title === oldLabel) step.title = replacement.label;
+        for (const key of state.fieldErrors) if (key.startsWith(`${step.id}:`)) state.fieldErrors.delete(key);
+        markDirty();
+        renderInspector();
+        renderCanvas();
+        toast(previous.region ? "Dönüştürüldü. Bölge ayarı kullanılmıyor; görsel pencerenin tamamında aranır."
+          : "Dönüştürüldü. Pencere alanını kontrol edin.");
+      }, "small"),
+    );
+    return box;
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -4402,6 +4435,7 @@
       || step.action === "desktop.window_wait_image";
     let targetTools = windowTarget ? windowTargetTools(step) : null;
     if (targetTools) pane.append(targetTools);
+    if (spec.retired === "desktop.window_wait_image") pane.append(retiredImageSearch(step));
     if (step.action === "desktop.window_write" && state.catalog.some((item) => item.type === "desktop.window_fill")) {
       const conversion = node("div", "legacy-action-help");
       conversion.append(

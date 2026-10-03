@@ -36,7 +36,7 @@ chmod +x "$SCRATCH/ghapi.sh"
 - Kullanıcıya dönük değişiklikleri README ve `docs/` içine işle.
 - `"$PY" -m pytest -p no:cacheprovider`, `"$PY" -m ruff check .`, `node --check src/rpa_orkestrai/static/app.js`.
 - Commit + push. Push'ta **Python checks** yalnız Python 3.12'yi çalıştırır; yayından önce bir kez **Run workflow** ile tam 3.11–3.14 matrisini başlat (`POST /repos/k0rigi/RpaOrkestrAI/actions/workflows/tests.yml/dispatches`). macOS ve Windows'taki tüm işler başarılı olmalıdır.
-- Önce Actions kotasını kontrol et (`GET /users/k0rigi/settings/billing/usage`; ücretsiz plan 2.000 dk, macOS 10×, Windows 2×). Bir tam matris + bir derleme kotanın yaklaşık %20'sini kullanır. Kota yetmeyecekse kullanıcıya sor.
+- RpaOrkestrAI açık depo olduğu sürece testler ve derleme ücretsizdir; yayın iş akışı gizli `orkestrai` deposunda birkaç Linux dakikası harcar. Depo gizli yapıldıysa önce kotayı kontrol et (`GET /users/k0rigi/settings/billing/usage`; 2.000 dk, macOS 10×, Windows 2×) ve kota yetmeyecekse kullanıcıya sor.
 
 ## 2. Paketleri derle
 

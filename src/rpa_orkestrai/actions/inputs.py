@@ -91,6 +91,13 @@ def type_text(ctx, p):
     interval = number(p.get("interval", 0.02), "Harfler arası bekleme", 0, 1)
     method = choice(p.get("method", "auto"), "Yazma yöntemi", {"auto", "type", "paste"})
     desktop = ctx.desktop()
+    where = [optional_integer(p.get(key), label, 0, 100_000) for key, label in (("x", "X"), ("y", "Y"))]
+    if (where[0] is None) != (where[1] is None):
+        raise WorkflowError("Yazılacak yer için X ve Y birlikte girilmeli ya da ikisi de boş bırakılmalıdır.")
+    if where[0] is not None:
+        # The place the user showed: clicked first, so the text never goes where the cursor happens to be.
+        screen_call(desktop.click, *where, clicks=1, button="left")
+        ctx.wait(0.15)
     if method == "paste" or (method == "auto" and not value.isascii()):
         # Unicode (ç, ğ, ş…) is pasted: keyboard layouts differ between computers.
         desktop.paste(value)

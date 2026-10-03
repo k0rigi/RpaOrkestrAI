@@ -76,7 +76,7 @@ Koşulları ve döngüleri iç içe yerleştirebilirsiniz. `${loop_index}` için
 
 **Pencerede tuşa bas**, FormID doldurulduktan sonra Enter veya Tab gönderebilir. ERP'nizde bu tuşun işlevini doğrulayın. **Pencerede tıkla** ayrıca basılacak arama butonu gibi bir öğe içindir; **Alanı doldur** zaten kendi hedefine tıklar.
 
-**Pencerede görseli bekle**, beklenen ekranın veya sonucun hazır olmasını kontrol eder. Gerekiyorsa yükleniyor işaretinin kaybolmasını ve ardından beklenen sonucun görünmesini bekleyin. Önceki kayıttan kalan, zaten görünür bir işaret yeni kaydın başarıyla işlendiğini tek başına kanıtlamaz.
+**Pencerede görseli bekle / ara**, beklenen ekranın veya sonucun hazır olmasını kontrol eder. Gerekiyorsa yükleniyor işaretinin kaybolmasını ve ardından beklenen sonucun görünmesini bekleyin. Önceki kayıttan kalan, zaten görünür bir işaret yeni kaydın başarıyla işlendiğini tek başına kanıtlamaz.
 
 Doğrulanmış sonucu aynı satıra yazmak için koşulun **Evet** dalının sonuna **Sheets hücresine yaz** ekleyin:
 

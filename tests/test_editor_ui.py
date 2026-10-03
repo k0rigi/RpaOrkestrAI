@@ -1216,3 +1216,70 @@ def test_every_window_target_step_offers_the_on_screen_picker(tmp_path):
             playwright.expect(inspector.get_by_role("button", name="Ekranda seç", exact=True)).to_have_count(0)
             browser.close()
     assert errors == []
+
+
+def test_merged_image_step_and_the_place_for_metin_yaz(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        created = client.post("/api/workflows", json={"name": "Eski akış", "steps": [
+            {"id": "win", "title": "Pencereyi tanı", "action": "desktop.find_window",
+             "params": {"application": "ERP", "title": "Canias", "output": "erp_window"}},
+            # Saved before the merge: the old screen-wide image search.
+            {"id": "old", "title": "Ekranda görsel ara / bekle", "action": "screen.find_image",
+             "params": {"template": "hata.png", "state": "visible", "timeout": 4, "on_missing": "continue",
+                        "relative_to": "screen", "region": [0, 0, 400, 300], "output": "hata"}},
+            {"id": "type", "title": "Metin yaz", "action": "input.type", "params": {"text": "540767"}},
+        ]})
+        assert created.status_code == 201, created.text
+        workflow_id = created.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1500, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/pick/capabilities":
+                    route.fulfill(json={"native": True})
+                    return
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Eski akış", exact=True).click()
+            library = page.locator("#step-library")
+            # The library offers only the merged step.
+            playwright.expect(library.get_by_text("Pencerede görseli bekle / ara")).to_be_visible()
+            playwright.expect(library.get_by_text("Ekranda görsel ara / bekle")).to_have_count(0)
+            inspector = page.locator("#inspector")
+
+            # Metin yaz can be shown where to type.
+            page.locator('[data-step-id="type"]').click()
+            playwright.expect(inspector.get_by_role("button", name="Fare konumunu al (3 sn)")).to_be_visible()
+
+            # The saved step explains the change and turns into the merged step, keeping its settings.
+            page.locator('[data-step-id="old"]').click()
+            playwright.expect(inspector.locator(".legacy-action-help")).to_contain_text("kütüphaneden kaldırıldı")
+            inspector.get_by_role("button", name="«Pencerede görseli bekle / ara» adımına dönüştür").click()
+            playwright.expect(page.locator(".toast").last).to_contain_text("Bölge ayarı kullanılmıyor")
+            playwright.expect(inspector.locator(".pane-heading").first).to_have_text("Pencerede görseli bekle / ara")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.get_by_text("Tüm değişiklikler kaydedildi")).to_be_visible()
+            step = next(item for item in client.get(f"/api/workflows/{workflow_id}").json()["steps"]
+                        if item["id"] == "old")
+            assert step["action"] == "desktop.window_wait_image"
+            assert {key: step["params"][key] for key in ("window", "template", "timeout", "on_missing", "output")} == {
+                "window": "${erp_window}", "template": "hata.png", "timeout": 4, "on_missing": "continue",
+                "output": "hata"}
+            assert "region" not in step["params"] and "relative_to" not in step["params"]
+            browser.close()
+    assert errors == []

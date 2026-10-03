@@ -95,7 +95,7 @@ def test_failed_erp_verification_never_writes_status_or_processes_next_row(runne
     executor, worksheet = runner
     worksheet.get.return_value = [["000142", ""], ["000143", "Bekliyor"]]
     executor._windows.wait_image.side_effect = TimeoutError("result never appeared")
-    with pytest.raises(TimeoutError):
+    with pytest.raises(WorkflowError, match="Görsel pencerede görünmedi"):
         executor.execute(pending_workflow())
     executor._windows.fill_target.assert_called_once()
     worksheet.update.assert_not_called()

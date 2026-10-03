@@ -8,6 +8,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from rpa_orkestrai.config import Settings
+from rpa_orkestrai.desktop.vision import Match
 from rpa_orkestrai.engine import Cancelled, Executor, RunManager, WorkflowError, validate_workflow
 from rpa_orkestrai.integrations.sheets import SheetsService
 from rpa_orkestrai.models import Run, Step, Workflow
@@ -27,6 +28,8 @@ def row_runner(tmp_path):
     runner._desktop = Mock()
     runner._windows = Mock()
     runner._windows.find.return_value = {"found": True, "title": "ERP FormID"}
+    # The window returns where it found the image, as the real service does.
+    runner._windows.wait_image.return_value = Match(110, 220, 30, 12, 0.98)
     sheets = SheetsService("unused.json", "sheet-id", "Sayfa1")
     worksheet = Mock()
     worksheet.get.return_value = [["000142"], [], [0]]
@@ -89,7 +92,7 @@ def test_column_snapshot_fills_formids_in_order_and_marks_original_rows_after_su
 def test_failed_erp_confirmation_prevents_success_write_and_next_row(row_runner):
     runner, worksheet = row_runner
     runner._windows.wait_image.side_effect = TimeoutError("result did not appear")
-    with pytest.raises(TimeoutError, match="result did not appear"):
+    with pytest.raises(WorkflowError, match="Görsel pencerede görünmedi"):
         runner.execute(row_workflow())
     runner._windows.fill_target.assert_called_once()
     assert runner._windows.fill_target.call_args.args[1] == "000142"
