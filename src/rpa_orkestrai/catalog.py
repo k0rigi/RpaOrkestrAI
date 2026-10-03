@@ -296,6 +296,17 @@ LIBRARY = [
     action("window.read_field", "Alanın değerini oku", "Pencere",
            "Bir yazı alanındaki değeri okur. Alan kimliğinde doğrudan okunur; konum/görselde alan seçilip kopyalanır "
            "(pano eski haline döner).", [WINDOW, *target_fields(), output("field_value")]),
+    action("window.read_table", "Tablodan değer oku", "Pencere",
+           "ERP listesindeki (tablodaki) bir hücreyi sütun adıyla okur; kaç satır bulunduğunu da verir. "
+           "Tabloya tıklayıp tamamını kopyalar ve ayrıştırır; pano eski haline döner.",
+           [WINDOW, *target_fields(),
+            field("mode", "Ne okunacak", "select", "value", required=True,
+                  options=[{"value": "value", "label": "Bir hücrenin değeri"},
+                           {"value": "count", "label": "Kaç satır var?"}]),
+            field("column", "Sütun", required=True, visible_when={"mode": "value"}),
+            field("row", "Satır", "number", 1, min=1, max=10000, required=True, visible_when={"mode": "value"}),
+            field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
+            output("table_value")]),
     action("window.state", "Pencereyi büyüt / küçült", "Pencere",
            "Pencereyi tam ekran yapar, simge durumuna küçültür veya geri yükler.",
            [WINDOW, field("state", "İşlem", "select", "maximize", required=True,
@@ -627,7 +638,8 @@ TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
-LOCATABLE = {"desktop.window_click", "desktop.window_fill", "window.read_field", "input.mouse_click",
+LOCATABLE = {"desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
+             "input.mouse_click",
              "input.mouse_move", "screen.click_image"}
 
 

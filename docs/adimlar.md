@@ -87,7 +87,8 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Pencereyi tanı | Açık pencereyi uygulama adı ve başlığıyla bulur. Diğer pencere adımları bunu kullanır. | `${erp_window}`, `${erp_window.found}` |
 | Pencerede tıkla | Alanı konumu, görseli veya alan kimliğiyle bulup tıklar. | — |
 | Alanı doldur | Alanı bulur, tıklar, temizler ve değeri yazar. | — |
-| Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. | `${field_value}` |
+| Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
+| Tablodan değer oku | ERP listesindeki bir hücreyi sütun başlığıyla (ör. Form Id) okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
 | Pencerede görseli bekle | Pencerede bir işaretin görünmesini veya kaybolmasını bekler. | — |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
@@ -198,7 +199,7 @@ Bir akış en fazla 1.000 adım ve 12 seviye iç içe blok içerebilir. Bir çal
 | `Click`, `MouseMove`, `MouseClickDrag` | Ekranda tıkla, Fareyi taşı, Sürükle ve bırak |
 | `Send`, `SendText`, `Send {Enter 3}` | Metin yaz, Klavye kısayolu gönder, Tuşa bas |
 | `WinActivate`, `WinWait`, `WinWaitClose`, `WinMaximize`, `WinMove`, `WinClose` | Pencereyi tanı, Pencereyi öne getir, Pencerenin kapanmasını bekle, Pencereyi büyüt / küçült, Pencereyi taşı ve boyutlandır, Pencereyi kapat |
-| `ControlSetText`, `ControlGetText`, `ControlClick` | Alanı doldur, Alanın değerini oku, Pencerede tıkla (alan kimliğiyle) |
+| `ControlSetText`, `ControlGetText`, `ControlClick` | Alanı doldur, Alanın değerini oku, Tablodan değer oku, Pencerede tıkla (alan kimliğiyle) |
 | `ImageSearch`, `PixelGetColor` | Ekranda görsel ara / bekle, Ekranda görsele tıkla, Piksel rengini oku |
 | `Run`, `RunWait`, `WinClose` / `ProcessClose` | Uygulama, dosya veya adres aç; Komut çalıştır; Uygulamayı kapat |
 | `FileRead`, `FileAppend`, `Loop Files`, `FileCopy`, `FileMove`, `FileDelete` | Dosya ve Excel adımları |

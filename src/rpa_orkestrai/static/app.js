@@ -294,6 +294,7 @@
     const type = String(action).toLowerCase();
     if (/^input\.(mouse|drag|scroll)/.test(type)) return "mouse";
     if (/^input\./.test(type)) return "keyboard";
+    if (type === "window.read_table") return "sheet";
     if (/^window\.|find_window/.test(type)) return "window";
     if (/^ui\./.test(type)) return "message";
     if (/control\.try/.test(type)) return "shield2";
@@ -635,7 +636,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.8.1"}`),
+      node("span", "version", `v${state.version || "0.8.2"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";

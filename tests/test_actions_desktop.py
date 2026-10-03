@@ -126,6 +126,64 @@ def test_read_field_passes_the_structural_target(runner, window):
     assert windows.read_field.call_args.kwargs == {"target_mode": "element", "element": element, "timeout": 3}
 
 
+GRID = ("Form Id\tDurum\tMüşteri No\tMuşteri Adı\tBelge No\tKonum Kodu\r\n"
+        "540.767\t1\tM01.01.8166\tKAYA PARTS OTOMOTİV YEDEK PARÇA\t\tGNT\r\n"
+        "540.768\t2\tM01.01.9000\tÖRNEK LOJİSTİK\t\tGNT\r\n")
+
+
+def read_table(runner, window, copied, **params):
+    windows = Mock()
+    windows.read_field.return_value = copied
+    runner._windows = windows
+    return go(runner, "window.read_table", window=window.result(), target_mode="coordinates", x=200, y=260,
+              output="value", **params)["value"]
+
+
+def test_a_grid_cell_is_read_by_its_column_heading(runner, window):
+    # The whole grid is copied as one text; the step returns the asked cell, not the row.
+    assert read_table(runner, window, GRID, mode="value", column="Form Id", row=1) == "540.767"
+    assert read_table(runner, window, GRID, mode="value", column="form ID", row=2) == "540.768"
+    assert read_table(runner, window, GRID, mode="value", column="Muşteri Adı", row=1) == "KAYA PARTS OTOMOTİV YEDEK PARÇA"
+    # An empty cell stays empty, and a column may also be given by its number.
+    assert read_table(runner, window, GRID, mode="value", column="Belge No", row=1) == ""
+    assert read_table(runner, window, GRID, mode="value", column="2", row=2) == "2"
+    # How many rows the search found; 0 says nothing matched.
+    assert read_table(runner, window, GRID, mode="count") == 2
+    assert read_table(runner, window, "Form Id\tDurum\n", mode="count") == 0
+    # Without a heading line the columns are numbered.
+    assert read_table(runner, window, "540.767\t1\n", mode="value", column="sutun_1", row=1, header=False) == "540.767"
+
+
+def test_a_grid_read_never_guesses_a_value(runner, window):
+    for params, message in (
+        ({"mode": "value", "column": "Form Id", "row": 1}, "okunacak satır yok"),
+        ({"mode": "value", "column": "Form Id", "row": 5}, "2 satır var; 5. satır"),
+        ({"mode": "value", "column": "Fatura No", "row": 1}, "“Fatura No” sütunu yok"),
+        ({"mode": "value", "column": "", "row": 1}, "Sütun"),
+    ):
+        copied = "Form Id\tDurum\n" if "okunacak" in message else GRID
+        with pytest.raises(WorkflowError, match=message):
+            read_table(runner, window, copied, **params)
+    # The columns that were read are named, so the heading can be corrected.
+    with pytest.raises(WorkflowError, match="Okunan sütunlar: Form Id, Durum"):
+        read_table(runner, window, GRID, mode="value", column="Fatura No", row=1)
+    # A grid that copies one row without headings says so instead of reading the heading line.
+    with pytest.raises(WorkflowError, match="İlk satır sütun başlıklarıdır"):
+        read_table(runner, window, "540.767\t1\n", mode="value", column="Form Id", row=1)
+
+
+def test_grid_text_is_parsed_without_a_desktop():
+    from rpa_orkestrai.actions.windows import table_of
+
+    # Ragged rows keep their columns, blank lines are ignored and repeated headings stay apart.
+    names, rows = table_of("Ad\tAd\tNot\n\nAli\tVeli\n", header=True)
+    assert names == ["Ad", "Ad (2)", "Not"]
+    assert rows == [["Ali", "Veli", ""]]
+    assert table_of("", header=True) == ([], [])
+    with pytest.raises(WorkflowError, match="en fazla 10.000 satır"):
+        table_of("a\n" * 10_001, header=True)
+
+
 def test_window_backend_operations_are_platform_specific(window):
     from rpa_orkestrai.desktop.windows import WindowError, WindowService
 

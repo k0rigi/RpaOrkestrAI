@@ -61,6 +61,13 @@ STEP_FIELD_HELP = {
     ("desktop.window_click", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
     ("desktop.window_fill", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
     ("window.read_field", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
+    ("window.read_table", "column"): "Tablodaki sütun başlığı (ör. Form Id) veya sütun numarası. Büyük/küçük harf "
+                                      "farkı önemsizdir.",
+    ("window.read_table", "row"): "1: tablodaki ilk veri satırı. Başlık satırı sayılmaz.",
+    ("window.read_table", "header"): "Çoğu ERP tablosu kopyalanırken ilk satıra sütun adlarını koyar. Kopyalanan "
+                                     "metinde başlık yoksa kapatın; sütunlar sutun_1, sutun_2… olur.",
+    ("window.read_table", "mode"): "Hücre değeri okumak için Bir hücrenin değeri; aramanın sonuç verip vermediğini "
+                                   "anlamak için Kaç satır var?.",
     ("desktop.window_click", "timeout"): "Görsel veya alan bu süre içinde bulunamazsa tıklama yapılmaz, adım durur.",
     ("desktop.window_fill", "timeout"): "Görsel veya alan bu süre içinde bulunamazsa yazma yapılmaz, adım durur.",
     ("desktop.window_fill", "clear"): "Açıkken alan seçilip silinir, sonra değer yazılır. Mevcut değerin sonuna "
@@ -215,7 +222,17 @@ GUIDES = {
     "window.read_field": guide(
         [WINDOW_FIRST, PICK_TARGET, "Çıktı değişkenine bir ad verin."],
         "Alandaki metin. Koşul adımında veya Sheets'e yazarken kullanın.",
-        "Alan kimliği dışındaki yöntemlerde alana tıklanıp içerik kopyalanır; pano sonra eski haline döner."),
+        "Alan kimliği dışındaki yöntemlerde alana tıklanıp içerik kopyalanır; pano sonra eski haline döner. "
+        "Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir; tek bir hücre için "
+        "Tablodan değer oku adımını kullanın."),
+    "window.read_table": guide(
+        [WINDOW_FIRST,
+         "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",
+         "Sütun alanına tablodaki başlığı yazın (ör. Form Id) ya da sütun numarasını (1, 2, …).",
+         "Satır 1, tablodaki ilk veri satırıdır."],
+        "Seçilen hücrenin metni, ekranda göründüğü gibi. “Kaç satır var?” seçilirse bulunan satır sayısı.",
+        "Arama sonuç vermediyse satır sayısı 0 olur; önce bunu Koşul ile kontrol edin. Tablodaki 540.767 gibi "
+        "bir numarayı Sheets'teki 540767 ile karşılaştırmadan önce Metin işlemi → Bul ve değiştir ile noktayı silin."),
     "window.state": guide(
         [WINDOW_FIRST, "Büyüt, Küçült veya Geri yükle seçin."],
         "", "Koordinatla çalışan akışlarda başa Büyüt ekleyin; pencere her seferinde aynı boyutta olur."),
