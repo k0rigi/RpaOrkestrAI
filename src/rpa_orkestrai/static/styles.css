@@ -4333,3 +4333,165 @@ body.dragging-step .edge-insert,
 .step-test-missing {
   margin-bottom: 12px;
 }
+
+/* ----- connections: ports, Adıma git arrows and where a path ends ----------------------- */
+.dnode::after {
+  display: none;
+}
+.diagram-port {
+  position: absolute;
+  z-index: 2;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--wire);
+  cursor: crosshair;
+  transition: transform 0.12s, background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.diagram-port.merge-port {
+  opacity: 0;
+}
+.diagram-port:hover,
+.diagram-port.merge-port:hover {
+  opacity: 1;
+  transform: scale(1.35);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.diagram-viewport.connecting,
+.diagram-viewport.connecting * {
+  cursor: crosshair !important;
+}
+.dnode.connect-target,
+.diagram-terminal.connect-target {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px var(--accent-glow) !important;
+}
+.diagram-edges .connect-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+.diagram-edges .edge.jump {
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-dasharray: 7 5;
+}
+.diagram-edges .edge.jump.invalid {
+  stroke: var(--err);
+}
+.diagram-edges .marker-arrow-jump {
+  fill: var(--accent);
+}
+.diagram-edges .edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+}
+.edge-remove {
+  position: absolute;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--err-line);
+  background: var(--surface);
+  color: var(--err);
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s, transform 0.12s, background 0.12s;
+}
+.edge-remove svg {
+  width: 11px;
+  height: 11px;
+}
+.edge-remove.show,
+.edge-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.edge-remove:hover {
+  background: var(--err);
+  color: var(--on-solid);
+  transform: scale(1.12);
+}
+body.dragging-step .edge-remove {
+  display: none;
+}
+.dnode-pill {
+  gap: 8px;
+  padding: 0 12px 0 7px;
+  border-style: dashed;
+  box-shadow: none;
+}
+.dnode-pill:hover {
+  box-shadow: 3px 3px 0 var(--shadow-hard);
+}
+.dnode-pill .dnode-icon {
+  width: 24px;
+  height: 24px;
+}
+.dnode-pill .dnode-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.dnode-pill .dnode-copy {
+  gap: 1px;
+}
+.dnode-pill .dnode-copy strong {
+  font-size: 12.5px;
+}
+.dnode-pill .dnode-copy small {
+  font-size: 10.5px;
+}
+.dnode-pill.ending-goto {
+  border-color: var(--accent);
+}
+.dnode-pill.ending-goto .dnode-icon {
+  color: var(--accent-text);
+  background: var(--accent-tint);
+}
+.dnode.invalid,
+.dnode-pill.invalid {
+  border-color: var(--err);
+  background: var(--err-tint);
+}
+.dnode.unreached {
+  opacity: 0.5;
+  border-style: dashed;
+}
+.dnode.unreached:hover,
+.dnode.unreached.selected,
+.dnode.unreached:focus-visible {
+  opacity: 0.9;
+}
+.step-card.unreached {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.step-card.step-ending {
+  border-style: dashed;
+}
+.step-output.step-jump {
+  font-family: var(--font);
+  color: var(--accent-text);
+}
+.step-output.step-jump.invalid {
+  color: var(--err);
+}
+.field.path-end {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-m);
+  background: var(--surface-2);
+}
+.field.path-end .field {
+  margin: 10px 0 0;
+}

@@ -548,6 +548,11 @@ LIBRARY = [
            container="try", branches={"children": "DENE", "otherwise": "HATA OLURSA"}),
     action("control.break", "Döngüden çık", "Akış", "İçinde bulunduğu döngüyü hemen bitirir.", []),
     action("control.continue", "Sonraki tura geç", "Akış", "Döngünün bu turunu atlayıp sonrakine geçer.", []),
+    action("control.goto", "Adıma git", "Akış",
+           "Akışı seçilen adımdan sürdürür: geri dönüp adımları tekrarlamak veya bir yolu başka bir adıma "
+           "bağlamak için; adımları kopyalamanız gerekmez.",
+           [field("target", "Gidilecek adım", "step", "", required=True),
+            field("max_jumps", "Her turda en fazla", "number", 10, min=1, max=100000, required=True)]),
     action("control.run_workflow", "Başka akışı çalıştır", "Akış",
            "Kayıtlı başka bir akışı bu noktada çalıştırır; değişkenleri paylaşır. Ortak giriş/çıkış işlemleri için.",
            [field("workflow", "Akış", "workflow", "", required=True)]),
@@ -612,6 +617,8 @@ EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "
 CONTAINERS = {"control.for_each": ("children",), "control.while": ("children",), "control.repeat": ("children",),
               "control.if": ("children", "otherwise"), "control.try": ("children", "otherwise")}
 LOOPS = {"control.for_each", "control.while", "control.repeat"}
+# Nothing follows these on the same path; a step after one is reached only through Adıma git.
+ENDINGS = {"control.goto", "control.continue", "control.break", "control.stop"}
 # A single-step test may run these earlier steps by itself to get the values the tested step needs:
 # they only compute or read, and never click, type or write.
 TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",

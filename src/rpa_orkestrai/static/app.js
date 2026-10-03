@@ -76,6 +76,7 @@
     sheet: "M4 3h16v18H4z M4 8h16 M4 13h16 M4 18h16 M10 3v18",
     branch: "M7 3v12c0 3 2 4 5 4h6 M7 8h5c3 0 4-2 4-5 M15 16l3 3-3 3",
     loop: "M20 7h-9a6 6 0 0 0 0 12h9 M16 3l4 4-4 4 M20 13v6h-6",
+    jump: "M5 20v-8a6 6 0 0 1 6-6h8 M15 2l4 4-4 4",
     eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12 M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
     file: "M5 2h9l5 5v15H5z M14 2v6h5 M8 12h8 M8 16h6",
     download: "M12 3v12 M7 10l5 5 5-5 M4 15v6h16v-6",
@@ -297,6 +298,10 @@
     if (/^ui\./.test(type)) return "message";
     if (/control\.try/.test(type)) return "shield2";
     if (/control\.repeat/.test(type)) return "loop";
+    if (type === "control.goto") return "jump";
+    if (type === "control.stop") return "stop";
+    if (type === "control.continue") return "loop";
+    if (type === "control.break") return "logout";
     if (/^http\./.test(type)) return "globe";
     if (/^data\.calculate|^text\.|^data\.date|^data\.list/.test(type)) return "code";
     if (/^system\.|clipboard/.test(type)) return "terminal";
@@ -630,7 +635,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.8.0"}`),
+      node("span", "version", `v${state.version || "0.8.1"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -1291,6 +1296,167 @@
     }
     return null;
   }
+  // ----- paths: where a path ends and where Adıma git leads --------------------------------
+  // Nothing follows these on the same path; the next step in the list is reached only by a jump.
+  const ENDINGS = new Set(["control.goto", "control.continue", "control.break", "control.stop"]);
+  const LOOP_ACTIONS = new Set(["control.for_each", "control.while", "control.repeat"]);
+  function stepName(step) {
+    return step ? step.title || specFor(step.action).label : "";
+  }
+  function listOwner(list, steps = state.workflow?.steps || []) {
+    // The block step and branch holding this list; null for the main flow.
+    for (const step of steps) {
+      for (const branch of ["children", "otherwise"]) {
+        if (step[branch] === list) return { step, branch };
+        const found = listOwner(list, step[branch] || []);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  function blocksAround(id, steps = state.workflow?.steps || [], around = []) {
+    // [{step, branch}] around a step, outermost first; null when it is not in the flow.
+    for (const step of steps) {
+      if (step.id === id) return around;
+      for (const branch of ["children", "otherwise"]) {
+        const found = blocksAround(id, step[branch] || [], [...around, { step, branch }]);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  function listBlocks(list) {
+    const owner = listOwner(list);
+    return owner ? [...(blocksAround(owner.step.id) || []), owner] : [];
+  }
+  function jumpProblem(around, targetId) {
+    // Why Adıma git placed inside `around` cannot lead to the target (engine.jump_problem).
+    if (!targetId) return "Gidilecek adımı seçin.";
+    if (!findStep(targetId)) return "Gidilecek adım akışta yok; bağlantıyı yeniden seçin.";
+    const inside = new Set(around.map((block) => `${block.step.id}:${block.branch}`));
+    for (const block of blocksAround(targetId) || []) {
+      if (inside.has(`${block.step.id}:${block.branch}`)) continue;
+      if (LOOP_ACTIONS.has(block.step.action))
+        return `«${stepName(block.step)}» döngüsünün içindeki bir adıma döngünün dışından gidilemez; döngü kutusuna bağlayın.`;
+      if (block.step.action === "control.try" && block.branch === "otherwise")
+        return "Hata olursa dalındaki bir adıma bu dalın dışından gidilemez.";
+    }
+    return null;
+  }
+  function naturalAfter(list, index) {
+    // Where a path goes from this point of a list when nothing redirects it:
+    // a step, the loop box (its next turn) or "end".
+    if (index < list.length) return list[index];
+    const owner = listOwner(list);
+    if (!owner) return "end";
+    if (LOOP_ACTIONS.has(owner.step.action)) return owner.step;
+    const located = findStep(owner.step.id);
+    return naturalAfter(located.list, located.index + 1);
+  }
+  function endingAt(list, index) {
+    const step = list[index];
+    return step && ENDINGS.has(step.action) ? step : null;
+  }
+  function insideLoop(list) {
+    return listBlocks(list).some((block) => LOOP_ACTIONS.has(block.step.action));
+  }
+  function convertEnding(step, action) {
+    // Keeps the step (and its place) but changes what happens there.
+    const spec = specFor(action);
+    const oldLabel = specFor(step.action).label;
+    step.action = action;
+    step.params = {};
+    (spec.fields || []).forEach((f) => {
+      if (f.default !== undefined && f.default !== null) step.params[f.name] = clone(f.default);
+    });
+    if (!step.title || step.title === oldLabel) step.title = spec.label;
+    for (const key of state.fieldErrors) if (key.startsWith(`${step.id}:`)) state.fieldErrors.delete(key);
+    return step;
+  }
+  function setPathEnd(list, index, action, params = {}) {
+    // What happens at this point of a path: null follows the flow, otherwise an ending step.
+    const current = endingAt(list, index);
+    if (!action) {
+      if (current) list.splice(index, 1);
+      return null;
+    }
+    const step = current || buildStep(specFor(action), listOwner(list)?.step.id);
+    if (current && current.action !== action) convertEnding(current, action);
+    Object.assign(step.params, params);
+    if (!current) list.splice(index, 0, step);
+    return step;
+  }
+  function connectPath(list, index, targetId) {
+    // A connection drawn from this point of a path to a step, or to "end".
+    const current = endingAt(list, index);
+    if (current && current.id === targetId) return false;
+    const natural = naturalAfter(list, current ? index + 1 : index);
+    if (targetId === (natural === "end" ? "end" : natural.id)) {
+      setPathEnd(list, index, null);
+      return true;
+    }
+    if (targetId === "end") {
+      setPathEnd(list, index, "control.stop");
+      return true;
+    }
+    const target = findStep(targetId)?.step;
+    if (target && target.action !== "control.goto" && ENDINGS.has(target.action)) {
+      // Dropped on another ending box (Akışı bitir, Sonraki tura geç, …): this path ends the same way.
+      if (target.action !== "control.stop" && !insideLoop(list)) {
+        toast(`${stepName(target)} yalnız bir döngünün içinde kullanılabilir.`, true);
+        return false;
+      }
+      setPathEnd(list, index, target.action, clone(target.params || {}));
+      return true;
+    }
+    if (target?.action === "control.goto") return connectPath(list, index, target.params?.target);
+    const problem = jumpProblem(listBlocks(list), targetId);
+    if (problem) {
+      toast(problem, true);
+      return false;
+    }
+    setPathEnd(list, index, "control.goto", { target: targetId });
+    return true;
+  }
+  function cutPath(list, index) {
+    // The connection at this point is removed: the path ends here.
+    return setPathEnd(list, index, insideLoop(list) ? "control.continue" : "control.stop");
+  }
+  function pathOpen(list) {
+    // Whether a path that enters this list can come out at its end.
+    if (!list.length) return true;
+    const last = list.at(-1);
+    if (ENDINGS.has(last.action)) return false;
+    if (["control.if", "control.try"].includes(last.action))
+      return pathOpen(last.children || []) || pathOpen(last.otherwise || []);
+    return true;
+  }
+  function unreachedSteps(steps = state.workflow?.steps || []) {
+    // Steps no path leads to: after an ending in their list and not the target of Adıma git.
+    const targets = new Set(allSteps(steps).filter((s) => s.action === "control.goto").map((s) => s.params?.target));
+    const found = new Set();
+    const walk = (list) => {
+      list.forEach((step, index) => {
+        const before = list.slice(0, index);
+        if (index && !pathOpen(before) && !targets.has(step.id)) found.add(step.id);
+        walk(step.children || []);
+        walk(step.otherwise || []);
+      });
+    };
+    walk(steps);
+    return found;
+  }
+  function flowOutline() {
+    // Every step in flow order with a number and where it sits, for choosing a target.
+    const rows = [];
+    const walk = (list, where) => list.forEach((step) => {
+      rows.push({ step, number: rows.length + 1, where });
+      for (const branch of ["children", "otherwise"])
+        walk(step[branch] || [], `${stepName(step)} › ${branchWord(step, branch)}`);
+    });
+    walk(state.workflow?.steps || [], "");
+    return rows;
+  }
   function addStep(spec) {
     const step = buildStep(spec, state.target?.id);
     let list = state.workflow.steps;
@@ -1440,6 +1606,7 @@
   function renderCanvas() {
     const pane = document.getElementById("flow-canvas");
     if (!pane) return;
+    state.unreached = unreachedSteps();
     const oldScroll = pane.scrollTop;
     pane.replaceChildren();
     const caption = node("div", "canvas-caption");
@@ -1538,7 +1705,8 @@
     pane.scrollTop = oldScroll;
   }
   // ----- Diagram view: the same steps drawn left → right, n8n style ------------------
-  const DG = { w: 188, h: 56, gx: 48, bx: 108, gy: 36, lane: 34, emptyW: 168, emptyH: 42, merge: 40, term: 84, pad: 48 };
+  const DG = { w: 188, h: 56, pw: 158, ph: 36, gx: 48, bx: 108, gy: 36, lane: 34, emptyW: 168, emptyH: 42, merge: 40,
+    term: 84, pad: 48 };
   const categoryTones = {
     "Pencere": "window", "Fare ve klavye": "input", "Ekran ve görsel": "screen",
     "Uygulama ve sistem": "system", "Dosya ve Excel": "file", "Veri ve metin": "data",
@@ -1577,6 +1745,8 @@
     };
   }
   function measureNode(step) {
+    // Where a path ends (Adıma git, Sonraki tura geç, …) is a small box with its own arrow.
+    if (ENDINGS.has(step.action)) return { w: DG.pw, h: DG.ph, spine: DG.ph / 2, pill: true };
     const shape = diagramShape(step);
     if (!shape) return { w: DG.w, h: DG.h, spine: DG.h / 2 };
     const rows = shape.branches.map((branch) => measureSequence(step[branch] || []));
@@ -1595,20 +1765,28 @@
   function placeSequence(list, x, spine, owner, branch, m, out) {
     if (!list.length) {
       out.empties.push({ x, y: spine - DG.emptyH / 2, list, owner, branch });
-      return { entry: { x, y: spine }, exit: { x: x + DG.emptyW, y: spine }, empty: true };
+      // An empty branch can be connected onward from its right side.
+      out.ports.push({ x: x + DG.emptyW, y: spine, list, index: 0, after: owner ? `${owner.id}:${branch}` : "" });
+      return { entry: { x, y: spine }, exit: { x: x + DG.emptyW, y: spine }, empty: true, open: true };
     }
     let cursor = x;
     let first = null;
     let previous = null;
+    let open = true;
     list.forEach((step, index) => {
       const part = m.parts[index];
       const placed = placeNode(step, cursor, spine, part, list, owner, out);
-      if (previous) out.edges.push({ from: previous, to: placed.entry, arrow: true, insert: { list, index, owner, branch } });
+      if (previous && open)
+        out.edges.push({ from: previous, to: placed.entry, arrow: true, insert: { list, index, owner, branch },
+          // Cutting it ends the path here; a connection into an ending box is changed on the box.
+          remove: ENDINGS.has(step.action) ? null : { list, index } });
+      else if (previous) placed.node.cut = true;
       first ||= placed.entry;
       previous = placed.exit;
+      open = placed.open;
       cursor += part.w + DG.gx;
     });
-    return { entry: first, exit: previous };
+    return { entry: first, exit: previous, open };
   }
   function stepOffset(step) {
     const [dx, dy] = Array.isArray(step.offset) ? step.offset : [0, 0];
@@ -1619,13 +1797,26 @@
     const [dx, dy] = stepOffset(step);
     const nx = x + dx;
     const ny = spine + dy;
-    out.nodes.push({ step, x: nx, y: ny - DG.h / 2, list, owner, shape: m.shape, moved: Boolean(dx || dy) });
+    const index = list.indexOf(step);
+    if (m.pill) {
+      const item = { step, x: nx, y: ny - DG.ph / 2, w: DG.pw, h: DG.ph, list, owner, pill: true, moved: Boolean(dx || dy) };
+      out.nodes.push(item);
+      // Dragging from an ending box changes where it leads.
+      out.ports.push({ x: nx + DG.pw, y: ny, list, index, after: step.id });
+      return { entry: { x: nx, y: ny }, exit: { x: nx + DG.pw, y: ny }, open: false, node: item };
+    }
+    const item = { step, x: nx, y: ny - DG.h / 2, w: DG.w, h: DG.h, list, owner, shape: m.shape, moved: Boolean(dx || dy) };
+    out.nodes.push(item);
     const entry = { x: nx, y: ny };
-    if (!m.shape) return { entry, exit: { x: nx + DG.w, y: ny } };
+    if (!m.shape) {
+      out.ports.push({ x: nx + DG.w, y: ny, list, index: index + 1, after: step.id });
+      return { entry, exit: { x: nx + DG.w, y: ny }, open: true, node: item };
+    }
     const top = spine - m.spine;
     const bx = x + DG.w + DG.bx;
     const merge = { x: x + m.w - 8, y: spine };
     const centre = nx + DG.w / 2;
+    let open = true;
     if (m.shape.loop) {
       step.children ||= [];
       const body = placeSequence(step.children, bx, spine, step, "children", m.rows[0], out);
@@ -1635,16 +1826,20 @@
       const high = top + DG.lane / 2;
       const low = top + m.h - DG.lane / 2;
       const turn = body.exit.x + 14;
-      out.edges.push({ kind: "back", arrow: true, label: "Sonraki tur", labelPoint: { x: (turn + centre) / 2, y: high },
-        points: [body.exit, { x: turn, y: body.exit.y }, { x: turn, y: high }, { x: centre, y: high },
-          { x: centre, y: ny - DG.h / 2 }],
-        insert: body.empty ? null : { list: step.children, index: step.children.length, owner: step, branch: "children" },
-        insertPoint: { x: turn, y: (body.exit.y + high) / 2 } });
+      out.loops.set(step.id, { high, low, centre, top: ny - DG.h / 2, merge });
+      // A body that ends in a box of its own (Sonraki tura geç, Adıma git, …) draws its own arrow.
+      if (body.open)
+        out.edges.push({ kind: "back", arrow: true, label: "Sonraki tur", labelPoint: { x: (turn + centre) / 2, y: high },
+          points: [body.exit, { x: turn, y: body.exit.y }, { x: turn, y: high }, { x: centre, y: high },
+            { x: centre, y: ny - DG.h / 2 }],
+          insert: body.empty ? null : { list: step.children, index: step.children.length, owner: step, branch: "children" },
+          insertPoint: { x: turn, y: (body.exit.y + high) / 2 } });
       out.edges.push({ kind: "done", label: "Bitince", labelPoint: { x: centre + 58, y: low },
         points: [{ x: centre, y: ny + DG.h / 2 }, { x: centre, y: low }, { x: merge.x, y: low }, merge] });
     } else {
       let rowTop = top + m.offset;
       const count = m.shape.branches.length;
+      open = false;
       m.shape.branches.forEach((branch, index) => {
         step[branch] ||= [];
         const row = m.rows[index];
@@ -1654,26 +1849,77 @@
         out.edges.push({ from, to: placed.entry, arrow: !placed.empty, port: true, label: branchWord(step, branch),
           tone, insertAt: 0.74,
           insert: placed.empty ? null : { list: step[branch], index: 0, owner: step, branch } });
-        out.edges.push({ from: placed.exit, to: merge, tone,
-          insert: placed.empty ? null : { list: step[branch], index: step[branch].length, owner: step, branch } });
+        // Only a branch whose path comes out at its end meets the other one after the block.
+        if (placed.open) {
+          open = true;
+          out.edges.push({ from: placed.exit, to: merge, tone,
+            insert: placed.empty ? null : { list: step[branch], index: step[branch].length, owner: step, branch },
+            remove: { list: step[branch], index: step[branch].length } });
+        }
         rowTop += row.h + DG.gy;
       });
     }
-    out.merges.push(merge);
-    return { entry, exit: { x: merge.x + 5, y: spine } };
+    if (open) {
+      out.merges.push(merge);
+      out.ports.push({ x: merge.x, y: merge.y, list, index: index + 1, merge: true, after: step.id });
+    }
+    return { entry, exit: { x: merge.x + 5, y: spine }, open, node: item };
+  }
+  function endingEdges(out) {
+    // Arrows from the ending boxes: Adıma git to its step, Sonraki tura geç and Döngüden çık to
+    // their loop's lanes. A box no path leads to is marked.
+    const boxes = new Map(out.nodes.map((item) => [item.step.id, item]));
+    const targets = new Set();
+    let lane = 0;
+    for (const item of out.nodes) {
+      if (!item.pill) continue;
+      const { step } = item;
+      const from = { x: item.x + item.w, y: item.y + item.h / 2 };
+      if (step.action === "control.goto") {
+        const targetId = step.params?.target;
+        item.problem = jumpProblem(blocksAround(step.id) || [], targetId);
+        const target = boxes.get(targetId);
+        if (!target) continue;
+        targets.add(targetId);
+        const to = { x: target.x, y: target.y + target.h / 2 };
+        const tone = item.problem ? "invalid" : "";
+        if (to.x > from.x + 40) out.edges.push({ kind: "jump", tone, arrow: true, from, to });
+        else {
+          // Back (or straight up/down): over the boxes, into the target from the left.
+          const y = Math.min(item.y, target.y) - 30 - 12 * (lane++ % 4);
+          out.edges.push({ kind: "jump", tone, arrow: true, points: [from, { x: from.x + 18, y: from.y },
+            { x: from.x + 18, y }, { x: to.x - 22, y }, { x: to.x - 22, y: to.y }, to] });
+        }
+      } else if (["control.continue", "control.break"].includes(step.action)) {
+        const loop = [...(blocksAround(step.id) || [])].reverse().find((block) => LOOP_ACTIONS.has(block.step.action));
+        const at = loop && out.loops.get(loop.step.id);
+        if (!at) continue;
+        const bend = from.x + 16;
+        out.edges.push(step.action === "control.continue"
+          ? { kind: "back", arrow: true, points: [from, { x: bend, y: from.y }, { x: bend, y: at.high },
+            { x: at.centre, y: at.high }, { x: at.centre, y: at.top }] }
+          : { kind: "done", arrow: true, points: [from, { x: bend, y: from.y }, { x: bend, y: at.low },
+            { x: at.merge.x, y: at.low }, at.merge] });
+      }
+    }
+    out.nodes.forEach((item) => {
+      item.unreached = Boolean(item.cut) && !targets.has(item.step.id);
+    });
   }
   function diagramLayout() {
     const steps = state.workflow.steps;
     const m = measureSequence(steps);
-    const out = { nodes: [], edges: [], empties: [], merges: [] };
+    const out = { nodes: [], edges: [], empties: [], merges: [], ports: [], loops: new Map() };
     const spine = DG.pad + Math.max(m.spine, 24);
     const start = { x: DG.pad + DG.term, y: spine };
     const main = placeSequence(steps, start.x + DG.gx, spine, null, null, m, out);
     const end = { x: main.exit.x + DG.gx, y: spine };
     out.edges.push({ from: start, to: main.entry, arrow: !main.empty,
       insert: main.empty ? null : { list: steps, index: 0, owner: null, branch: null } });
-    out.edges.push({ from: main.exit, to: end, arrow: true,
-      insert: main.empty ? null : { list: steps, index: steps.length, owner: null, branch: null } });
+    if (main.open)
+      out.edges.push({ from: main.exit, to: end, arrow: true,
+        insert: main.empty ? null : { list: steps, index: steps.length, owner: null, branch: null } });
+    endingEdges(out);
     out.terminals = [{ kind: "start", x: DG.pad, y: spine }, { kind: "end", x: end.x, y: spine }];
     const width = end.x + DG.term + DG.pad;
     const height = spine + Math.max(m.h - m.spine, 24) + DG.pad;
@@ -1777,7 +2023,7 @@
     const svg = svgNode("svg", { class: "diagram-edges", width: layout.width, height: layout.height,
       viewBox: `0 0 ${layout.width} ${layout.height}`, "aria-hidden": "true" });
     const defs = svgNode("defs");
-    for (const id of ["arrow", "arrow-back", "arrow-error"]) {
+    for (const id of ["arrow", "arrow-back", "arrow-error", "arrow-jump"]) {
       const marker = svgNode("marker", { id: `diagram-${id}`, viewBox: "0 0 10 10", refX: "9", refY: "5",
         markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
       marker.append(svgNode("path", { d: "M0,1 L9,5 L0,9 z", class: `marker-${id}` }));
@@ -1789,8 +2035,53 @@
       const classes = ["edge", edge.kind, edge.tone].filter(Boolean).join(" ");
       const path = svgNode("path", { d: edgePath(edge), class: classes });
       if (edge.arrow)
-        path.setAttribute("marker-end", `url(#diagram-${edge.kind === "back" ? "arrow-back" : edge.tone === "error" ? "arrow-error" : "arrow"})`);
+        path.setAttribute("marker-end", `url(#diagram-${edge.kind === "back" ? "arrow-back"
+          : edge.tone === "error" || edge.tone === "invalid" ? "arrow-error" : edge.kind === "jump" ? "arrow-jump" : "arrow"})`);
       svg.append(path);
+      let cut = null;
+      if (edge.remove) {
+        // Shown while the pointer is on the connection: removing it ends the path at this point.
+        const at = edge.insertPoint || (edge.points ? edge.points[0] : curvePoint(edge, edge.insertAt || 0.5));
+        cut = node("button", "edge-remove");
+        cut.type = "button";
+        cut.title = "Bağlantıyı kaldır: yol burada biter";
+        cut.setAttribute("aria-label", "Bağlantıyı kaldır");
+        cut.append(icon("cross"));
+        cut.style.left = `${at.x}px`;
+        cut.style.top = `${at.y - 25}px`;
+        cut.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const ending = cutPath(edge.remove.list, edge.remove.index);
+          markDirty();
+          renderCanvas();
+          renderInspector();
+          toast(ending?.action === "control.continue"
+            ? "Bağlantı kaldırıldı: bu yol burada biter ve döngü sonraki tura geçer."
+            : "Bağlantı kaldırıldı: bu yol burada biter ve akış sonlanır.");
+        });
+        const hit = svgNode("path", { d: edgePath(edge), class: "edge-hit" });
+        svg.append(hit);
+        let hide = 0;
+        const show = () => {
+          clearTimeout(hide);
+          cut.classList.add("show");
+          path.classList.add("hover");
+        };
+        const later = () => {
+          clearTimeout(hide);
+          hide = setTimeout(() => {
+            cut.classList.remove("show");
+            path.classList.remove("hover");
+          }, 350);
+        };
+        for (const el of [hit, cut]) {
+          el.addEventListener("mouseenter", show);
+          el.addEventListener("mouseleave", later);
+        }
+        cut.addEventListener("focus", show);
+        cut.addEventListener("blur", later);
+        overlay.push(cut);
+      }
       if (edge.port) svg.append(svgNode("circle", { cx: edge.from.x, cy: edge.from.y, r: 4.5, class: "port" }));
       if (edge.label) {
         const at = edge.labelPoint || curvePoint(edge, 0.3);
@@ -1815,8 +2106,14 @@
           event.stopPropagation();
           openInsertMenu(handle, edge.insert);
         });
-        handle.addEventListener("mouseenter", () => path.classList.add("hover"));
-        handle.addEventListener("mouseleave", () => path.classList.remove("hover"));
+        handle.addEventListener("mouseenter", () => {
+          path.classList.add("hover");
+          cut?.dispatchEvent(new Event("mouseenter"));
+        });
+        handle.addEventListener("mouseleave", () => {
+          path.classList.remove("hover");
+          cut?.dispatchEvent(new Event("mouseleave"));
+        });
         dropZone(handle, () => ({ list: edge.insert.list, index: edge.insert.index,
           ownerId: edge.insert.owner?.id || null, mark: "inside", target: handle }));
         places.push({ x: at.x, y: at.y, radius: 20, place: edge.insert, el: handle });
@@ -1825,6 +2122,16 @@
     });
     layout.merges.forEach((point) => svg.append(svgNode("circle", { cx: point.x, cy: point.y, r: 5, class: "merge" })));
     world.append(svg);
+    // Drag from a port to a box: the path continues there (Adıma git), also back to earlier steps.
+    layout.ports.forEach((port, index) => {
+      const el = node("span", `diagram-port${port.merge ? " merge-port" : ""}`);
+      el.dataset.port = String(index);
+      el.dataset.after = port.after || "";
+      el.title = "Sürükleyip bir kutuya bırakın: akış oradan devam eder";
+      el.style.left = `${port.x}px`;
+      el.style.top = `${port.y}px`;
+      overlay.push(el);
+    });
     layout.terminals.forEach((terminal) => {
       const el = node("div", `diagram-terminal ${terminal.kind}`);
       el.append(icon(terminal.kind === "start" ? "play" : "check"),
@@ -1869,7 +2176,7 @@
         }));
       viewport.append(chip);
     }
-    const hint = node("div", "diagram-hint", "Kutuyu sürükleyin: yerini değiştirir · + üzerine bırakın: sırasını değiştirir · Boş alanı sürükleyin: gezinir");
+    const hint = node("div", "diagram-hint", "Kutuyu sürükleyin: yerini değiştirir · + üzerine bırakın: sırasını değiştirir · Sağdaki noktayı bir kutuya sürükleyin: bağlantı kurar · Çizgideki ×: bağlantıyı kaldırır");
     const zoomLabel = node("span", "zoom-level");
     const controls = node("div", "diagram-controls");
     controls.append(
@@ -2023,13 +2330,68 @@
       viewport.addEventListener("pointerup", stop);
       viewport.addEventListener("pointercancel", stop);
     }
+    function startConnect(event, port) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeInsertMenu();
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add("connecting");
+      const svg = world.querySelector("svg.diagram-edges");
+      const line = svgNode("path", { class: "edge connect-line" });
+      svg.append(line);
+      let hovered = null;
+      const toWorld = (pointer) => {
+        const rect = viewport.getBoundingClientRect();
+        return { x: (pointer.clientX - rect.left - d.x) / d.k, y: (pointer.clientY - rect.top - d.y) / d.k };
+      };
+      const targetAt = (pointer) => document.elementFromPoint(pointer.clientX, pointer.clientY)
+        ?.closest("#diagram-viewport .dnode, #diagram-viewport .diagram-terminal.end") || null;
+      const move = (pointer) => {
+        line.setAttribute("d", edgePath({ from: port, to: toWorld(pointer) }));
+        const target = targetAt(pointer);
+        if (target === hovered) return;
+        hovered?.classList.remove("connect-target");
+        hovered = target;
+        hovered?.classList.add("connect-target");
+      };
+      const stop = (finish) => {
+        viewport.removeEventListener("pointermove", move);
+        viewport.removeEventListener("pointerup", stop);
+        viewport.removeEventListener("pointercancel", stop);
+        viewport.classList.remove("connecting");
+        hovered?.classList.remove("connect-target");
+        line.remove();
+        const swallow = (click) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+        if (finish.type !== "pointerup" || !hovered) return;
+        const targetId = hovered.classList.contains("diagram-terminal") ? "end" : hovered.dataset.stepId;
+        if (connectPath(port.list, port.index, targetId)) {
+          markDirty();
+          renderCanvas();
+          renderInspector();
+        }
+      };
+      move(event);
+      viewport.addEventListener("pointermove", move);
+      viewport.addEventListener("pointerup", stop);
+      viewport.addEventListener("pointercancel", stop);
+    }
     viewport.addEventListener("pointerdown", (event) => {
+      const portEl = event.target.closest(".diagram-port");
+      if (portEl && event.button === 0) {
+        startConnect(event, layout.ports[Number(portEl.dataset.port)]);
+        return;
+      }
       const box = event.target.closest(".dnode");
       if (box && event.button === 0 && !event.target.closest("button")) {
         startNodeMove(event, box.dataset.stepId);
         return;
       }
-      const onBackground = !event.target.closest(".dnode, button, .diagram-insert, .diagram-run, .diagram-controls");
+      const onBackground = !event.target.closest(".dnode, button, .diagram-insert, .diagram-run, .diagram-controls, .diagram-port");
       if (!(event.button === 1 || (event.button === 0 && onBackground))) return;
       event.preventDefault();
       closeInsertMenu();
@@ -2094,27 +2456,39 @@
     const { step } = item;
     const spec = specFor(step.action);
     const status = run ? stepStatus(run.step_stats?.[step.id], step, run) : null;
-    const el = node("div", `dnode${item.shape ? " dnode-container" : ""}${state.selected === step.id ? " selected" : ""}${status ? ` status-${status.kind}` : ""}${item.moved ? " moved" : ""}${state.diagram.moving === step.id ? " moving" : ""}`);
+    const classes = ["dnode", item.shape && "dnode-container", item.pill && `dnode-pill ending-${step.action.split(".")[1]}`,
+      state.selected === step.id && "selected", status && `status-${status.kind}`, item.moved && "moved",
+      state.diagram.moving === step.id && "moving", item.unreached && "unreached", item.problem && "invalid"];
+    const el = node("div", classes.filter(Boolean).join(" "));
     el.dataset.stepId = step.id;
     el.tabIndex = 0;
     el.setAttribute("role", "button");
     el.setAttribute("aria-label", `${step.title || spec.label} adımını düzenle`);
-    el.title = step.title || spec.label;
+    el.title = item.problem || (item.unreached ? `${step.title || spec.label}: bu adıma hiçbir yol gelmiyor, akışta çalışmaz. `
+      + "Bir kutunun sağındaki noktayı buraya sürükleyerek bağlayın veya adımı silin." : step.title || spec.label);
     el.style.left = `${item.x}px`;
     el.style.top = `${item.y}px`;
-    el.style.width = `${DG.w}px`;
-    el.style.height = `${DG.h}px`;
+    el.style.width = `${item.w || DG.w}px`;
+    el.style.height = `${item.h || DG.h}px`;
     const tone = toneFor(spec);
     el.style.setProperty("--tone", tone);
     const tile = node("span", "dnode-icon");
     tile.append(icon(actionIcon(step.action)));
     const copy = node("span", "dnode-copy");
     const output = step.params?.output;
-    copy.append(
-      node("strong", "", step.title || spec.label),
-      output ? node("small", "mono", `→ \${${output}}`)
-        : node("small", "", step.title && step.title !== spec.label ? spec.label : spec.category || ""),
-    );
+    if (step.action === "control.goto") {
+      const target = findStep(step.params?.target)?.step;
+      copy.append(node("strong", "", target ? stepName(target) : "Hedef adımı seçin"),
+        node("small", "", step.title && step.title !== spec.label ? step.title : "Adıma git"));
+    } else if (item.pill) {
+      copy.append(node("strong", "", step.title || spec.label));
+    } else {
+      copy.append(
+        node("strong", "", step.title || spec.label),
+        output ? node("small", "mono", `→ \${${output}}`)
+          : node("small", "", step.title && step.title !== spec.label ? spec.label : spec.category || ""),
+      );
+    }
     el.append(tile, copy);
     if (status) {
       const mark = node("span", `dnode-status ${status.kind}`);
@@ -2287,11 +2661,13 @@
   function stepCard(step, list, index) {
     const wrap = node("div", "step-wrap");
     const spec = specFor(step.action);
+    const unreached = state.unreached?.has(step.id);
     const card = node(
       "div",
-      `step-card${state.selected === step.id ? " selected" : ""}`,
+      `step-card${state.selected === step.id ? " selected" : ""}${ENDINGS.has(step.action) ? " step-ending" : ""}${unreached ? " unreached" : ""}`,
     );
     card.dataset.stepId = step.id;
+    if (unreached) card.title = "Bu adıma hiçbir yol gelmiyor; akışta çalışmaz. Önceki adımın Bu adımdan sonra seçimini değiştirin veya bir Adıma git ile bağlayın.";
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     card.setAttribute(
@@ -2367,6 +2743,15 @@
       );
       card.append(out);
     }
+    if (step.action === "control.goto") {
+      // Where the path continues; the same arrow the diagram draws.
+      const target = findStep(step.params?.target)?.step;
+      const problem = jumpProblem(blocksAround(step.id) || [], step.params?.target);
+      const out = node("div", `step-output step-jump${problem ? " invalid" : ""}`);
+      out.append(icon("jump"), node("span", "", target ? `«${stepName(target)}» adımına gider` : "Gidilecek adımı seçin"));
+      if (problem) out.title = problem;
+      card.append(out);
+    }
     wrap.append(card);
     const container =
       spec.container ||
@@ -2431,18 +2816,26 @@
   async function removeStep(id) {
     const located = findStep(id);
     if (!located) return;
-    if (
-      (located.step.children?.length || located.step.otherwise?.length) &&
-      !(await confirmDialog(
-        "Adımı ve alt adımlarını sil",
-        "Bu adımın içindeki bütün alt adımlar da kaldırılacak.",
-        "Adımı sil",
-        true,
-      ))
-    )
-      return;
     const removedIds = new Set(allSteps([located.step]).map((s) => s.id));
+    // Adıma git connections that lead into what is removed would lead nowhere.
+    const leading = allSteps(state.workflow.steps).filter((s) =>
+      s.action === "control.goto" && removedIds.has(s.params?.target) && !removedIds.has(s.id));
+    const nested = located.step.children?.length || located.step.otherwise?.length;
+    if ((nested || leading.length) && !(await confirmDialog(
+      nested ? "Adımı ve alt adımlarını sil" : "Adımı ve bağlantılarını sil",
+      [nested ? "Bu adımın içindeki bütün alt adımlar da kaldırılacak." : "",
+        leading.length ? `Bu adıma ${leading.length} bağlantı (Adıma git) geliyor; onlar da kaldırılacak.` : ""]
+        .filter(Boolean).join(" "),
+      "Adımı sil",
+      true,
+    )))
+      return;
     located.list.splice(located.index, 1);
+    for (const jump of leading) {
+      const place = findStep(jump.id);
+      if (place) place.list.splice(place.index, 1);
+      removedIds.add(jump.id);
+    }
     for (const key of state.fieldErrors)
       if ([...removedIds].some((removed) => key.startsWith(`${removed}:`)))
         state.fieldErrors.delete(key);
@@ -2457,8 +2850,14 @@
     const located = findStep(id);
     if (!located) return;
     const copied = clone(located.step);
+    const renamed = new Map();
     allSteps([copied]).forEach((s) => {
-      s.id = uid();
+      renamed.set(s.id, uid());
+      s.id = renamed.get(s.id);
+    });
+    // A jump inside the copy that led within the original leads within the copy.
+    allSteps([copied]).forEach((s) => {
+      if (s.action === "control.goto" && renamed.has(s.params?.target)) s.params.target = renamed.get(s.params.target);
     });
     copied.title = `${copied.title || specFor(copied.action).label} (kopya)`;
     located.list.splice(located.index + 1, 0, copied);
@@ -3863,6 +4262,83 @@
     });
     return box;
   }
+  function stepTargetField(step, f) {
+    // The step Adıma git leads to; steps it cannot reach from here are listed but disabled.
+    const control = node("select");
+    const blank = node("option", "", "Adım seçin…");
+    blank.value = "";
+    control.append(blank);
+    const around = blocksAround(step.id) || [];
+    flowOutline().forEach(({ step: candidate, number, where }) => {
+      if (candidate.id === step.id || ENDINGS.has(candidate.action)) return;
+      const problem = jumpProblem(around, candidate.id);
+      const option = node("option", "", `${number}. ${stepName(candidate)}${where ? ` (${where})` : ""}`
+        + (problem ? " – buradan gidilemez" : ""));
+      option.value = candidate.id;
+      option.disabled = Boolean(problem);
+      control.append(option);
+    });
+    control.value = step.params[f.name] || "";
+    const wrap = field(f.label || f.name, control, f.help, f.required);
+    const problem = node("div", "field-error");
+    const paint = () => {
+      const message = step.params[f.name] ? jumpProblem(around, step.params[f.name]) : "";
+      problem.textContent = message || "";
+      control.classList.toggle("invalid", Boolean(message));
+    };
+    paint();
+    control.addEventListener("change", () => {
+      step.params[f.name] = control.value;
+      paint();
+      markDirty();
+      renderCanvas();
+    });
+    wrap.append(problem);
+    return wrap;
+  }
+  function pathEndField(step, located) {
+    // What happens after this step; on an ending box, what happens at this point.
+    const ending = ENDINGS.has(step.action);
+    const list = located.list;
+    const index = ending ? located.index : located.index + 1;
+    const current = ending ? step : endingAt(list, index);
+    const looped = insideLoop(list);
+    const natural = naturalAfter(list, current ? index + 1 : index);
+    const ownLoop = natural !== "end" && LOOP_ACTIONS.has(natural.action) &&
+      listBlocks(list).some((block) => block.step === natural);
+    const options = [
+      ...(ending ? [] : [["next", natural === "end" ? "Akış biter"
+        : ownLoop ? "Döngünün sonraki turuna geçilir" : `Sıradaki adıma geçilir: «${stepName(natural)}»`]]),
+      ...(looped ? [["control.continue", "Sonraki tura geçilir"], ["control.break", "Döngüden çıkılır"]] : []),
+      ["control.stop", "Akış burada biter"],
+      ["control.goto", "Başka bir adıma gidilir (geri dönüş de olur)"],
+    ];
+    const select = node("select");
+    options.forEach(([value, label]) => {
+      const option = node("option", "", label);
+      option.value = value;
+      select.append(option);
+    });
+    select.value = current ? current.action : "next";
+    select.id = "path-end";
+    const wrap = field(ending ? "Bu noktada" : "Bu adımdan sonra", select, ending
+      ? "Yolun burada ne yapacağını değiştirir. Diyagramda bu kutunun sağındaki noktayı başka bir kutuya sürükleyerek de bağlayabilirsiniz."
+      : "Varsayılan olarak akış sıradaki adımla sürer. Başka bir adıma gidebilir, döngünün sonraki turuna geçebilir veya yolu burada bitirebilirsiniz.");
+    wrap.classList.add("path-end");
+    select.addEventListener("change", () => {
+      const value = select.value;
+      if (ending) convertEnding(step, value);
+      else setPathEnd(list, index, value === "next" ? null : value);
+      markDirty();
+      renderCanvas();
+      renderInspector();
+    });
+    if (!ending && current?.action === "control.goto") {
+      const definition = specFor("control.goto").fields.find((item) => item.name === "target");
+      wrap.append(stepTargetField(current, definition));
+    }
+    return wrap;
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -3909,6 +4385,7 @@
       renderCanvas();
     });
     pane.append(field("Adım adı", title, "Akışta ve çalışma günlüğünde görünen ad. İşi anlatan bir ad verin (ör. Form ID yaz)."));
+    pane.append(pathEndField(step, located));
     if (!["control.break", "control.continue"].includes(step.action)) {
       const tester = button("Bu adımı test et", "play", () => openStepTest(step), "small step-test-button");
       tester.title = "Yalnız bu adımı (iç adımlarıyla) çalıştırır; gereken değerleri önceki adımlardan kendisi alır.";
@@ -3983,6 +4460,10 @@
       }
       if (f.type === "connection") {
         pane.append(connectionField(step, f));
+        return;
+      }
+      if (f.type === "step") {
+        pane.append(stepTargetField(step, f));
         return;
       }
       if (f.reference === "window") {

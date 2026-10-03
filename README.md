@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.8.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.8.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.8.1-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.8.1-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -56,7 +56,7 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 - akış: tekrarla, döngüden çık, hata olursa, başka akışı çalıştır, akışı bitir
 - etkileşim ve web: mesaj ve girdi kutusu, HTTP/API
 
-**0.7.1 ile akış iki görünümde düzenlenir.** **Liste** görünümü alt alta kartlardır. **Diyagram** görünümü aynı adımları n8n'deki gibi soldan sağa düğümler ve bağlantı çizgileriyle gösterir: koşul ve hata dalları ayrı satırlarda, döngüler "Sonraki tur" dönüş çizgisiyle çizilir. Çizgilerdeki **+** düğmesiyle araya adım eklenir, düğümler sürüklenerek taşınır. Son çalışmada her adımın kaç kez çalıştığı ✓ ve hata verdiği ✗ olarak düğümün üzerinde görünür; çalışma ayrıntısındaki **Diyagramda göster** hatalı adımı seçili açar. Çalışma mantığı iki görünümde de aynıdır.
+**0.7.1 ile akış iki görünümde düzenlenir.** **Liste** görünümü alt alta kartlardır. **Diyagram** görünümü aynı adımları n8n'deki gibi soldan sağa düğümler ve bağlantı çizgileriyle gösterir: koşul ve hata dalları ayrı satırlarda, döngüler "Sonraki tur" dönüş çizgisiyle çizilir. Çizgilerdeki **+** düğmesiyle araya adım eklenir, düğümler sürüklenerek taşınır. Bir kutunun sağındaki noktayı başka bir kutuya sürükleyince akış oradan devam eder (**Adıma git**). Gerideki bir adıma dönmek için adımları kopyalamak gerekmez. Çizgideki **×** bağlantıyı kaldırır ve o yol orada biter; biten dal diğer dalla birleşmez. Son çalışmada her adımın kaç kez çalıştığı ✓ ve hata verdiği ✗ olarak düğümün üzerinde görünür; çalışma ayrıntısındaki **Diyagramda göster** hatalı adımı seçili açar. Çalışma mantığı iki görünümde de aynıdır.
 
 **Görünüm.** Arayüz teknik çizim görünümündedir: kareli kâğıt zemin, mürekkep çizgili kutular ve tek bir vurgu rengi. Sağ üstteki ay/güneş düğmesi **açık** (çizim kâğıdı) ve **koyu** (blueprint) tema arasında geçer; **Ayarlar → Görünüm** altında bilgisayarın ayarını izleyen **Sistem** seçeneği de vardır. Diyagramda kutuları sürükleyerek istediğiniz yere taşıyabilirsiniz; bir **+** üzerine bırakılan kutu akışta o noktaya geçer.
 

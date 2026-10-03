@@ -770,7 +770,7 @@ def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
             page.get_by_role("button", name="Kılavuzlu akış", exact=True).click()
             inspector = page.locator("#inspector")
             # Nothing selected: the short guide to building a flow.
-            playwright.expect(inspector.locator(".quick-guide li")).to_have_count(6)
+            playwright.expect(inspector.locator(".quick-guide li")).to_have_count(7)
 
             # A selected step explains how it is used, and every field carries a help line.
             page.locator('[data-step-id="click"]').click()
@@ -1037,4 +1037,132 @@ def test_license_screens_sign_in_lock_and_keep_unsaved_work(tmp_path):
         playwright.expect(page.locator(".license-screen")).to_have_count(0)
         playwright.expect(page.get_by_role("button", name="Sipariş girişi", exact=True)).to_be_visible()
         browser.close()
+    assert errors == []
+
+
+def test_connections_are_drawn_cut_and_chosen_without_copying_steps(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        created = client.post("/api/workflows", json={"name": "Yollar", "steps": [
+            {"id": "first", "title": "Hazırlık", "action": "core.log", "params": {"message": "başla"}},
+            {"id": "rows", "title": "Satırlar", "action": "control.for_each", "params": {"items": [1, 2], "item_name": "row"},
+             "children": [
+                 {"id": "search", "title": "Ara", "action": "core.log", "params": {"message": "ara"}},
+                 {"id": "cond", "title": "Bulundu mu", "action": "control.if",
+                  "params": {"left": "${row}", "operator": "eq", "right": 1},
+                  "children": [{"id": "yes", "title": "Aç", "action": "core.log", "params": {"message": "aç"}}],
+                  "otherwise": [{"id": "no", "title": "Filtreyi değiştir", "action": "core.log", "params": {"message": "x"}}]},
+                 {"id": "save", "title": "Kaydet", "action": "core.log", "params": {"message": "kaydet"}},
+             ]},
+            {"id": "final", "title": "Bitti", "action": "core.log", "params": {"message": "bitti"}},
+        ]})
+        assert created.status_code == 201, created.text
+        workflow_id = created.json()["id"]
+
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1700, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.add_init_script("try { localStorage.setItem('rpa.canvasView', 'diagram'); } catch (e) {}")
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/pick/capabilities":
+                    route.fulfill(json={"native": False})
+                    return
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Yollar", exact=True).click()
+            box = page.locator("#diagram-viewport .dnode").first
+            playwright.expect(box).to_be_visible()
+
+            def connect(after, target):
+                port = page.locator(f'.diagram-port[data-after="{after}"]').bounding_box()
+                goal = page.locator(f'#diagram-viewport [data-step-id="{target}"]').bounding_box()
+                page.mouse.move(port["x"] + port["width"] / 2, port["y"] + port["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(goal["x"] + goal["width"] / 2, goal["y"] + goal["height"] / 2, steps=8)
+                page.mouse.up()
+
+            def saved():
+                page.get_by_role("button", name="Kaydet", exact=True).click()
+                playwright.expect(page.get_by_text("Tüm değişiklikler kaydedildi")).to_be_visible()
+                return client.get(f"/api/workflows/{workflow_id}").json()
+
+            def block(steps, step_id):
+                for item in steps:
+                    if item["id"] == step_id:
+                        return item
+                    found = block(item.get("children", []) + item.get("otherwise", []), step_id)
+                    if found:
+                        return found
+                return None
+
+            # Değilse goes back to Ara instead of meeting the other branch at Kaydet.
+            connect("no", "search")
+            jump = page.locator("#diagram-viewport .dnode-pill.ending-goto")
+            playwright.expect(jump).to_have_count(1)
+            playwright.expect(jump).to_contain_text("Ara")
+            playwright.expect(page.locator("#diagram-viewport path.edge.jump")).to_have_count(1)
+            flow = saved()
+            otherwise = block(flow["steps"], "cond")["otherwise"]
+            assert [item["action"] for item in otherwise] == ["core.log", "control.goto"]
+            assert otherwise[1]["params"]["target"] == "search"
+
+            # A step inside the loop cannot be reached from outside it.
+            connect("first", "save")
+            playwright.expect(page.locator(".toast.error").last).to_contain_text("döngüsünün içindeki")
+            assert block(saved()["steps"], "rows") and len(saved()["steps"]) == 3
+
+            # Cutting the line after Ara ends that path: the loop moves on, and Bulundu mu is not reached.
+            hit = page.locator(".edge-insert[data-owner='rows'][data-index='1']")
+            hit.hover()
+            cut = page.get_by_role("button", name="Bağlantıyı kaldır").and_(page.locator(".edge-remove.show"))
+            cut.click()
+            playwright.expect(page.locator(".toast").last).to_contain_text("sonraki tura geçer")
+            playwright.expect(page.locator('#diagram-viewport .dnode.unreached[data-step-id="cond"]')).to_be_visible()
+            assert [item["action"] for item in block(saved()["steps"], "rows")["children"]][:2] == [
+                "core.log", "control.continue"]
+
+            # The same choice in the settings: back to the next step, then the path ends the flow.
+            page.locator('#diagram-viewport [data-step-id="search"]').click()
+            choice = page.locator("#path-end")
+            playwright.expect(choice).to_have_value("control.continue")
+            choice.select_option("next")
+            playwright.expect(page.locator('#diagram-viewport .dnode.unreached')).to_have_count(0)
+            # Bitti lies under the settings panel at this zoom; the keyboard selects it all the same.
+            page.locator('#diagram-viewport [data-step-id="final"]').press("Enter")
+            playwright.expect(choice).to_have_value("next")
+            playwright.expect(choice.locator("option[value='next']")).to_have_text("Akış biter")
+            choice.select_option("control.goto")
+            target = page.locator(".path-end select").nth(1)
+            # Inside the loop is not offered from here; the loop box and the steps outside are.
+            playwright.expect(target.locator("option", has_text="Ara")).to_be_disabled()
+            target.select_option(label=next(text for text in target.locator("option").all_inner_texts()
+                                            if text.startswith("1. Hazırlık")))
+            flow = saved()
+            assert [(item["action"], item["params"].get("target")) for item in flow["steps"]][-1] == (
+                "control.goto", "first")
+            playwright.expect(page.locator("#diagram-viewport path.edge.jump")).to_have_count(2)
+
+            # In the list the jump says where it leads.
+            page.get_by_role("button", name="Liste", exact=True).click()
+            playwright.expect(page.locator(".step-jump").filter(has_text="«Hazırlık» adımına gider")).to_be_visible()
+            # Removing a step that a jump leads to removes the jump too.
+            page.locator('[data-step-id="first"] .step-tools').get_by_role("button", name="Adımı sil").click()
+            page.get_by_role("button", name="Adımı sil", exact=True).last.click()
+            flow = saved()
+            assert all(item["action"] != "control.goto" for item in flow["steps"])
+            browser.close()
     assert errors == []

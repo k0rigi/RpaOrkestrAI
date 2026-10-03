@@ -6,11 +6,15 @@ Adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrile
 
 - **Adım eklemek:** Kütüphanedeki adıma tıklayın veya adımı sürükleyip akıştaki istediğiniz yere bırakın.
 - **Yer değiştirmek:** Kartı tutup sürükleyin. Kartın üst yarısına bırakırsanız önüne, alt yarısına bırakırsanız arkasına yerleşir. Bir döngünün, koşulun veya **Hata olursa** bloğunun kesikli alanına bırakırsanız o bloğun içine girer. Bir blok kendi içine taşınamaz. Yukarı/aşağı düğmeleri de çalışmaya devam eder.
-- **Diyagram görünümü:** Akış alanının sağ üstündeki **Liste / Diyagram** düğmesiyle geçilir; seçim hatırlanır. Diyagramda adımlar soldan sağa düğümlerdir. **Koşul** düğümünden **Doğruysa** ve **Değilse**, **Hata olursa** düğümünden **Dene** ve **Hata olursa** dalları çıkar; dallar sağda birleşip akış devam eder. Döngünün iç adımları **Her öğe** çizgisiyle sağa uzanır, sondan kesikli **Sonraki tur** çizgisiyle döngüye döner; döngü bitince **Bitince** çizgisiyle sonraki adıma geçilir.
+- **Diyagram görünümü:** Akış alanının sağ üstündeki **Liste / Diyagram** düğmesiyle geçilir; seçim hatırlanır. Diyagramda adımlar soldan sağa düğümlerdir. **Koşul** düğümünden **Doğruysa** ve **Değilse**, **Hata olursa** düğümünden **Dene** ve **Hata olursa** dalları çıkar. Sonuna kadar giden dallar sağda birleşir ve akış sıradaki adımla devam eder. **Sonraki tura geç**, **Döngüden çık**, **Akışı bitir** veya **Adıma git** ile biten dal birleşme noktasına bağlanmaz; kendi okuyla gittiği yere çizilir. Döngünün iç adımları **Her öğe** çizgisiyle sağa uzanır, sondan kesikli **Sonraki tur** çizgisiyle döngüye döner; döngü bitince **Bitince** çizgisiyle sonraki adıma geçilir.
   - Çizgilerdeki **+** düğmesi o noktaya adım ekler: açılan kutuda adı yazıp Enter'a basın. Boş dallardaki kesikli kutular da aynı işi görür.
   - **Kutuyu taşımak:** Kutuyu tutup istediğiniz yere sürükleyin; bağlantı çizgileri kutuyu izler ve yeri akışla birlikte kaydedilir. Bu yalnız görünümü değiştirir, adımların çalışma sırasını değiştirmez. Alt + ok tuşları seçili kutuyu 10 piksel (Shift ile 40) kaydırır. Sağ alttaki **Kutuları otomatik diz** düğmesi tüm kutuları otomatik yerlerine döndürür.
   - **Sırayı değiştirmek:** Kutuyu bir **+** düğmesinin veya boş bir dalın üzerine bırakın; adım akışta o noktaya taşınır ve yeniden otomatik dizilir. Kütüphaneden sürüklemek için **Kütüphane** düğmesiyle kütüphaneyi açın.
   - Boş alanı sürükleyerek veya kaydırarak gezinin; Ctrl/⌘ + kaydırma veya sağ alttaki düğmeler yakınlaştırır, ⊞ tümünü sığdırır.
+  - **Bağlantı kurmak:** Bir kutunun sağındaki yuvarlak noktayı tutup başka bir kutuya bırakın. Akış o adımdan sonra bıraktığınız adımdan devam eder; gerideki bir adıma da bağlayabilirsiniz. Böylece aynı adımları tekrar kopyalamanız gerekmez. Bağlantı mavi kesikli okla çizilir ve **Adıma git** kutusu olarak görünür. Bir koşul veya blok kutusunun bitişinden, boş bir dalın sağından da bağlantı çekilebilir. **Bitiş**'e bırakmak yolu bitirir.
+  - **Bağlantıyı kaldırmak:** Fareyi iki kutu arasındaki çizginin (veya **+** düğmesinin) üzerine getirin, çıkan **×** düğmesine basın. O yol orada biter. Döngünün içindeyse **Sonraki tura geç**, değilse **Akışı bitir** kutusu eklenir; istediğiniz zaman değiştirebilirsiniz.
+  - **Bu adımdan sonra:** Aynı seçimler sağ paneldeki **Bu adımdan sonra** listesinde de vardır: sıradaki adım, sonraki tur, döngüden çık, akışı bitir veya başka bir adıma git. Liste görünümünde de kullanılır.
+  - Hiçbir yolun gelmediği adımlar soluk ve kesikli çizilir; çalışmazlar. Bir bağlantıyla bağlayın veya silin. Bir adımı sildiğinizde ona gelen **Adıma git** bağlantıları da kaldırılır.
   - Düğümün üzerine gelince test ▶, çoğalt ve sil düğmeleri çıkar. Seçili düğümde Delete tuşu adımı siler.
   - Son çalışmada her düğümün sağ üstünde ✓ (birden çok çalıştıysa kaç kez) veya ✗ (hata verdi) görünür. Çalışma ayrıntısındaki **Diyagramda göster**, o çalışmanın sonuçlarını hatalı adım seçili olarak açar.
 - **Bağlantı seçmek:** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
@@ -171,6 +175,7 @@ Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dos
 | Tekrarla (N kez) | İç adımları N kez çalıştırır; `${loop_index}` 0'dan başlar. |
 | Koşul sürdükçe tekrarla | Koşul doğru oldukça tekrarlar; tekrar ve süre sınırı vardır. |
 | Döngüden çık / Sonraki tura geç | En içteki döngüyü bitirir veya turu atlar. Yalnız döngü içinde eklenebilir. |
+| Adıma git | Akışı seçilen adımdan sürdürür; gerideki bir adıma dönüp adımları tekrarlamak (ör. aramayı başka filtreyle yeniden yapmak) veya iki dalı ortak bir adımda buluşturmak için. Bir döngünün içindeki adıma ancak aynı döngünün içinden gidilir; dışarıdan döngü kutusuna bağlanır, döngünün kendi kutusuna bağlamak sonraki tura geçer. Döngü dışına gitmek döngüyü bitirir. **Her turda en fazla** (varsayılan 10) sonsuz döngüyü önler: aynı bağlantı bir turda daha çok kullanılırsa akış durur. |
 | Hata olursa | **DENE** dalında hata olursa akışı durdurmak yerine **HATA OLURSA** dalını çalıştırır. Mesaj `${error_message}` içindedir. Örneğin hatalı satırı Excel'e "Hata" olarak işaretleyip sonraki satıra geçmek için kullanılır. |
 | Başka akışı çalıştır | Kayıtlı bir akışı bu noktada çalıştırır; değişkenler ortaktır. ERP'ye giriş gibi ortak işleri tek yerde tutun. En fazla 5 seviye olabilir ve akış kendini çağıramaz. |
 | Akışı bitir | Başarıyla veya hata mesajıyla sonlandırır. |
@@ -200,7 +205,7 @@ Bir akış en fazla 1.000 adım ve 12 seviye iç içe blok içerebilir. Bir çal
 | `A_Clipboard` | Panoya kopyala / Panodaki metni oku |
 | `MsgBox`, `InputBox` | Mesaj kutusu göster, Kullanıcıdan değer iste |
 | Macro Recorder | Hareketleri kaydet |
-| `Loop`, `Loop Parse`, `while`, `break`, `continue`, `try/catch`, `Gosub` | Tekrarla, Her satır için, Koşul sürdükçe tekrarla, Döngüden çık, Sonraki tura geç, Hata olursa, Başka akışı çalıştır |
+| `Loop`, `Loop Parse`, `while`, `break`, `continue`, `try/catch`, `Gosub`, `Goto` | Tekrarla, Her satır için, Koşul sürdükçe tekrarla, Döngüden çık, Sonraki tura geç, Hata olursa, Başka akışı çalıştır, Adıma git |
 | `FormatTime`, `DateAdd`, `StrReplace`, `RegExMatch`, `StrSplit` | Tarih ve saat, Metin işlemi |
 
 ## Örnek akışlar

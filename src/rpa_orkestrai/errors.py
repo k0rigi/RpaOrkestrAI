@@ -19,6 +19,14 @@ class ContinueLoop(Exception):
     """Skip to the innermost loop's next iteration."""
 
 
+class JumpTo(Exception):
+    """Continue the flow at another step (Adıma git)."""
+
+    def __init__(self, target: str):
+        super().__init__(target)
+        self.target = target
+
+
 class StopWorkflow(Exception):
     def __init__(self, succeeded: bool, message: str):
         super().__init__(message)

@@ -19,14 +19,14 @@ from typing import Any, Callable
 from .catalog import BY_TYPE, EXTERNAL_PREFIXES, LOCATABLE, LOOPS, TEST_PREPARE, defaults
 from .config import Settings
 from .desktop.windows import WindowError, validate_selector
-from .errors import BreakLoop, Cancelled, ContinueLoop, StopWorkflow, WorkflowError
+from .errors import BreakLoop, Cancelled, ContinueLoop, JumpTo, StopWorkflow, WorkflowError
 from .models import Artifact, Event, Run, Step, Workflow, now
 from .storage import Store
 
 MAX_EXECUTED_STEPS = 1_000_000
 MAX_LOOP_ITEMS = 100_000
 SUB_WORKFLOW_DEPTH = 5
-CONTROL_SIGNALS = (BreakLoop, ContinueLoop, StopWorkflow, Cancelled, InterruptedError)
+CONTROL_SIGNALS = (BreakLoop, ContinueLoop, JumpTo, StopWorkflow, Cancelled, InterruptedError)
 ARTIFACT_TYPES = {".csv": "text/csv; charset=utf-8", ".png": "image/png", ".txt": "text/plain; charset=utf-8",
                   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 
@@ -120,7 +120,73 @@ def active_fields(action: str, parameters: dict) -> list[dict]:
     )]
 
 
-def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool = False) -> None:
+def step_titles(steps: list[Step]) -> dict[str, str]:
+    """The name each step shows in the editor, for messages about Adıma git."""
+    titles: dict[str, str] = {}
+
+    def walk(items: list[Step]) -> None:
+        for item in items:
+            titles[item.id] = item.title or BY_TYPE.get(item.action, {}).get("label", item.action)
+            walk(item.children)
+            walk(item.otherwise)
+
+    walk(steps)
+    return titles
+
+
+def step_places(steps: list[Step]) -> dict[str, list[tuple[Step, str]]]:
+    """For every step: the blocks around it, outermost first, as (block step, branch)."""
+    places: dict[str, list[tuple[Step, str]]] = {}
+
+    def walk(items: list[Step], around: list[tuple[Step, str]]) -> None:
+        for item in items:
+            places[item.id] = around
+            for branch in ("children", "otherwise"):
+                walk(getattr(item, branch), [*around, (item, branch)])
+
+    walk(steps, [])
+    return places
+
+
+def jump_problem(source: str, target: str, places: dict[str, list[tuple[Step, str]]]) -> str | None:
+    """Why Adıma git from one step to another cannot work, or None when it can."""
+    if target not in places:
+        return "gidilecek adım akışta yok; bağlantıyı yeniden seçin."
+    if target == source:
+        return "bir adım kendisine bağlanamaz."
+    inside = {(block.id, branch) for block, branch in places[source]}
+    for block, branch in places[target]:
+        if (block.id, branch) in inside:
+            continue
+        # A condition's branch or a Dene block can be entered anywhere; a loop has no current row
+        # until its own box starts it, and Hata olursa runs only after an error.
+        if block.action in LOOPS:
+            name = block.title or BY_TYPE[block.action]["label"]
+            return (f"«{name}» döngüsünün içindeki bir adıma döngünün dışından gidilemez; "
+                    "döngü kutusuna bağlayın.")
+        if block.action == "control.try" and branch == "otherwise":
+            return "Hata olursa dalındaki bir adıma bu dalın dışından gidilemez."
+    return None
+
+
+def jump_path(target: str, steps: list[Step]) -> list[tuple[str | None, int]] | None:
+    """Where Adıma git continues within this list: [(None, index), (branch, index), …] or None."""
+    for index, item in enumerate(steps):
+        if item.id == target:
+            return [(None, index)]
+        for branch in ("children", "otherwise"):
+            if item.action in LOOPS or (item.action == "control.try" and branch == "otherwise"):
+                continue  # entered only by the loop itself or by an error (see jump_problem)
+            inner = jump_path(target, getattr(item, branch))
+            if inner is not None:
+                return [(None, index), (branch, inner[0][1]), *inner[1:]]
+    return None
+
+
+def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool = False,
+                      jumps: bool = True) -> None:
+    places = step_places(workflow.steps) if ready and jumps else {}
+
     def walk(steps: list[Step], in_loop: bool = False) -> None:
         for step in steps:
             if step.action not in BY_TYPE:
@@ -158,6 +224,10 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool =
                 if step.action in {"control.break", "control.continue"} and not in_loop:
                     raise WorkflowError(f"{step.title or BY_TYPE[step.action]['label']}: yalnız bir döngünün "
                                         "(Her satır için, Tekrarla, Koşul sürdükçe) içinde kullanılabilir.")
+                if step.action == "control.goto" and jumps and isinstance(parameters.get("target"), str):
+                    problem = jump_problem(step.id, parameters["target"], places)
+                    if problem:
+                        raise WorkflowError(f"{step.title or BY_TYPE[step.action]['label']}: {problem}")
                 if step.action == "desktop.find_window":
                     try:
                         validate_selector(parameters["application"], parameters["title"],
@@ -259,6 +329,11 @@ class Executor:
         self._sheets: dict[tuple[str, str], Any] = {}
         self.executed = 0
         self._deadlines: list[float] = []
+        # Adıma git: step names for messages, the loops now running with their turn, and how often
+        # each jump was used in the current turn.
+        self.titles: dict[str, str] = {}
+        self.turns: list[list] = []
+        self.jumps: dict[str, tuple[tuple, int]] = {}
 
     def check_cancelled(self) -> None:
         if self.cancel.is_set():
@@ -303,6 +378,7 @@ class Executor:
         return target
 
     def execute(self, workflow: Workflow) -> None:
+        self.titles = {**step_titles(workflow.steps), **self.titles}
         self.call_stack.append(workflow.id)
         try:
             with self.resources:
@@ -384,13 +460,23 @@ class Executor:
         for child in [*step.children, *step.otherwise]:
             self.mark_unknown(child, {**defaults(child.action), **child.params})
 
-    def steps(self, steps: list[Step]) -> None:
-        for step in steps:
+    def steps(self, steps: list[Step], entry: list[tuple[str | None, int]] | None = None) -> None:
+        """Run the steps in order; entry starts at a step inside the list (after Adıma git)."""
+        index, inner = (entry[0][1], entry[1:]) if entry else (0, [])
+        while index < len(steps):
+            step = steps[index]
             # Per-step counters let the diagram show what ran, how often and where it failed,
             # even after a long loop has rotated the event log.
             stats = self.run.step_stats.setdefault(step.id, {"runs": 0, "ok": 0, "errors": 0, "skipped": 0})
             try:
-                outcome = self.step(step)
+                outcome = self.step(step, inner)
+            except JumpTo as jump:
+                stats["ok"] += 1
+                path = jump_path(jump.target, steps)
+                if path is None:
+                    raise  # the target lies outside this list: an enclosing list continues there
+                index, inner = path[0][1], path[1:]
+                continue
             except CONTROL_SIGNALS:
                 raise
             except Exception as exc:
@@ -402,8 +488,27 @@ class Executor:
                         pass
                 raise
             stats[outcome] += 1
+            index, inner = index + 1, []
 
-    def step(self, step: Step) -> str:
+    def enter(self, step: Step, entry: list[tuple[str | None, int]]) -> str:
+        """Continue inside a condition or a Dene block at the step Adıma git leads to."""
+        branch, index = entry[0]
+        inner = [(None, index), *entry[1:]]
+        self.check_cancelled()
+        self.run.step_stats[step.id]["runs"] += 1
+        if step.action in LOOPS or branch not in {"children", "otherwise"}:
+            raise WorkflowError("Bir döngünün içine döngünün dışından gidilemez.")
+        if step.action == "control.try":
+            if branch == "otherwise":
+                raise WorkflowError("Hata olursa dalındaki bir adıma bu dalın dışından gidilemez.")
+            self.attempt(step, {**defaults(step.action), **step.params}, inner)
+        else:
+            self.steps(getattr(step, branch), inner)
+        return "ok"
+
+    def step(self, step: Step, entry: list[tuple[str | None, int]] | None = None) -> str:
+        if entry:
+            return self.enter(step, entry)
         self.check_cancelled()
         self.count_step()
         self.run.step_stats[step.id]["runs"] += 1
@@ -452,6 +557,8 @@ class Executor:
             raise ContinueLoop()
         elif step.action == "control.stop":
             raise StopWorkflow(p.get("status", "success") == "success", str(p.get("message") or ""))
+        elif step.action == "control.goto":
+            self.jump(step, label, p)
         elif step.action == "control.run_workflow":
             self.run_workflow(p)
         else:
@@ -461,6 +568,27 @@ class Executor:
         self.check_cancelled()
         self.log(f"Tamamlandı: {label}", step_id=step.id)
         return "ok"
+
+    def jump(self, step: Step, label: str, p: dict) -> None:
+        from .actions.common import integer
+
+        target = p.get("target")
+        if not isinstance(target, str) or not target:
+            raise WorkflowError(f"{label}: gidilecek adımı seçin.")
+        limit = integer(p.get("max_jumps"), "Her turda en fazla", 1, MAX_LOOP_ITEMS)
+        # Counted per turn of the loops now running: a jump taken once for every row is fine, the
+        # same jump taken again and again within one turn is an endless loop.
+        turn = tuple((loop, index) for loop, index in self.turns)
+        previous, used = self.jumps.get(step.id, (None, 0))
+        used = used + 1 if previous == turn else 1
+        name = self.titles.get(target, "seçilen")
+        if used > limit:
+            raise WorkflowError(f"{label}: «{name}» adımına {'bu turda ' if turn else ''}{limit} kez gidildi; "
+                                "sonsuz döngüye girmemek için akış durduruldu. Gerekiyorsa Her turda en fazla "
+                                "sayısını artırın.")
+        self.jumps[step.id] = (turn, used)
+        self.log(f"«{name}» adımına gidiliyor.", step_id=step.id)
+        raise JumpTo(target)
 
     def count_step(self) -> None:
         self.executed += 1
@@ -475,6 +603,10 @@ class Executor:
             pass
         except BreakLoop:
             return False
+        except JumpTo as jump:
+            if jump.target != step.id:
+                raise  # out of the loop: like Döngüden çık, then the flow continues at the target
+            # A connection back to the loop's own box starts its next turn.
         return True
 
     def repeat(self, step: Step, p: dict) -> None:
@@ -483,23 +615,27 @@ class Executor:
         count = integer(p.get("count"), "Tekrar sayısı", 1, MAX_LOOP_ITEMS)
         sentinel = object()
         old_index = self.variables.get("loop_index", sentinel)
+        # The running loops and their turns: Adıma git counts its jumps per turn.
+        self.turns.append([step.id, 0])
         try:
             for index in range(count):
                 self.check_cancelled()
+                self.turns[-1][1] = index
                 self.variables["loop_index"] = index
                 self.log(f"Tekrar: {index + 1}/{count}", step_id=step.id)
                 if not self.loop_body(step):
                     break
         finally:
+            self.turns.pop()
             if old_index is sentinel:
                 self.variables.pop("loop_index", None)
             else:
                 self.variables["loop_index"] = old_index
 
-    def attempt(self, step: Step, p: dict) -> None:
+    def attempt(self, step: Step, p: dict, entry: list[tuple[str | None, int]] | None = None) -> None:
         name = variable_name(p.get("error_name") or "error_message")
         try:
-            self.steps(step.children)
+            self.steps(step.children, entry)
         except CONTROL_SIGNALS:
             raise
         except Exception as exc:
@@ -524,9 +660,12 @@ class Executor:
             raise WorkflowError("Çalıştırılacak akış bulunamadı; silinmiş olabilir. Adımda akışı yeniden seçin.") from exc
         validate_workflow(child)
         self.log(f"Alt akış başladı: {child.name}")
+        self.titles.update(step_titles(child.steps))
         self.call_stack.append(workflow_id)
         try:
             self.steps(child.steps)
+        except JumpTo as exc:
+            raise WorkflowError(f"Alt akıştaki Adıma git bağlantısının hedefi bulunamadı ({child.name}).") from exc
         finally:
             self.call_stack.pop()
         self.log(f"Alt akış bitti: {child.name}")
@@ -540,15 +679,18 @@ class Executor:
         old_item = self.variables.get(name, sentinel)
         old_index = self.variables.get("loop_index", sentinel)
         # Snapshot the list: appending to the source must not extend this loop forever.
+        self.turns.append([step.id, 0])
         try:
             for index, item in enumerate(list(items)):
                 self.check_cancelled()
+                self.turns[-1][1] = index
                 self.variables[name] = item
                 self.variables["loop_index"] = index
                 self.log(f"Döngü: {index + 1}/{len(items)}", step_id=step.id)
                 if not self.loop_body(step):
                     break
         finally:
+            self.turns.pop()
             for key, old in ((name, old_item), ("loop_index", old_index)):
                 if old is sentinel:
                     self.variables.pop(key, None)
@@ -566,6 +708,7 @@ class Executor:
         sentinel = object()
         old_index = self.variables.get("loop_index", sentinel)
         self._deadlines.append(deadline)
+        self.turns.append([step.id, 0])
         try:
             while True:
                 self.check_cancelled()
@@ -584,12 +727,14 @@ class Executor:
                 if index >= limit:
                     raise WorkflowError("Koşullu döngünün tekrar sınırına ulaşıldı; koşul hâlâ doğru.")
                 self.count_step()
+                self.turns[-1][1] = index
                 self.variables["loop_index"] = index
                 self.log(f"Koşullu döngü: {index + 1}/{limit}", step_id=step.id)
                 index += 1
                 if not self.loop_body(step):
                     return
         finally:
+            self.turns.pop()
             self._deadlines.pop()
             if old_index is sentinel:
                 self.variables.pop("loop_index", None)
@@ -1052,6 +1197,7 @@ class RunManager:
         for name in variables:
             variable_name(name)
         plan = step_test_plan(workflow, step_id, variables)
+        plan["titles"] = step_titles(workflow.steps)
         if locate and not plan["locatable"]:
             raise WorkflowError("Yeri göster yalnız tıklama ve alan doldurma adımlarında kullanılabilir.")
         single = workflow.model_copy(update={"steps": [plan["step"].model_copy(deep=True)]}, deep=True)
@@ -1060,7 +1206,8 @@ class RunManager:
 
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
               test_step_id: str | None = None, plan: dict | None = None, locate: bool = False) -> Run:
-        validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]))
+        # A tested step runs alone: its Adıma git target lies outside the copy that is run.
+        validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]), jumps=plan is None)
         if self.gate is not None and not self.gate():
             raise RuntimeError("Lisans doğrulanamadığı için akış başlatılamadı.")
         with self._lock:
@@ -1080,6 +1227,8 @@ class RunManager:
     def _work(self, workflow: Workflow, run: Run, cancel: threading.Event,
               variables: dict[str, Any] | None = None, plan: dict | None = None, locate: bool = False) -> None:
         runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables)
+        if plan:
+            runner.titles = dict(plan.get("titles") or {})
         try:
             run.status = "running"
             if run.test_step_id:
@@ -1106,6 +1255,16 @@ class RunManager:
             if reason:
                 run.error = reason
             runner.log(reason or "Çalışma kullanıcı tarafından durduruldu.", level="warning")
+        except JumpTo as jump:
+            if plan:
+                # The tested step leads elsewhere; following it is the flow's job, not the test's.
+                run.status = "succeeded"
+                runner.log(f"Test: akışta bu noktada «{runner.titles.get(jump.target, 'seçilen')}» "
+                           "adımına gidilir.")
+            else:
+                run.status = "failed"
+                run.error = "Adıma git bağlantısının hedefi bulunamadı; bağlantıyı yeniden seçin."
+                runner.log(run.error, level="error")
         except (BreakLoop, ContinueLoop) as signal:
             if plan and plan["in_loop"]:
                 # The tested step sits in a loop: leaving the turn here is its expected result.

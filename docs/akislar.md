@@ -52,6 +52,8 @@ Tüm parametre tek bir değişken referansıysa liste, sayı veya nesne tipi kor
 
 `control.if` adımı `left`, `operator` ve `right` alanlarını değerlendirir. Sonuç doğruysa `children`, yanlışsa `otherwise` adımları çalışır. Operatörü Studio'daki desteklenen seçeneklerden seçin. Koşullar döngü içinde kullanılabilir; veri alanının eksik olması gerçek çalıştırmada sessizce başarılı sayılmaz.
 
+Bir yol başka bir adımdan devam edebilir: `control.goto` adımı (**Adıma git**) `target` alanındaki adım kimliğine gider; `max_jumps` (varsayılan 10) aynı bağlantının bir döngü turunda en fazla kaç kez kullanılacağıdır. Diyagramda bu bağlantı bir kutunun sağındaki noktayı başka bir kutuya sürükleyerek kurulur. Hedef aynı akışta olmalıdır. Bir döngünün içindeki adıma yalnız aynı döngünün içinden gidilir. **Hata olursa** dalındaki adıma yalnız aynı dalın içinden gidilir. Bu kurallar çalıştırmadan önce denetlenir.
+
 Operatörler: `eq` (eşit), `ne` (eşit değil), `contains` (harf duyarsız metin içerir), `gt` / `gte` (büyük / büyük veya eşit), `lt` / `lte` (küçük / küçük veya eşit), `truthy` (dolu/doğru). Sayısal karşılaştırmada sağ değeri JSON sayısı olarak, örneğin `1000` yazın; `"1000"` bir metindir.
 
 Akış yapısı en fazla 200 adım ve 8 iç içe seviye kabul eder. Bir döngü en fazla 1.000 öğe, bir çalışma toplam en fazla 10.000 adım yürütür. Aynı akış içindeki adım kimlikleri benzersizdir. JSON'u elle düzenlediğinizde yapı sınırları da doğrulanır.

@@ -157,6 +157,10 @@ STEP_FIELD_HELP = {
     ("control.repeat", "count"): "İç adımların kaç kez çalışacağı.",
     ("control.try", "error_name"): "Hata mesajının saklanacağı değişken; Hata olursa dalında ${error_message} olarak kullanın.",
     ("control.run_workflow", "workflow"): "Çalıştırılacak kayıtlı akış. Bir akış kendisini çağıramaz.",
+    ("control.goto", "target"): "Akışın bu adımdan sonra devam edeceği adım. Gerideki bir adımı seçerseniz "
+                                 "o adımdan itibaren tekrar çalışılır.",
+    ("control.goto", "max_jumps"): "Bu bağlantı bir döngü turunda (döngü dışındaysa çalışma boyunca) en fazla bu "
+                                   "kadar kullanılır; aşılırsa akış sonsuz döngüye girmeden durur.",
     ("control.stop", "status"): "Hata seçilirse çalışma 'Hata' olarak işaretlenir.",
     ("control.stop", "message"): "Çalışma geçmişinde görünecek açıklama.",
     ("core.log", "message"): "Çalışma günlüğüne yazılacak metin; değişken değerlerini görmek için ${ad} ekleyin.",
@@ -411,6 +415,13 @@ GUIDES = {
     "control.continue": guide(
         ["Bir döngünün içine, genellikle bir Koşul dalına ekleyin."],
         "", "Bu satırın kalan adımları atlanır, sonraki satıra geçilir (ör. durumu BEKLIYOR olmayanları atla)."),
+    "control.goto": guide(
+        ["Gidilecek adımı listeden seçin; gerideki bir adım da olabilir.",
+         "Diyagramda bir kutunun sağındaki çıkış noktasını başka bir kutuya sürükleyerek de bağlayabilirsiniz."],
+        "Akış seçilen adımdan devam eder; bu adımla hedef arasındaki adımlar atlanır.",
+        "Geri dönüşler Her turda en fazla sayısıyla sınırlıdır; sınıra ulaşılırsa akış sonsuz döngüye girmeden "
+        "durur. Bir döngünün içindeki adıma ancak aynı döngünün içinden gidilebilir; dışarıdan döngü kutusuna "
+        "bağlayın."),
     "control.run_workflow": guide(
         ["Çalıştırılacak akışı seçin."],
         "", "Değişkenler ortaktır: çağrılan akış bu akışın değişkenlerini görür ve değiştirebilir. "
@@ -442,6 +453,9 @@ QUICK_GUIDE = [
     ["Hedefi ekrandan seçin", "Tıklama ve yazma adımlarında Ekranda seç ile hedefi gösterin; elle koordinat yazmayın."],
     ["Değerleri bağlayın", "Bir adımın çıktısı sonraki adımda ${ad} olarak kullanılır. Alttaki değişken "
                            "etiketine tıklayınca kopyalanır."],
+    ["Yolları bağlayın", "Diyagramda bir kutunun sağındaki noktayı başka bir kutuya sürükleyin: akış oradan devam "
+                         "eder, gerideki bir adıma da dönebilir. Çizginin üzerindeki × bağlantıyı kaldırır ve yol "
+                         "orada biter. Aynısını adımın Bu adımdan sonra seçimiyle de yapabilirsiniz."],
     ["Adımı test edin", "Bu adımı test et, yalnız o adımı çalıştırır. Pencereyi ve tablodaki ilk satırı kendisi bulur."],
     ["Çalıştırın", "Çalıştır tüm akışı uygular. Diyagramda her adımın üzerinde ✓ veya ✗ görünür."],
 ]
