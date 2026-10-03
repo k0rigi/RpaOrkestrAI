@@ -4397,8 +4397,10 @@
     const extraTools = stepTools(step, spec);
     if (extraTools) pane.append(extraTools);
     if (step.action === "desktop.find_window") pane.append(windowRecognitionTools(step));
-    const targetActions = ["desktop.window_click", "desktop.window_fill", "desktop.window_wait_image", "window.read_field"];
-    let targetTools = targetActions.includes(step.action) ? windowTargetTools(step) : null;
+    // Every step that points at something inside a window gets Ekranda seç, by its own fields.
+    const windowTarget = (spec.fields || []).some((f) => f.name === "target_mode")
+      || step.action === "desktop.window_wait_image";
+    let targetTools = windowTarget ? windowTargetTools(step) : null;
     if (targetTools) pane.append(targetTools);
     if (step.action === "desktop.window_write" && state.catalog.some((item) => item.type === "desktop.window_fill")) {
       const conversion = node("div", "legacy-action-help");

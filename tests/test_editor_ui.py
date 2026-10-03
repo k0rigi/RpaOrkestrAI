@@ -1166,3 +1166,53 @@ def test_connections_are_drawn_cut_and_chosen_without_copying_steps(tmp_path):
             assert all(item["action"] != "control.goto" for item in flow["steps"])
             browser.close()
     assert errors == []
+
+
+def test_every_window_target_step_offers_the_on_screen_picker(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.catalog import BY_TYPE
+    from rpa_orkestrai.config import Settings
+
+    # Any step that points somewhere inside the ERP window must let the user show that place.
+    pointing = sorted(action for action, spec in BY_TYPE.items()
+                      if any(f["name"] == "target_mode" for f in spec["fields"]))
+    assert "window.read_table" in pointing and "desktop.window_click" in pointing
+    steps = [{"id": "win", "title": "Pencereyi tanı", "action": "desktop.find_window",
+              "params": {"application": "ERP", "title": "Canias", "output": "erp_window"}}]
+    steps += [{"id": f"s{index}", "title": BY_TYPE[action]["label"], "action": action,
+               "params": {"window": "${erp_window}"}} for index, action in enumerate(pointing)]
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        created = client.post("/api/workflows", json={"name": "Hedefler", "steps": steps})
+        assert created.status_code == 201, created.text
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1500, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/pick/capabilities":
+                    route.fulfill(json={"native": True})
+                    return
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Hedefler", exact=True).click()
+            inspector = page.locator("#inspector")
+            for index, action in enumerate(pointing):
+                page.locator(f'[data-step-id="s{index}"]').click()
+                playwright.expect(inspector.get_by_role("button", name="Ekranda seç", exact=True)).to_be_visible()
+                playwright.expect(inspector.get_by_role("button", name="Görüntü üzerinde seç", exact=True)).to_be_visible()
+            # The window steps keep it; a step that does not point inside a window does not show it.
+            page.locator('[data-step-id="win"]').click()
+            playwright.expect(inspector.get_by_role("button", name="Ekranda seç", exact=True)).to_have_count(0)
+            browser.close()
+    assert errors == []
