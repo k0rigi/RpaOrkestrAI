@@ -179,6 +179,8 @@ def test_windows_installer_uses_separate_argv_wait_pid_and_no_forced_close(monke
     assert f"/RPAPID={os.getpid()}" in plan.command
     assert "/RPAUPDATE" in plan.command
     assert "/NOCLOSEAPPLICATIONS" in plan.command
+    # No setup window during an update: the Studio closes and opens again by itself.
+    assert "/VERYSILENT" in plan.command and "/SILENT" not in plan.command
     popen = Mock(return_value=SimpleNamespace(pid=1234))
     monkeypatch.setattr(installer.subprocess, "Popen", popen)
     assert installer.handoff(plan).pid == 1234

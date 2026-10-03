@@ -327,7 +327,9 @@ def prepare_install(
         log_path = cache / f"install-{version}.log"
         return InstallPlan(
             platform="Windows",
-            command=(str(asset), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS",
+            # VERYSILENT: an update shows no setup window at all. The Studio closes, the files are
+            # replaced and the Studio opens again by itself ([Run] … Check: IsUpdate).
+            command=(str(asset), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCLOSEAPPLICATIONS",
                      "/RPAUPDATE", f"/RPAPID={os.getpid()}", f"/DIR={target}", f"/LOG={log_path}"),
             log_path=log_path,
             target=target,

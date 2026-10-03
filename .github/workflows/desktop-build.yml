@@ -57,6 +57,31 @@ jobs:
           dist/RpaOrkestrAI.app/Contents/MacOS/RpaOrkestrAI --self-test "$PWD/build/package-check.json"
           python -c "import json; d=json.load(open('build/package-check.json')); assert d['ok'] and d['frozen']"
           python scripts/build_macos_dmg.py dist/RpaOrkestrAI.app "dist/RpaOrkestrAI-macOS-$(uname -m).dmg"
+      - name: Check the silent update installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # An update must install without any setup window, and must leave an installation the
+          # updater is allowed to replace next time (RpaOrkestrAI.exe beside unins000.exe).
+          $installer = (Get-ChildItem 'dist\installer\*.exe' | Select-Object -First 1).FullName
+          $target = Join-Path $env:RUNNER_TEMP 'silent-install'
+          $log = Join-Path $env:RUNNER_TEMP 'silent-install.log'
+          $process = Start-Process -FilePath $installer -PassThru -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target", "/LOG=$log")
+          if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'Silent installation timed out' }
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "Silent installation failed with exit code $($process.ExitCode)"
+          }
+          $deadline = (Get-Date).AddSeconds(60)
+          foreach ($name in 'RpaOrkestrAI.exe', 'unins000.exe') {
+            $file = Join-Path $target $name
+            while (-not (Test-Path $file) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+            if (-not (Test-Path $file)) {
+              if (Test-Path $log) { Get-Content $log -Tail 40 }
+              throw "Missing after the silent installation: $name"
+            }
+          }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

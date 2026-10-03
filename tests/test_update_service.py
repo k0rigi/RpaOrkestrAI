@@ -184,6 +184,26 @@ def test_stale_invalid_or_completed_marker_does_not_block_startup(prepared, monk
     assert updater._install_in_progress() is False
 
 
+def test_the_new_version_reports_the_silent_installation_once(prepared):
+    updater = prepared.updater
+    updater.pending.unlink()  # the package was installed, so nothing is pending any more
+    # The installer leaves this behind; nothing else tells the user the update went through.
+    atomic_json(updater.installing, marker(updater, version=update_service.__version__))
+    assert updater.apply_pending(prepared.settings) is False
+    assert updater.status()["installed"] == update_service.__version__
+    assert not updater.installing.exists()
+    # A background check keeps the note, and another computer's marker is ignored.
+    updater._set("current", "En güncel sürümü kullanıyorsunuz.")
+    assert updater.status()["installed"] == update_service.__version__
+    assert "installed" not in update_service.source_status()
+    other = update_service.DesktopUpdates(prepared.workspace, enabled=True, client=prepared.client,
+                                          executable=updater.executable, platform_key="windows-x64")
+    atomic_json(other.installing, marker(other, version=update_service.__version__,
+                                         executable="/another/application"))
+    other._note_installed()
+    assert "installed" not in other.status() and other.installing.exists()
+
+
 def test_dead_helper_allows_existing_app_to_open_without_retrying_failed_install(prepared, monkeypatch):
     updater = prepared.updater
     atomic_json(updater.installing, marker(updater))

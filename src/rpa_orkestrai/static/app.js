@@ -636,7 +636,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.8.2"}`),
+      node("span", "version", `v${state.version || "0.8.3"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -5553,7 +5553,9 @@
     form.append(licensePanel(panel));
     const updatePanel = panel(
       "Uygulama güncellemeleri", "refresh",
-      "Yeni sürümler arka planda indirilir; indirilen sürüm bir sonraki açılışta kurulur. Akışlarınız ve bağlantı ayarlarınız korunur.",
+      "Yeni sürümler arka planda indirilir. Studio'yu kapatıp açtığınızda kurulum ekranı açılmadan kendiliğinden "
+        + "kurulur: birkaç saniye sonra Studio yeni sürümle açılır. Akışlarınız ve bağlantı ayarlarınız korunur; "
+        + "paketi elle indirmeniz gerekmez.",
     );
     updatePanel.append(node("p", "", `Yüklü sürüm: ${state.version}`));
     const updateMessage = node("p", "update-message", state.updates.message || "Güncelleme durumu yükleniyor…");
@@ -6015,6 +6017,8 @@
       state.connections = data.connections || [];
       state.quickGuide = data.quick_guide || [];
       render();
+      // The update installs without a window of its own, so the new version says so once.
+      if (state.updates.installed) toast(`RpaOrkestrAI ${state.updates.installed} sürümüne güncellendi.`);
       pollRunList();
       pollUpdates();
       watchLicense();

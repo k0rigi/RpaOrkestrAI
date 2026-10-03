@@ -16,7 +16,9 @@ EXE kurulur; Mac'te `.app`, DMG'den Uygulamalar klasörüne taşınır ve oradan
 Kurulu uygulama açılışta daha önce indirilmiş, doğrulanmış bir güncelleme olup
 olmadığına bakar. Yeni sürüm denetimi ve indirme arka planda gerçekleşir. İndirilen
 paket bir sonraki açılışta tekrar doğrulanıp kurulur; böylece devam eden bir ERP
-işleminin ortasında uygulama değiştirilmez. Kurulumdan sonra uygulama yeniden açılır.
+işleminin ortasında uygulama değiştirilmez. Kurulum penceresi açılmaz: Windows'ta
+kurulum `/VERYSILENT` ile, Mac'te `.app` yerine taşınarak yapılır. Kurulumdan sonra
+uygulama kendiliğinden yeniden açılır; kullanıcı bu sırada birkaç saniye bekler.
 Mac'te DMG içinden çalışan veya mevcut kullanıcının değiştiremediği konuma kurulmuş
 bir kopya için elle kurulum gerekebilir.
 

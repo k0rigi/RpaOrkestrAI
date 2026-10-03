@@ -157,14 +157,26 @@ class DesktopUpdates:
         if not -5 <= age <= INSTALL_MARKER_TTL or version == __version__:
             return False
         if marker["phase"] == "parent" or _process_alive(pid):
-            self._set("installing", "Yeni sürüm kuruluyor; kurulum tamamlandığında Studio açılacak.", version)
+            self._set("installing", "Yeni sürüm kuruluyor; birkaç saniye içinde Studio kendiliğinden açılacak.",
+                      version)
             return True
         return False
+
+    def _note_installed(self) -> None:
+        """Say which version was installed: the installation itself shows nothing any more."""
+        marker = self._read(self.installing)
+        if (marker.get("version") != __version__
+                or marker.get("executable") != os.path.normcase(str(self.executable.resolve()))):
+            return
+        with self._guard:
+            self._state["installed"] = __version__
+        self.installing.unlink(missing_ok=True)
 
     def apply_pending(self, settings) -> bool:
         """True means installation is active; return before opening another UI."""
         if self._install_in_progress():
             return True
+        self._note_installed()
         if not self._acquire():
             # The owner may be preparing installation before its marker is written.
             # A duplicate process must not race that owner into the native window.
@@ -285,8 +297,8 @@ class DesktopUpdates:
                 return
             atomic_json(self.pending, {"manifest": base64.b64encode(release.manifest_bytes).decode("ascii"),
                                        "asset": asset.name})
-            self._set("ready", "Yeni sürüm hazır. Studio'yu bir sonraki açışınızda otomatik kurulacak.",
-                      release.version)
+            self._set("ready", "Yeni sürüm hazır. Studio'yu kapatıp açın; kurulum ekranı açılmadan "
+                               "kendiliğinden kurulur.", release.version)
         except Exception:
             if not self._stop.is_set():
                 logger.warning("Güncelleme indirilemedi; mevcut sürüm korunuyor.", exc_info=True)
