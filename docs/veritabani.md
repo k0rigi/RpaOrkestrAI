@@ -1,5 +1,7 @@
 # Salt okunur veritabanı erişimi
 
+Veritabanından okuma adımı (**Tablo oku**) adım kütüphanesinde yer almaz. Bu rehber, bu adımı içeren eski akışlar ve aşağıdaki Python servisi içindir. Veritabanı bağlantıları, ancak böyle bir akış açıkken veya daha önce oluşturulmuş bir veritabanı bağlantısı varken **Bağlantılar** penceresinde görünür.
+
 Veritabanı adaptörü SQLAlchemy ile yapılandırılmış `SELECT` sorguları oluşturur ve sonucu pandas DataFrame olarak döndürür. Akışlar serbest SQL çalıştırmaz. Şema ve tablo listesi yerel yapılandırmada belirlenir; filtre değerleri sorguya parametre olarak bağlanır.
 
 Uygulamadaki izin listesi ile sunucudaki kullanıcı yetkisi birbirini tamamlar. Bağlantıda `sa`, `postgres`, veritabanı sahibi veya yazma yetkili ERP hesabını kullanmayın. Aşağıdaki örnekler DBA'nın gerçek şema ve erişim modeline uyarlaması içindir; uygulama bu komutları çalıştırmaz.

@@ -15,7 +15,7 @@ Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkest
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemelerin paketleri **Actions → Build desktop apps → Artifacts** bölümünde bir gün durur; yayınlanan güncel sürüm orkestrai.net/rpa adresindedir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
-**0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. İnternet yoksa mevcut sürüm çalışır, akışlar ve bağlantı ayarları korunur. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+**0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. Güncelleme indirilemezse mevcut sürüm kullanılmaya devam eder; akışlar ve bağlantı ayarları korunur. Studio'nun açılması için lisans doğrulaması nedeniyle internet bağlantısı gerekir. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
 
 Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.
 
@@ -60,7 +60,7 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 
 **Görünüm.** Arayüz teknik çizim görünümündedir: kareli kâğıt zemin, mürekkep çizgili kutular ve tek bir vurgu rengi. Sağ üstteki ay/güneş düğmesi **açık** (çizim kâğıdı) ve **koyu** (blueprint) tema arasında geçer; **Ayarlar → Görünüm** altında bilgisayarın ayarını izleyen **Sistem** seçeneği de vardır. Diyagramda kutuları sürükleyerek istediğiniz yere taşıyabilirsiniz; bir **+** üzerine bırakılan kutu akışta o noktaya geçer.
 
-**Bağlantılar adımın içindedir.** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
+**Bağlantılar adımın içindedir.** Google Sheets adımlarının (ve eski akışlardaki veritabanı adımının) ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
 
 **Adlar.** Bir adımın sonucuna verdiğiniz ad alanına yalnız ad yazılır (ör. `erp_window`); `${erp_window}` yazılırsa uygulama düzeltir. Pencere adımlarında pencere, önceki **Pencereyi tanı** adımlarında verilen adlardan oluşan listeden seçilir. Geçersiz bir ad, hangi adımda ve hangi alanda olduğu belirtilerek bildirilir.
 
@@ -94,12 +94,12 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Akış yönetimi | Kaydetme, açma, JSON içe/dışa aktarma ve departman bilgisi |
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
-| Veritabanı | PostgreSQL / SQL Server tablolarını izin listesi ve parametreli filtrelerle okuma |
+| Veritabanı | Eski akışlardaki **Tablo oku** adımı PostgreSQL / SQL Server tablolarını izin listesi ve parametreli filtrelerle okur; bu adım kütüphanede yer almaz |
 | Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
-| ERP listeleri | Bilinen değerler veya OCR ile toplanan dropdown seçenekleri üzerinde döngü |
+| ERP listeleri | **Tablodan değer oku** ile ERP listesindeki hücreyi sütun adıyla okuma ve satır sayma; bilinen değerler üzerinde döngü |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
 | Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
-| Web | Playwright ile headless Chromium işlemleri |
+| Web | **HTTP isteği gönder** ile web servisleri (API); eski akışlardaki tarayıcı (Playwright) adımları çalışmaya devam eder |
 
 Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve ayarlar o bilgisayarın çalışma alanında kalır. Departman alanı raporları ve akışları sınıflandırır; akış bazında erişim yetkisi oluşturmaz. Merkezi çok kullanıcılı sunucu, uzak robot yönetimi ve zamanlayıcı bu sürümün kapsamı dışındadır.
 
@@ -108,7 +108,7 @@ Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve aya
 Masaüstü ERP için [pencere tanıtma rehberiyle](docs/pencere-tanitma.md) başlayın. Daha kapsamlı işlemler için aşağıdaki sırayı izleyin. Tabloda ve rehberlerde anlatılan mevcut motor işlemleri, eski veya içe aktarılan akışlarda desteklenmeye devam eder.
 
 1. [Kurulum rehberindeki](docs/kurulum.md) otomasyon paketlerini ve gerekli sistem araçlarını kurun.
-2. Veritabanı veya Sheets adımını ekleyip **Bağlantı** alanından bağlantı oluşturun. Veritabanında ayrı salt okunur kullanıcı kullanın.
+2. Sheets adımını ekleyip **Bağlantı** alanından bağlantı oluşturun.
 3. Yeni akışa ad ve departman girin. Adım kitaplığından veri okuma adımını ve ardından bir döngü ekleyin.
 4. Çıktı değişkenlerini sonraki adımlara `${orders}` veya `${item.MATERIAL}` biçiminde bağlayın.
 5. ERP tıklama, alan doldurma ve arama adımlarını döngünün içine yerleştirin. OCR sonucuna göre koşul ekleyin.
@@ -167,7 +167,7 @@ Zaman aşımı tarayıcı, veritabanı, ekran bekleme ve OCR işlemlerine aktar�
 
 Adlandırılmış bağlantılar `data/connections.json`, uygulama ayarları `data/settings.json` içindedir. `RPA_DATABASE_URL` ve `RPA_GOOGLE_CREDENTIALS_PATH` gibi `.env` değerleri yalnız ilk açılışta varsayılan bağlantıya dönüştürülür; sonrasında bağlantıyı adımın **Bağlantı** alanından veya **Bağlantılar** penceresinden düzenleyin. `data/` ile `.env` Git'e eklenmez. Yerel ayar dosyası bir şifre kasası değildir; bilgisayar hesabı ve dosya erişimleri bu bilgileri korur.
 
-Akış dışa aktarımı bağlantı bilgilerini içermez; adımda yalnız bağlantının kimliği kalır. Akışı başka bir bilgisayara aktardığınızda adım "bağlantı bu bilgisayarda yok" uyarısı gösterir; orada bağlantıyı seçin veya oluşturun. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
+Akış dışa aktarımı bağlantı bilgilerini içermez; adımda yalnız bağlantının kimliği kalır. Akışı başka bir bilgisayara aktardığınızda adım "bağlantı bu bilgisayarda yok" uyarısı gösterir; orada bağlantıyı seçin veya oluşturun. Adımların kullandığı referans görseller dışa aktarılan dosyaya eklenir ve içe aktarırken şablon klasörüne yazılır; aynı adla farklı bir görsel varsa üzerine yazılmaz, yeni görsel ek bir numarayla kaydedilir. Akış dosyası en fazla 16 MB olabilir. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
 
 ## Geliştirme ve doğrulama
 
@@ -183,7 +183,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 ## Rehberler
 
-- [Adım rehberi: 63 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
+- [Adım rehberi: 64 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)
 - [Kullanıcı girişi, lisans, tek bilgisayar kuralı ve internet gereksinimi](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)

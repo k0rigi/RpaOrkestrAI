@@ -179,7 +179,8 @@ STEP_FIELD_HELP = {
     ("ui.message", "title"): "Mesaj kutusunun başlığı.",
     ("ui.message", "text"): "Gösterilecek mesaj; ${değişken} kullanılabilir.",
     ("ui.message", "buttons"): "Evet / Hayır seçerseniz yanıtı ${answer} ile Koşul adımında kontrol edin.",
-    ("ui.message", "timeout"): "Yanıt verilmezse kutunun kendiliğinden kapanacağı süre.",
+    ("ui.message", "timeout"): "Yanıt verilmezse kutunun kendiliğinden kapanacağı süre; kapanınca ${answer} timeout "
+                               "olur.",
     ("ui.input", "title"): "Soru kutusunun başlığı.",
     ("ui.input", "prompt"): "Kullanıcıya sorulacak soru (ör. Fatura tarihini girin).",
     ("ui.input", "default"): "Kutuda hazır gelecek değer.",
@@ -464,7 +465,7 @@ GUIDES = {
     # ----- Kullanıcı etkileşimi ve web -----------------------------------------------
     "ui.message": guide(
         ["Başlığı ve mesajı yazın.", "Onay istenecekse Evet / Hayır seçin."],
-        "${answer}: ok, cancel, yes veya no.",
+        "${answer}: ok, cancel, yes veya no; Otomatik kapanma süresi dolarsa timeout.",
         "Akış, kutu kapatılana kadar bekler. Gözetimsiz çalışacak akışlarda kullanmayın."),
     "ui.input": guide(
         ["Soruyu ve varsa varsayılan değeri yazın.", "Çıktı değişkenine ad verin."],

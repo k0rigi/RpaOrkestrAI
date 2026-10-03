@@ -8,7 +8,7 @@ Bir akış ad, açıklama, departman ve sıralı adımlardan oluşur. Her adım�
 
 Kütüphaneye eklenen bir adımın yanındaki yıldız düğmesi, adımı en üstteki **Sık kullanılanlar** bölümüne taşır. Yıldıza tekrar basmak adımı kendi kategorisine döndürür. Adım adına veya artıya basmak akışa adım ekler; yıldız yalnız favori tercihini değiştirir. Favoriler çalışma alanına `favorites.json` olarak hemen kaydedilir, uygulama yeniden açıldığında korunur ve akış JSON dışa aktarımına dahil edilmez. Aynı özellik macOS ve Windows'ta, tarayıcıda ve yerel pencerede kullanılır.
 
-Kaydettiğiniz akış yerel veri klasörüne yazılır. Çalıştırılan sürümle sonradan yaptığınız düzenlemeleri karıştırmamak için her değişiklikten sonra kaydedip yeni bir çalışma başlatın. Farklı bilgisayara taşımak için JSON dışa aktarın ve diğer Studio'da içe aktarın. Hedef bilgisayarın bağlantıları, şablonları ve ekran ayarları ayrıca hazırlanmalıdır.
+Kaydettiğiniz akış yerel veri klasörüne yazılır. Çalıştırılan sürümle sonradan yaptığınız düzenlemeleri karıştırmamak için her değişiklikten sonra kaydedip yeni bir çalışma başlatın. Farklı bilgisayara taşımak için JSON dışa aktarın ve diğer Studio'da içe aktarın. Ekrandan seçilen referans görseller (şablonlar) dosyaya eklenir ve içe aktarırken o bilgisayarın şablon klasörüne yazılır. Orada aynı adla farklı bir görsel varsa üzerine yazılmaz: yeni görsel ek bir numarayla kaydedilir ve adımlar onu kullanır. Hedef bilgisayarın bağlantıları ve ekran ayarları ayrıca hazırlanmalıdır.
 
 Harici bağlantı gerektirmeyen küçük bir JSON örneği:
 
@@ -56,7 +56,7 @@ Bir yol başka bir adımdan devam edebilir: `control.goto` adımı (**Adıma git
 
 Operatörler: `eq` (eşit), `ne` (eşit değil), `contains` (harf duyarsız metin içerir), `gt` / `gte` (büyük / büyük veya eşit), `lt` / `lte` (küçük / küçük veya eşit), `truthy` (dolu/doğru). Sayısal karşılaştırmada sağ değeri JSON sayısı olarak, örneğin `1000` yazın; `"1000"` bir metindir.
 
-Akış yapısı en fazla 200 adım ve 8 iç içe seviye kabul eder. Bir döngü en fazla 1.000 öğe, bir çalışma toplam en fazla 10.000 adım yürütür. Aynı akış içindeki adım kimlikleri benzersizdir. JSON'u elle düzenlediğinizde yapı sınırları da doğrulanır.
+Akış yapısı en fazla 200 adım ve 8 iç içe seviye kabul eder; editör bir adımı daha derine bırakmanıza izin vermez. Bir döngü en fazla 100.000 öğe, bir çalışma toplam en fazla 1.000.000 adım yürütür. Aynı akış içindeki adım kimlikleri benzersizdir. JSON'u elle düzenlediğinizde yapı sınırları da doğrulanır.
 
 ## ERP dropdown akışı
 
@@ -98,7 +98,7 @@ Atlanan veri kaynağının sonucu **bilinmeyen** olarak taşınır. Bu veriye ba
 
 `data.export_csv` adımında `rows` alanına rapor listesi, `filename` alanına `siparis-raporu.csv` gibi bir ad verin. Çalışma tamamlandığında çıktıyı Studio'dan indirin ve departmana kendi paylaşım kanalınızla iletin. Uygulama raporu otomatik e-posta göndermez.
 
-Departman etiketi raporu sınıflandırır. Bu sürümde departmanların ayrı oturumları veya rapor erişim izinleri yoktur. İçe/dışa aktarılan akış, kurulumdaki bağlantı ayarlarını taşımaz; adımların içine yazılmış sabit iş verilerini taşıyabilir.
+Departman etiketi raporu sınıflandırır. Bu sürümde departmanların ayrı oturumları veya rapor erişim izinleri yoktur. İçe/dışa aktarılan akış, kurulumdaki bağlantı ayarlarını taşımaz; referans görselleri ve adımların içine yazılmış sabit iş verilerini taşır.
 
 ## Sık kullanılan işlem alanları
 

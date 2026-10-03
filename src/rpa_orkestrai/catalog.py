@@ -583,12 +583,12 @@ LIBRARY = [
            [field("message", "Not", default="Değer: ${result}", required=True)]),
     # ----- Kullanıcı etkileşimi ----------------------------------------------------------
     action("ui.message", "Mesaj kutusu göster", "Kullanıcı etkileşimi",
-           "Ekranda mesaj gösterir ve yanıtı bekler; ${answer}: ok, cancel, yes, no.",
+           "Ekranda mesaj gösterir ve yanıtı bekler; ${answer}: ok, cancel, yes, no (süre dolarsa timeout).",
            [field("title", "Başlık", default="RpaOrkestrAI"), field("text", "Mesaj", default="", required=True),
             field("buttons", "Düğmeler", "select", "ok", options=[
                 {"value": "ok", "label": "Tamam"}, {"value": "ok_cancel", "label": "Tamam / İptal"},
                 {"value": "yes_no", "label": "Evet / Hayır"}]),
-            field("timeout", "Otomatik kapanma (saniye, 0: kapanmaz; yalnız Mac)", "number", 0, min=0, max=86400),
+            field("timeout", "Otomatik kapanma (saniye, 0: kapanmaz)", "number", 0, min=0, max=86400),
             output("answer")]),
     action("ui.input", "Kullanıcıdan değer iste", "Kullanıcı etkileşimi",
            "Çalışma sırasında bir değer sorar (ör. tarih, fatura no) ve değişkene kaydeder.",

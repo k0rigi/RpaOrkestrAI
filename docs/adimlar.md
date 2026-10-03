@@ -1,6 +1,6 @@
 # Adım rehberi
 
-Adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 64 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -17,7 +17,7 @@ Adım kütüphanesi 63 adımdır ve hareketleriniz kaydedilip adımlara çevrile
   - Hiçbir yolun gelmediği adımlar soluk ve kesikli çizilir; çalışmazlar. Bir bağlantıyla bağlayın veya silin. Bir adımı sildiğinizde ona gelen **Adıma git** bağlantıları da kaldırılır.
   - Düğümün üzerine gelince test ▶, çoğalt ve sil düğmeleri çıkar. Seçili düğümde Delete tuşu adımı siler.
   - Son çalışmada her düğümün sağ üstünde ✓ (birden çok çalıştıysa kaç kez) veya ✗ (hata verdi) görünür. Çalışma ayrıntısındaki **Diyagramda göster**, o çalışmanın sonuçlarını hatalı adım seçili olarak açar.
-- **Bağlantı seçmek:** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
+- **Bağlantı seçmek:** Google Sheets adımlarının (ve eski akışlardaki veritabanı adımının) ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
 - **Çalıştır:** Adımları gerçekten uygular. **Önizleme (ekranı kullanmadan)** işaretliyse fare, klavye, ekran, dosya, bağlantı ve mesaj adımları atlanır; yalnız veri, metin, hesap ve akış adımları çalışır.
 - **Nasıl kullanılır? kutusu:** Bir adıma tıkladığınızda sağ panelin üstünde o adımın kısa kullanım özeti çıkar: sırayla ne yapılacağı, adımın ne ürettiği ve bir ipucu. Her alanın altında da ne yazılacağını anlatan bir açıklama vardır. Kutuyu **Gizle** ile kapatabilirsiniz; adım seçili değilken aynı yerde akışın nasıl kurulacağı özetlenir.
 - **Bu adımı test et:** Adımı seçin, sağ paneldeki düğmeye basın. Sadece o adım, içinde başka adımlar varsa onlarla birlikte, gerçek olarak çalışır; akışın geri kalanı çalışmaz. Değer yazmanız gerekmez:
@@ -110,7 +110,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 | Ekranda tıkla | Sol, sağ veya orta düğmeyle tek, çift veya üç tık yapar. |
 | Fareyi taşı | İmleci götürür (menü açmak, üzerine gelince açılan listeler). |
 | Sürükle ve bırak | Başlangıçtan bitişe basılı tutarak sürükler. İki konum ayrı ayrı alınır. |
-| Fare tekerleğiyle kaydır | Dikey veya yatay kaydırır; eksi değer aşağı/sağa kaydırır. |
+| Fare tekerleğiyle kaydır | Dikey veya yatay kaydırır; eksi değer aşağı (yatayda sola), artı değer yukarı (yatayda sağa) kaydırır. |
 | Metin yaz | Metni yazar. **Fare konumunu al** ile yazılacak yeri gösterirseniz önce oraya tıklar; boş bırakılırsa imlecin bulunduğu yere yazar. Türkçe karakterler Otomatik yöntemde panodan yapıştırılır. ERP alanları için **Alanı doldur** daha güvenlidir: pencereyi izler ve odak değişirse yazmaz. |
 | Klavye kısayolu gönder | `mod+s`, `ctrl+shift+esc`, `alt+f4`, `alt+tab` gibi. `mod`, Windows'ta Ctrl, Mac'te Command'dır. |
 | Tuşa bas | Enter, Tab, F5, ok tuşları; tekrar sayısı ve bekleme ile. |
@@ -183,13 +183,13 @@ Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dos
 | Akışı bitir | Başarıyla veya hata mesajıyla sonlandırır. |
 | Bekle / Çalışma notu | Sabit bekleme; günlüğe değer yazma. |
 
-Bir akış en fazla 1.000 adım ve 12 seviye iç içe blok içerebilir. Bir çalışma en fazla 1.000.000 adım çalıştırır.
+Bir akış en fazla 200 adım ve 8 seviye iç içe blok içerebilir; Studio bir adımı daha derine bırakmanıza izin vermez. Bir çalışma en fazla 1.000.000 adım çalıştırır.
 
 ## Kullanıcı etkileşimi ve web
 
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
-| Mesaj kutusu göster | Tamam, Tamam/İptal veya Evet/Hayır; yanıt beklenir. | `${answer}`: `ok`, `cancel`, `yes`, `no` |
+| Mesaj kutusu göster | Tamam, Tamam/İptal veya Evet/Hayır; yanıt beklenir. **Otomatik kapanma** verilirse kutu o kadar saniye sonra kendiliğinden kapanır (macOS ve Windows). | `${answer}`: `ok`, `cancel`, `yes`, `no`; süre dolarsa `timeout` |
 | Kullanıcıdan değer iste | Çalışma sırasında tarih veya fatura no gibi bir değer sorar. | `${user_input}` |
 | HTTP isteği gönder (API) | GET/POST/PUT/PATCH/DELETE; JSON gövde ve başlıklarla. | `${response.status}`, `${response.body}` |
 

@@ -697,7 +697,7 @@
       node(
         "p",
         "",
-        "Veritabanınızı, masaüstü uygulamalarınızı ve web servislerinizi tek bir akışta buluşturun.",
+        "Masaüstü uygulamalarınızı, Excel ve Google Sheets tablolarınızı ve web servislerinizi tek bir akışta buluşturun.",
       ),
       button(
         "Akışlarımı keşfet",
@@ -709,7 +709,7 @@
     const visual = node("div", "hero-flow");
     visual.setAttribute("aria-hidden", "true");
     [
-      ["database", "Veriyi oku"],
+      ["sheet", "Veriyi oku"],
       ["flow", "Süreci çalıştır"],
       ["file", "Çıktıyı paylaş"],
     ].forEach(([glyph, label], index) => {
@@ -1060,8 +1060,9 @@
       attempt(async () => {
         const file = input.files?.[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024)
-          throw new Error("Akış dosyası en fazla 2 MB olabilir.");
+        // The file carries the flow's reference images; the server takes up to 16 MB here (IMPORT_LIMIT).
+        if (file.size > 16_000_000)
+          throw new Error("Akış dosyası en fazla 16 MB olabilir.");
         let data;
         try {
           data = JSON.parse(await file.text());
@@ -1119,7 +1120,7 @@
     const recorder = button("Hareketleri kaydet", "record", recordMovements);
     recorder.title = "Fare ve klavye hareketlerinizi kaydedip adımlara çevirir.";
     const links = button("Bağlantılar", "link", () => openConnectionManager());
-    links.title = "Google Sheets ve veritabanı bağlantılarını yönetin.";
+    links.title = "Bu bilgisayardaki bağlantıları (ör. Google Sheets) yönetin.";
     actions.append(
       dry,
       links,
@@ -1459,6 +1460,7 @@
     return rows;
   }
   function addStep(spec) {
+    if (!fitsDepth(state.target && findStep(state.target.id) ? state.target.id : null)) return;
     const step = buildStep(spec, state.target?.id);
     let list = state.workflow.steps;
     if (state.target) {
@@ -1516,6 +1518,17 @@
     };
   }
   // ----- drag and drop -------------------------------------------------------
+  // The server accepts steps this many levels deep (MAX_DEPTH in models.py); the editor refuses
+  // a placement beyond it instead of letting the save fail.
+  const MAX_DEPTH = 8;
+  function fitsDepth(ownerId, height = 1) {
+    // height: the levels the placed step brings, 1 unless it already holds inner steps.
+    // enclosingSteps lists the owner itself too, so its length is the owner's own level.
+    const ownerDepth = ownerId ? (enclosingSteps(ownerId) || []).length : 0;
+    if (ownerDepth + height <= MAX_DEPTH) return true;
+    toast(`Akış en fazla ${MAX_DEPTH} seviye iç içe olabilir.`, true);
+    return false;
+  }
   function subtreeDepth(step) {
     const nested = [...(step.children || []), ...(step.otherwise || [])];
     return 1 + (nested.length ? Math.max(...nested.map(subtreeDepth)) : 0);
@@ -1543,11 +1556,9 @@
     const drag = state.drag;
     endDrag();
     if (!drag || !state.workflow) return;
-    const ownerDepth = ownerId ? (enclosingSteps(ownerId) || []).length + 1 : 0;
     if (drag.kind === "new") {
       const spec = state.catalog.find((item) => item.type === drag.type);
-      if (!spec) return;
-      if (ownerDepth + 1 > 12) return toast("Akış en fazla 12 seviye iç içe olabilir.", true);
+      if (!spec || !fitsDepth(ownerId)) return;
       const step = buildStep(spec, ownerId);
       list.splice(Math.max(0, Math.min(index, list.length)), 0, step);
       selectNewStep(step);
@@ -1557,8 +1568,7 @@
     if (!located) return;
     if (ownerId && containsStep(located.step, ownerId))
       return toast("Bir adım kendi içine taşınamaz.", true);
-    if (ownerDepth + subtreeDepth(located.step) > 12)
-      return toast("Akış en fazla 12 seviye iç içe olabilir.", true);
+    if (!fitsDepth(ownerId, subtreeDepth(located.step))) return;
     let target = index;
     if (located.list === list && located.index < index) target -= 1;
     if (located.list === list && located.index === target) return;
@@ -3184,10 +3194,9 @@
         }));
         if (!steps.length) return toast("Eklenecek adım seçilmedi.", true);
         let list = state.workflow.steps;
-        if (state.target) {
-          const parent = findStep(state.target.id);
-          if (parent) list = parent.step[state.target.branch] ||= [];
-        }
+        const parent = state.target && findStep(state.target.id);
+        if (!fitsDepth(parent ? state.target.id : null)) return;
+        if (parent) list = parent.step[state.target.branch] ||= [];
         list.push(...steps);
         d.close();
         state.selected = steps[0].id;
@@ -5218,6 +5227,14 @@
   function connectionsOf(kind) {
     return state.connections.filter((item) => item.type === kind);
   }
+  function shownConnectionKinds() {
+    // The step library has no database step: database connections appear only once one exists
+    // or the open flow has an older step that uses one.
+    const usedHere = (kind) => allSteps(state.workflow?.steps || []).some((step) =>
+      (specFor(step.action).fields || []).some((f) => f.type === "connection" && f.connection_type === kind));
+    return Object.entries(connectionKinds).filter(([kind]) =>
+      kind === "google_sheets" || connectionsOf(kind).length || usedHere(kind));
+  }
   function connectionUsage(id) {
     return state.workflow ? allSteps(state.workflow.steps).filter((step) => step.params?.connection === id).length : 0;
   }
@@ -5518,13 +5535,14 @@
     const el = dialog("Bağlantılar", (body) => paint(body));
     el.classList.add("connection-manager");
     function paint(body = el.querySelector(".dialog-body")) {
+      const kinds = shownConnectionKinds();
       body.replaceChildren(node("p", "small muted",
-        "Google Sheets ve veritabanı bağlantıları adımın Bağlantı alanından seçilir. Aynı türde birden fazla bağlantı olabilir; bağlantı seçilmemiş adımlar varsayılanı kullanır."));
+        `${kinds.map(([, info]) => info.label).join(" ve ")} bağlantıları adımın Bağlantı alanından seçilir. Aynı türde birden fazla bağlantı olabilir; bağlantı seçilmemiş adımlar varsayılanı kullanır.`));
       const changed = () => {
         paint();
         renderInspector();
       };
-      for (const [kind, info] of Object.entries(connectionKinds)) {
+      for (const [kind, info] of kinds) {
         const section = node("section", "connection-group");
         const head = node("div", "connection-group-head");
         head.append(icon(info.glyph), node("h3", "", info.label),
@@ -5651,7 +5669,7 @@
         "Ekrandan seçilen referans görsellerin saklandığı klasör.", { placeholder: "assets/templates" }),
     );
     const moved = panel("Bağlantılar", "link",
-      "Google Sheets ve veritabanı bağlantıları, onları kullanan adımın Bağlantı alanından seçilir ve oluşturulur. Farklı akışlar ve adımlar farklı bağlantılar kullanabilir.");
+      "Google Sheets bağlantıları, onları kullanan adımın Bağlantı alanından seçilir ve oluşturulur. Farklı akışlar ve adımlar farklı bağlantılar kullanabilir.");
     const defined = state.connections.length
       ? `${state.connections.length} bağlantı tanımlı: ${state.connections.map((item) => item.name).join(", ")}`
       : "Henüz bağlantı tanımlı değil.";
@@ -5711,11 +5729,11 @@
         "",
         "Görsel şablonları kullanacağınız ekran ölçeğinde hazırlayın. Koordinata dayalı adımlarda pencere konumunu sabit tutun.",
       ),
-      node("h3", "", "Web otomasyonu"),
+      node("h3", "", "Web servisleri"),
       node(
         "p",
         "",
-        "Playwright tarayıcısı arka planda çalışabilir. Kurulum sırasında Chromium tarayıcısını indirdiğinizden emin olun.",
+        "HTTP isteği gönder adımı web servislerine (API) bağlanır ve ek kurulum gerektirmez. Kurumsal ağda servis adresine erişim izni gerekebilir.",
       ),
     );
     layout.append(form, aside);

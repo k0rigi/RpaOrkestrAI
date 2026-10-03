@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import __version__
+from . import __version__, template_bundle
 from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
 from .engine import ARTIFACT_TYPES, RunManager, WorkflowError, validate_workflow
@@ -35,11 +35,16 @@ from .models import (
     TemplateCropRequest,
     WindowCheckRequest,
     Workflow,
+    WorkflowImport,
     WorkflowInput,
     now,
     uid,
 )
 from .storage import Store
+
+REQUEST_LIMIT = 2_000_000
+# A flow file carries its reference images, so an import may be larger than other requests.
+IMPORT_LIMIT = 16_000_000
 
 LICENSE_STOPS = {
     "unverified": "Lisans uzun süredir doğrulanamadığı için akış durduruldu.",
@@ -112,18 +117,20 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             and request.headers.get("sec-fetch-mode") == "navigate"
         ):
             return JSONResponse({"detail": "Harici tarayıcı isteği engellendi."}, status_code=403)
+        limit = IMPORT_LIMIT if request.url.path == "/api/workflows/import" else REQUEST_LIMIT
+        too_large = JSONResponse({"detail": f"İstek en fazla {limit // 1_000_000} MB olabilir."}, status_code=413)
         try:
             content_length = int(request.headers.get("content-length", "0"))
         except ValueError:
             return JSONResponse({"detail": "Geçersiz istek uzunluğu."}, status_code=400)
-        if content_length > 2_000_000:
-            return JSONResponse({"detail": "İstek en fazla 2 MB olabilir."}, status_code=413)
+        if content_length > limit:
+            return too_large
         if request.method in {"POST", "PUT", "PATCH"}:
             received = bytearray()
             async for chunk in request.stream():
                 received.extend(chunk)
-                if len(received) > 2_000_000:
-                    return JSONResponse({"detail": "İstek en fazla 2 MB olabilir."}, status_code=413)
+                if len(received) > limit:
+                    return too_large
             # BaseHTTPMiddleware reuses a cached body when forwarding to the route.
             request._body = bytes(received)
         path = request.url.path
@@ -404,12 +411,15 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             return {"path": None}
         return {"path": chosen if isinstance(chosen, str) else chosen[0]}
 
+    def template_folder() -> Path:
+        return Path(settings.get("template_dir")).expanduser().resolve()
+
     @app.post("/api/desktop/templates", status_code=201)
     def save_template(body: TemplateCropRequest):
         from .desktop.windows import WindowError
 
         try:
-            return captures.crop(**body.model_dump(), folder=Path(settings.get("template_dir")).expanduser().resolve())
+            return captures.crop(**body.model_dump(), folder=template_folder())
         except WindowError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except OSError as exc:
@@ -431,11 +441,20 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         return store.save_workflow(workflow)
 
     @app.post("/api/workflows/import", status_code=201)
-    def import_workflow(body: Workflow | WorkflowInput):
+    def import_workflow(body: WorkflowImport):
         # Imported identity/timestamps are always replaced; import never starts a run.
-        values = body.model_dump(exclude={"id", "created_at", "updated_at"})
+        values = body.model_dump(exclude={"id", "created_at", "updated_at", "templates"})
         workflow = Workflow(**values)
         validate_workflow(workflow, ready=False)
+        if body.templates:
+            try:
+                renamed = template_bundle.unpack(body.templates, template_folder())
+            except template_bundle.TemplateError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except OSError as exc:
+                raise HTTPException(status_code=422, detail="Referans görseller kaydedilemedi. Şablon klasörünün "
+                                                            "yazma iznini kontrol edin.") from exc
+            template_bundle.rename(workflow.steps, renamed)
         return store.save_workflow(workflow)
 
     @app.get("/api/workflows/{workflow_id}")
@@ -464,7 +483,12 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.get("/api/workflows/{workflow_id}/export")
     def export_workflow(workflow_id: str):
         workflow = store.workflow(workflow_id)
-        return Response(workflow.model_dump_json(indent=2), media_type="application/json",
+        data = workflow.model_dump(mode="json")
+        # The reference images go along, so image steps work on the computer that imports the file.
+        images = template_bundle.pack(workflow.steps, template_folder())
+        if images:
+            data["templates"] = images
+        return Response(json.dumps(data, ensure_ascii=False, indent=2), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="akis-{workflow.id[:8]}.json"'})
 
     @app.post("/api/workflows/{workflow_id}/run", status_code=202)

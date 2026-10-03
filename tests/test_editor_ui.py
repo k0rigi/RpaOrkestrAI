@@ -436,6 +436,67 @@ def test_drag_drop_library_search_and_single_step_test(tmp_path):
     assert not errors
 
 
+def test_steps_are_not_placed_deeper_than_the_server_accepts(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.models import MAX_DEPTH
+
+    def chain(level):
+        # Repeat blocks nested MAX_DEPTH deep; the deepest block is still empty.
+        step = {"id": f"r{level}", "action": "control.repeat", "title": f"Seviye {level}", "params": {"count": 1}}
+        if level < MAX_DEPTH:
+            step["children"] = [chain(level + 1)]
+        return step
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Derin akış", "steps": [chain(1)]})
+        assert response.status_code == 201, response.text
+        workflow_id = response.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Derin akış", exact=True).click()
+            headings = page.locator(".branch-heading")
+            playwright.expect(headings).to_have_count(MAX_DEPTH)
+            note = page.locator(".library-action").filter(has_text="Çalışma notu").first
+
+            # Inside the deepest block a step would be one level too deep: added from the library…
+            headings.nth(MAX_DEPTH - 1).get_by_role("button", name="Adım ekle").click()
+            note.click()
+            playwright.expect(page.locator(".toast.error").last).to_contain_text(f"en fazla {MAX_DEPTH} seviye")
+            # …or dropped onto the empty branch.
+            note.drag_to(page.locator(".branch-placeholder"))
+            playwright.expect(page.locator(".branch.empty-branch")).to_have_count(1)
+            # One level up the step fits, and the flow saves.
+            headings.nth(MAX_DEPTH - 2).get_by_role("button", name="Adım ekle").click()
+            note.click()
+            playwright.expect(page.locator(".step-card", has_text="Çalışma notu")).to_have_count(1)
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            browser.close()
+        saved = client.get(f"/api/workflows/{workflow_id}").json()
+        inner = saved["steps"][0]
+        for _ in range(MAX_DEPTH - 2):
+            inner = inner["children"][0]
+        assert [step["action"] for step in inner["children"]] == ["control.repeat", "core.log"]
+    assert not errors
+
+
 def test_recorded_movements_become_steps(tmp_path):
     import threading
     import time
@@ -584,6 +645,44 @@ def test_connections_are_created_and_chosen_inside_the_step(tmp_path):
         assert saved["steps"][0]["params"]["connection"] == profile["id"]
         exported = client.get(f"/api/workflows/{workflow_id}/export").text
         assert token not in exported and url not in exported
+    assert not errors
+
+
+def test_the_connection_manager_offers_database_only_where_an_old_step_uses_it(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        for name, steps in (("Sheets akışı", [{"id": "write", "action": "sheets.write_cell", "params": {}}]),
+                            ("Eski veritabanı akışı", [{"id": "db", "action": "database.read",
+                                                        "params": {"table": "public.A"}}])):
+            assert client.post("/api/workflows", json={"name": name, "steps": steps}).status_code == 201
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            for name, groups in (("Sheets akışı", ["Google Sheets"]), ("Eski veritabanı akışı",
+                                                                       ["Google Sheets", "Veritabanı"])):
+                page.goto("http://127.0.0.1:8765/")
+                page.get_by_role("button", name=name, exact=True).click()
+                page.get_by_role("button", name="Bağlantılar", exact=True).click()
+                manager = page.locator("dialog.connection-manager")
+                playwright.expect(manager.locator(".connection-group h3")).to_have_text(groups)
+                manager.get_by_role("button", name="Kapat").click()
+            browser.close()
     assert not errors
 
 

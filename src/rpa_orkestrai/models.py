@@ -55,6 +55,11 @@ class Step(Model):
         return self
 
 
+# The editor checks the same nesting limit before a step is placed (MAX_DEPTH in static/app.js).
+MAX_DEPTH = 8
+MAX_STEPS = 200
+
+
 class WorkflowInput(Model):
     name: str = Field(default="Yeni akış", min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -66,14 +71,14 @@ class WorkflowInput(Model):
         seen: set[str] = set()
 
         def walk(steps: list[Step], depth: int) -> None:
-            if depth > 8:
-                raise ValueError("Akış en fazla 8 seviyede iç içe olabilir.")
+            if depth > MAX_DEPTH:
+                raise ValueError(f"Akış en fazla {MAX_DEPTH} seviyede iç içe olabilir.")
             for step in steps:
                 if step.id in seen:
                     raise ValueError("Adım kimlikleri benzersiz olmalıdır.")
                 seen.add(step.id)
-                if len(seen) > 200:
-                    raise ValueError("Bir akışta en fazla 200 adım olabilir.")
+                if len(seen) > MAX_STEPS:
+                    raise ValueError(f"Bir akışta en fazla {MAX_STEPS} adım olabilir.")
                 if step.children or step.otherwise:
                     from .catalog import CONTAINERS
 
@@ -93,6 +98,16 @@ class Workflow(WorkflowInput):
     id: str = Field(default_factory=uid, pattern=r"^[a-f0-9]{32}$")
     created_at: str = Field(default_factory=now)
     updated_at: str = Field(default_factory=now)
+
+
+class WorkflowImport(WorkflowInput):
+    """A flow file from any Studio: its identity is replaced, its reference images are saved."""
+
+    id: str | None = Field(default=None, max_length=100)
+    created_at: str | None = Field(default=None, max_length=100)
+    updated_at: str | None = Field(default=None, max_length=100)
+    # Reference image name (as the steps use it) → base64 PNG or JPEG; see template_bundle.py.
+    templates: dict[str, str] = Field(default_factory=dict, max_length=500)
 
 
 class Event(Model):

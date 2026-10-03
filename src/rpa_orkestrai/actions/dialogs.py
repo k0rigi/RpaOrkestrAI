@@ -13,6 +13,7 @@ from .common import choice, number, text
 
 BUTTONS = {"ok": ("Tamam",), "ok_cancel": ("İptal", "Tamam"), "yes_no": ("Hayır", "Evet")}
 ANSWERS = {"Tamam": "ok", "İptal": "cancel", "Evet": "yes", "Hayır": "no"}
+MB_TIMEDOUT = 32000
 
 MAC_MESSAGE = '''on run argv
     set labels to {}
@@ -86,9 +87,21 @@ def message(ctx, p):
         return "timeout" if answer == "timeout" else ANSWERS.get(answer, "cancel")
     if platform.system() == "Windows":
         import ctypes
+        from ctypes import wintypes
 
+        user32 = ctypes.windll.user32
         style = {"ok": 0x0, "ok_cancel": 0x1, "yes_no": 0x4}[buttons] | 0x40 | 0x10000 | 0x40000
-        result = ctypes.windll.user32.MessageBoxW(None, body, title, style)  # MB_ICONINFORMATION|SETFOREGROUND|TOPMOST
+        if timeout:
+            # user32's self-closing message box; it answers MB_TIMEDOUT when nobody clicked in time.
+            show = user32.MessageBoxTimeoutW
+            show.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.UINT, wintypes.WORD,
+                             wintypes.DWORD]
+            show.restype = ctypes.c_int
+            result = show(None, body, title, style, 0, timeout * 1000)
+        else:
+            result = user32.MessageBoxW(None, body, title, style)  # MB_ICONINFORMATION|SETFOREGROUND|TOPMOST
+        if result == MB_TIMEDOUT:
+            return "timeout"
         return {1: "ok", 2: "cancel", 6: "yes", 7: "no"}.get(result, "cancel")
     raise WorkflowError("Mesaj kutusu macOS ve Windows'ta desteklenir.")
 
