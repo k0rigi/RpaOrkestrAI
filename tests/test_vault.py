@@ -80,7 +80,8 @@ def finished(client, run):
 
 
 def test_api_never_returns_a_value_and_runs_never_keep_it(tmp_path, memory):
-    secret = "Pa$$w0rd-Çok-Gizli"
+    # Masking finds the value as it is; a value a step changes (upper case, a path) cannot be recognised.
+    secret = "Gizli-Şifre-123!"
     with studio(tmp_path) as client:
         saved = client.put("/api/secrets/erp", json={"value": secret})
         assert saved.status_code == 200 and secret not in saved.text

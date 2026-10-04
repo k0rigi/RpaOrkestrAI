@@ -76,7 +76,7 @@ Bir adımın sonucu bir **adla** saklanır, sonraki adımlar o adı `${ad}` biç
 ERP girişi gibi işlerde şifreyi adıma yazmayın. **Ayarlar → Kayıtlı şifreler** bölümünde bir ad (ör. `erp`) ve şifreyi girip kaydedin; adımda `${sifre.erp}` yazın (ör. şifre alanı için **Alanı doldur**). Tipik giriş: **Uygulama, dosya veya adres aç** → **Pencereyi tanı** → **Alanı doldur** (kullanıcı adı) → **Alanı doldur** (`${sifre.erp}`) → **Tuşa bas** (Enter).
 
 - Şifre bu bilgisayarın şifre kasasında durur: Windows'ta **Kimlik Bilgisi Yöneticisi**, Mac'te **Anahtar Zinciri**. Studio yalnız adını tutar ve şifreyi bir daha göstermez; değiştirmek için aynı adla yeniden kaydedin.
-- Şifre akış dosyasına ve dışa aktarıma girmez; akışı başka bilgisayara aktarırsanız orada aynı adla yeniden kaydedin. Çalışma günlüğünde, hata mesajlarında ve **Bu adımı test et** sonuçlarında `[gizlendi]` olarak görünür.
+- Şifre akış dosyasına ve dışa aktarıma girmez; akışı başka bilgisayara aktarırsanız orada aynı adla yeniden kaydedin. Çalışma günlüğünde, hata mesajlarında ve **Bu adımı test et** sonuçlarında `[gizlendi]` olarak görünür. Gizleme şifrenin aynısını arar: şifreyi yalnız şifre alanına yazdırın; bir adımla değiştirirseniz (büyük harfe çevirme, dosya yolu veya metin içine ekleme) değişmiş hâli gizlenemez.
 - Zamanlanmış akışlar da şifreyi kasadan alır. Mac'te Studio güncellendikten sonra ilk kullanımda Anahtar Zinciri erişim izni sorabilir; **Her Zaman İzin Ver** deyin, aksi halde gözetimsiz çalışan akış bu adımda bekler.
 - Her çalışma alanının şifreleri ayrıdır; en fazla 200 şifre kaydedilebilir.
 
