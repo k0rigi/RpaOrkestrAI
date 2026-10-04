@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..errors import WorkflowError
 from . import handler
-from .common import number, text
+from .common import number, path, text
 
 OUTPUT_LIMIT = 200_000
 
@@ -154,3 +154,131 @@ def clipboard_get(ctx, p):
     import pyperclip
 
     return pyperclip.paste()
+
+
+# ----- Dosya / script çalıştır: any file in a folder, run the way its kind needs ----------------
+# A Studio opened from the Dock or Explorer has a short PATH; programs are also looked for here.
+EXTRA_PATHS = {
+    "Darwin": ["/opt/homebrew/bin", "/usr/local/bin", "/Library/Frameworks/Python.framework/Versions/Current/bin",
+               "/usr/bin", "/bin"],
+    "Windows": [],
+}
+SCRIPT_KINDS = {
+    ".py": "python", ".pyw": "python", ".ps1": "powershell", ".bat": "direct", ".cmd": "direct", ".exe": "direct",
+    ".com": "direct", ".vbs": "wsh", ".vbe": "wsh", ".wsf": "wsh", ".sh": "bash", ".command": "bash", ".bash": "bash",
+    ".zsh": "zsh", ".scpt": "osascript", ".applescript": "osascript", ".jar": "java",
+}
+ONLY_ON = {"wsh": "Windows", "bash": "Darwin", "zsh": "Darwin", "osascript": "Darwin"}
+
+
+def find_program(*names: str) -> str | None:
+    import shutil
+
+    search = os.pathsep.join([os.environ.get("PATH", ""), *EXTRA_PATHS.get(platform.system(), [])])
+    for name in names:
+        found = shutil.which(name, path=search)
+        # The Microsoft Store stub only offers to install Python; it never runs a script.
+        if found and "WindowsApps" not in found:
+            return found
+    return None
+
+
+def script_command(file: Path, arguments: list[str]) -> list[str] | None:
+    """How to run this file on this computer; None when it is a document to open with its program."""
+    system = platform.system()
+    kind = SCRIPT_KINDS.get(file.suffix.lower())
+    if kind == "direct" and system != "Windows":
+        kind = None
+    if kind in ONLY_ON and ONLY_ON[kind] != system:
+        names = {"wsh": "VBScript (.vbs)", "bash": "Kabuk betiği", "zsh": "Kabuk betiği", "osascript": "AppleScript"}
+        other = "Windows" if ONLY_ON[kind] == "Windows" else "macOS"
+        raise WorkflowError(f"{names[kind]} yalnız {other}'ta çalışır.")
+    if kind is None and system != "Windows" and not file.is_dir() and os.access(file, os.X_OK) and not file.suffix:
+        kind = "direct"  # an executable file without an extension (#! script or program)
+    if kind is None:
+        return None
+    if kind == "direct":
+        return [str(file), *arguments]
+    if kind == "python":
+        python = find_program("py") if system == "Windows" else None
+        if python:
+            return [python, "-3", str(file), *arguments]
+        python = find_program("python", "python3") if system == "Windows" else find_program("python3", "python")
+        if not python:
+            raise WorkflowError("Python bulunamadı. Bu bilgisayara Python kurun (python.org); Windows'ta kurulumda "
+                                "'Add python.exe to PATH' seçeneğini işaretleyin.")
+        return [python, str(file), *arguments]
+    if kind == "powershell":
+        shell = (find_program("powershell", "pwsh") or str(Path(os.environ.get("SystemRoot", r"C:\Windows"))
+                 / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")) if system == "Windows" \
+            else find_program("pwsh")
+        if not shell:
+            raise WorkflowError("PowerShell (pwsh) bu Mac'te kurulu değil.")
+        return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(file), *arguments]
+    if kind == "wsh":
+        cscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "cscript.exe"
+        return [str(cscript), "//nologo", str(file), *arguments]
+    if kind in {"bash", "zsh"}:
+        return [f"/bin/{kind}", str(file), *arguments]
+    if kind == "osascript":
+        return ["/usr/bin/osascript", str(file), *arguments]
+    java = find_program("java")
+    if not java:
+        raise WorkflowError("Java bulunamadı; .jar dosyasını çalıştırmak için Java kurun.")
+    return [java, "-jar", str(file), *arguments]
+
+
+@handler("system.run_file")
+def run_file(ctx, p):
+    """Run a script or program from a folder (.py, .ps1, .bat, .vbs, .exe, .sh …); open any other file."""
+    file = path(p.get("path"), "Çalıştırılacak dosya")
+    if not file.exists():
+        raise WorkflowError(f"Dosya bulunamadı: {file}")
+    arguments = _arguments(p.get("arguments"))
+    folder = p.get("folder")
+    cwd = path(folder, "Çalışma klasörü") if folder else (file if file.is_dir() else file.parent)
+    if not cwd.is_dir():
+        raise WorkflowError("Çalışma klasörü bulunamadı.")
+    command = script_command(file, arguments)
+    if command is None:
+        # A document (Excel, PDF, …): its own program opens it, like a double click.
+        open_target(ctx, {"target": str(file), "arguments": p.get("arguments", ""), "wait": 0})
+        ctx.log(f"{file.name} varsayılan programıyla açıldı; bitmesi beklenmez.")
+        return {"code": None, "output": "", "error": "", "file": str(file), "opened": True}
+    finish = p.get("wait_finish", True) is True
+    try:
+        if not finish:
+            subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=os.name != "nt", **_no_window())
+            ctx.log(f"{file.name} başlatıldı; akış bitmesini beklemeden devam ediyor.")
+            return {"code": None, "output": "", "error": "", "file": str(file), "opened": False}
+        process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, **_no_window())
+    except OSError as exc:
+        raise WorkflowError(f"{file.name} başlatılamadı: {exc.strerror or exc}") from exc
+    timeout = number(p.get("timeout", 600), "Zaman aşımı", 1, 86400)
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            ctx.check_cancelled()
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+        if time.monotonic() >= deadline:
+            process.kill()
+            process.communicate()
+            raise WorkflowError(f"{file.name} {timeout:g} saniyede bitmedi ve durduruldu.")
+    output = {"code": process.returncode, "output": _decode(stdout)[-OUTPUT_LIMIT:].strip(),
+              "error": _decode(stderr)[-OUTPUT_LIMIT:].strip(), "file": str(file), "opened": False}
+    if process.returncode != 0 and p.get("fail_on_error", True) is True:
+        detail = output["error"].splitlines()[-1] if output["error"] else ""
+        raise WorkflowError(f"{file.name} hata koduyla bitti ({process.returncode}). {detail}"[:500])
+    return output

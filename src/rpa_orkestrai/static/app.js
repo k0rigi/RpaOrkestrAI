@@ -663,7 +663,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.9.1"}`),
+      node("span", "version", `v${state.version || "0.9.2"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";

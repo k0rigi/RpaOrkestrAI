@@ -1,6 +1,6 @@
 # Adım rehberi
 
-Adım kütüphanesi 64 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 65 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -143,6 +143,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
 | Uygulama, dosya veya adres aç | Windows: `notepad.exe`, `excel.exe`, `C:\Rapor.xlsx` · Mac: `TextEdit`, `Microsoft Excel`, `~/Desktop/rapor.xlsx` · `https://…` | — |
+| Dosya / script çalıştır | Klasördeki dosyayı türüne göre çalıştırır: `.py` (Python), `.ps1` (PowerShell), `.bat`/`.cmd`/`.exe`, `.vbs` (Windows), `.sh`/`.command`, `.scpt` (Mac), `.jar` (Java). Excel, PDF gibi belgeler kendi programıyla açılır. **Bitmesini bekle** açıksa akış bekler ve çıktıyı alır; script hata koduyla biterse akış durur (kapatılabilir). **Durdur** çalışan script'i de kapatır. Python için bilgisayarda Python kurulu olmalıdır. Örnek: Excel makrosunu çağıran bir `.vbs` dosyası. | `${script.output}`, `${script.code}` |
 | Uygulamayı kapat | Windows: `EXCEL.EXE` · Mac: `Microsoft Excel`. Zorla kapatma kaydedilmemiş işi kaybettirir. | Kapatıldı mı |
 | Komut çalıştır | Windows'ta cmd, Mac'te terminal komutu. Çıktı `${command.output}`, kod `${command.code}`. | `${command}` |
 | Panoya kopyala / Panodaki metni oku | Pano üzerinden veri aktarır. | `${clipboard}` |

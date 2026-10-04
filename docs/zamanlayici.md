@@ -2,6 +2,8 @@
 
 Zamanlayıcı, bir akışı sizin yerinize belirlediğiniz zamanlarda başlatır: her sabah 09:00'da, hafta içi her yarım saatte bir veya tek seferlik bir tarihte. Windows Görev Zamanlayıcısı'na benzer; farkı, Studio'nun içinde çalışmasıdır. Böylece lisans denetimi, aynı anda tek akış kuralı, başlamadan önceki geri sayım ve çalışma geçmişi elle başlattığınız çalışmalarla aynıdır. macOS ve Windows'ta aynı şekilde çalışır.
 
+**Bir script'i veya programı zamanlamak:** Yeni bir akışa **Dosya / script çalıştır** adımını ekleyip dosyayı seçin (ör. Masaüstündeki `aktar.py`, `rapor.ps1` veya Excel makrosunu çağıran `makro.vbs`), akışı kaydedip zamanlayın. Script'in çıktısı `${script.output}` ile sonraki adımlarda kullanılabilir. Ayrıntılar: [adım rehberi](adimlar.md#uygulama-ve-sistem).
+
 ## Zamanlama oluşturma
 
 1. Sol menüden **Zamanlayıcı**'yı açıp **Yeni zamanlama**'ya basın. Akış düzenleyicideyken üstteki **Zamanla** düğmesi aynı pencereyi o akış seçili olarak açar.

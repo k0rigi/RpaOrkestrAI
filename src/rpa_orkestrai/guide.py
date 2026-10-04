@@ -116,6 +116,8 @@ STEP_FIELD_HELP = {
     ("system.command", "command"): "Komut satırına yazacağınız komutun aynısı (ör. dir, ipconfig).",
     ("system.command", "folder"): "Komutun çalışacağı klasör; boşsa kullanıcı klasörü.",
     ("system.command", "timeout"): "Komut bu sürede bitmezse durdurulur.",
+    ("system.run_file", "timeout"): "Script bu sürede bitmezse kapatılır ve akış hata verir.",
+    ("system.run_file", "fail_on_error"): "Kapalıysa script hata verse de akış devam eder; ${script.code} ile kontrol edin.",
     ("clipboard.set", "value"): "Panoya konacak metin veya ${değişken}.",
     ("file.write_table", "sheet"): "Excel dosyasında yazılacak sayfanın adı; CSV'de kullanılmaz.",
     ("file.write_text", "text"): "Dosyaya yazılacak metin; ${değişken} kullanılabilir.",
@@ -319,6 +321,13 @@ GUIDES = {
         ["Uygulamanın adını, dosyanın yolunu veya web adresini yazın.",
          "Açılması uzun sürüyorsa bekleme süresini artırın."],
         "", "Ardından Pencereyi tanı ekleyip açılan pencereyi akışa tanıtın."),
+    "system.run_file": guide(
+        ["Seç… ile çalıştırılacak dosyayı gösterin (ör. Masaüstündeki aktar.py).",
+         "Gerekiyorsa parametreleri yazın.",
+         "Akış script'in sonucunu kullanacaksa Bitmesini bekle açık kalsın."],
+        "${script.output}: script'in yazdığı çıktı, ${script.code}: bitiş kodu (0 başarılı).",
+        "Python için bilgisayarda Python kurulu olmalıdır. Excel makrosu için makroyu çağıran bir .vbs veya "
+        ".py dosyasını da bu adımla çalıştırabilirsiniz."),
     "system.close_app": guide(
         ["Uygulamanın adını yazın (ör. notepad.exe veya TextEdit)."],
         "", "Zorla kapat kaydedilmemiş verileri kaybettirir; yalnız uygulama yanıt vermiyorsa açın."),
