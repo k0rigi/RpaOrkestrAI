@@ -100,7 +100,8 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
             return 0
         settings.desktop_updates = updater
         updater.start()
-        serve_native(settings, auto_port=True)
+        # Started at login (Bilgisayar açılınca Studio'yu başlat): waits minimized for scheduled flows.
+        serve_native(settings, auto_port=True, minimized="--minimized" in args)
         return 0
     except Exception as exc:
         if logger:

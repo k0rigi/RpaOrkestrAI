@@ -23,6 +23,7 @@ Varsayılan olarak çalışma klasöründe:
 data/
 ├── settings.json          # Yerel bağlantı ayarları
 ├── favorites.json         # Adım kütüphanesindeki sık kullanılanlar
+├── schedules.json         # Zamanlamalar ve geri sayım ayarı
 ├── workflows/            # Kaydedilen akış JSON dosyaları
 ├── runs/                 # Çalışma durumları ve günlükler
 └── artifacts/            # İndirilebilir çalışma çıktıları
@@ -39,6 +40,14 @@ Bu kilit veri klasörü bazındadır. Farklı klasörlerin ayrı uygulama süre�
 Her `Step`, `action` ve `params` alanlarını taşır. `control.for_each` ve `control.if` alt adımları `children` alanında saklar. Koşulun olumsuz dalı `otherwise` alanındadır. Bu ağaç yapısı sıralı çalışır; keyfi Python betiği ya da kabuk komutu çalıştırma adımı sunulmaz.
 
 İşlem çıktıları çalışma kapsamındaki değişkenlere yazılır. `${orders}` referansı türünü korur; `${item.amount}` iç içe verilere erişir. Akış tanımı yalnız adımları ve sabit parametreleri taşır; adaptör bağlantıları yerel ayarlardan alınır. Bu ayrım, aynı akışın iki bilgisayarda farklı bağlantı hesaplarıyla kullanılmasını sağlar.
+
+Akış, adımların yanında isteğe bağlı `notes` listesini taşır: her not başlık, metin, renk ve kapsadığı adım kimliklerinden oluşur. Motor notları yok sayar; model, akışta olmayan adım kimliklerini ve adımı kalmayan notları kaydederken düşürür. Her adımın `wait_after` parametresi (`catalog.py` içinde `WAIT_AFTER`) adım ve varsa iç blokları bittikten sonra `Executor.pause_after` ile iptal edilebilir biçimde beklenir.
+
+## Zamanlayıcı
+
+`scheduler.py`, `data/schedules.json` dosyasındaki zamanlamaları Studio sürecinde birkaç saniyede bir denetler. Saatler bilgisayarın yerel saatidir. Zamanı gelen akış için önce Studio penceresi öne getirilir ve geri sayım gösterilir (`GET /api/schedules/pending`, İptal / Şimdi başlat); ardından akış elle başlatılmış gibi `RunManager` üzerinden çalışır, yani lisans kapısı ve tek masaüstü çalışanı kuralı aynen geçerlidir. Masaüstü meşgulse veya lisans o an doğrulanamıyorsa zamanlama 10 dakika bekler, sonra **atlandı** olarak işaretlenir. Studio kapalıyken geçen zaman açılışta **kaçırıldı** olarak yazılır; **kaçırılırsa açılınca çalıştır** seçili zamanlama bir kez çalışır.
+
+`autostart.py`, kurulu uygulamada **Bilgisayar açılınca Studio'yu başlat** ayarını uygular: Windows'ta `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` altındaki `RpaOrkestrAI Studio` değeri, macOS'ta `~/Library/LaunchAgents/net.orkestrai.rpa.studio.plist`. İkisi de uygulamayı `--minimized` ile simge durumunda açar. Windows kaldırıcısı bu değeri siler. Zamanlama açıkken pencere kapatılırsa Studio onay ister (`native.py`).
 
 ## Dış sistemlerle sınırlar
 

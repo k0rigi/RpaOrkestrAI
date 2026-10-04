@@ -20,6 +20,13 @@
     page: "dashboard",
     workflow: null,
     selected: null,
+    // Steps gathered for a note (Shift / Ctrl / ⌘ + click, or a region on the diagram).
+    multi: new Set(),
+    anchor: null,
+    selectedNote: null,
+    lasso: false,
+    schedules: null,
+    pendingPoll: null,
     target: null,
     dirty: false,
     dryRun: false,
@@ -108,6 +115,9 @@
     layout: "M4 5h6v6H4z M14 5h6v6h-6z M9 15h6v5H9z M7 11v2h10v-2 M12 13v2",
     target: "M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 12h.01",
     key: "M14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M13 12l8 8 M17 16l2-2 M19 18l2-2",
+    note: "M5 3h14v12l-6 6H5z M13 21v-6h6 M8 8h8 M8 12h5",
+    calendar: "M4 5h16v16H4z M4 10h16 M8 3v4 M16 3v4 M8 14h3v3H8z",
+    select: "M4 4h3 M10 4h4 M17 4h3v3 M20 10v4 M20 17v3h-3 M14 20h-4 M7 20H4v-3 M4 14v-4 M4 7V4",
   };
 
   // ----- theme: light (drafting paper), dark (blueprint) or the system's choice ------
@@ -475,8 +485,11 @@
       state.workflow = null;
       state.selected = null;
       state.target = null;
+      state.multi.clear();
+      state.selectedNote = null;
     }
     render();
+    if (page === "schedules") await attempt(refreshSchedules);
     if (page === "runs" || page === "dashboard") {
       await attempt(async () => {
         const runs = await api("/api/runs");
@@ -496,8 +509,12 @@
       if (state.pollEpoch !== epoch) return;
       state.page = "editor";
       state.workflow = clone(workflow);
+      state.workflow.notes ||= [];
       state.selected = null;
       state.target = null;
+      state.multi.clear();
+      state.anchor = null;
+      state.selectedNote = null;
       state.dirty = false;
       state.fieldErrors.clear();
       state.drafts.clear();
@@ -540,6 +557,7 @@
       ["dashboard", "Genel bakış", "grid"],
       ["workflows", "Akışlarım", "flow"],
       ["runs", "Çalışma geçmişi", "clock"],
+      ["schedules", "Zamanlayıcı", "calendar"],
     ]) {
       const selected =
         state.page === page ||
@@ -549,6 +567,14 @@
       item.append(icon(glyph), node("span", "", label));
       if (page === "workflows")
         item.append(node("span", "nav-count", state.workflows.length));
+      if (page === "schedules") {
+        // How many schedules are on; the page itself lists them.
+        const on = (state.schedules?.schedules || []).filter((entry) => entry.enabled).length;
+        const count = node("span", "nav-count", on);
+        count.id = "schedule-count";
+        count.hidden = !on;
+        item.append(count);
+      }
       item.addEventListener("click", () => navigate(page));
       if (selected) item.setAttribute("aria-current", "page");
       nav.append(item);
@@ -611,6 +637,7 @@
           editor: "Akış düzenleyici",
           runs: "Çalışma geçmişi",
           run: "Çalışma ayrıntısı",
+          schedules: "Zamanlayıcı",
           settings: "Ayarlar",
         }[state.page],
       ),
@@ -636,7 +663,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.8.6"}`),
+      node("span", "version", `v${state.version || "0.9.0"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -657,6 +684,7 @@
       editor: editorPage,
       runs: runsPage,
       run: runPage,
+      schedules: schedulesPage,
       settings: settingsPage,
     };
     target.append((views[state.page] || dashboardPage)());
@@ -819,7 +847,7 @@
         node(
           "div",
           "activity-meta",
-          `${when(run.started_at)}${run.test_step_id ? " · Adım testi" : run.dry_run ? " · Önizleme" : ""}`,
+          `${when(run.started_at)}${run.test_step_id ? " · Adım testi" : run.dry_run ? " · Önizleme" : ""}${run.trigger === "schedule" ? " · Zamanlanmış" : ""}`,
         ),
       );
       const go = iconButton("Çalışmayı görüntüle", "chevron", () =>
@@ -1121,10 +1149,13 @@
     recorder.title = "Fare ve klavye hareketlerinizi kaydedip adımlara çevirir.";
     const links = button("Bağlantılar", "link", () => openConnectionManager());
     links.title = "Bu bilgisayardaki bağlantıları (ör. Google Sheets) yönetin.";
+    const schedule = button("Zamanla", "calendar", scheduleWorkflow);
+    schedule.title = "Bu akışı belirli gün ve saatlerde kendiliğinden çalıştırın.";
     actions.append(
       dry,
       links,
       recorder,
+      schedule,
       iconButton("Akışı JSON olarak dışa aktar", "download", exportWorkflow),
       button("Kaydet", "save", saveWorkflow),
       button("Çalıştır", "play", runWorkflow, "primary"),
@@ -1475,6 +1506,7 @@
   }
   function selectNewStep(step) {
     state.selected = step.id;
+    state.selectedNote = null;
     markDirty();
     renderCanvas();
     renderInspector();
@@ -1489,6 +1521,8 @@
   function buildStep(spec, parentId) {
     const params = {};
     (spec.fields || []).forEach((f) => {
+      // A step that does not wait carries no wait_after, so older Studio versions still open the file.
+      if (f.name === "wait_after" && !f.default) return;
       if (f.default !== undefined && f.default !== null)
         params[f.name] = clone(f.default);
     });
@@ -1618,6 +1652,13 @@
     const pane = document.getElementById("flow-canvas");
     if (!pane) return;
     state.unreached = unreachedSteps();
+    // A path end replaced from Bu adımdan sonra leaves its id behind in a note.
+    const stale = new Set(flowNotes().flatMap((item) => item.steps).filter((id) => !findStep(id)));
+    if (stale.size) pruneNotes(stale);
+    state.noteOwners = noteOwners();
+    state.noteStarts = noteStarts();
+    // Steps that left the flow (deleted, undone) leave the selection too.
+    for (const id of state.multi) if (!findStep(id)) state.multi.delete(id);
     const oldScroll = pane.scrollTop;
     pane.replaceChildren();
     const caption = node("div", "canvas-caption");
@@ -1713,6 +1754,9 @@
     end.append(icon("check"), node("span", "", "Bitiş"));
     stack.append(end);
     pane.append(stack);
+    if (state.multi.size) pane.append(selectionBar());
+    else if (state.workflow.steps.length > 1 && !flowNotes().length)
+      pane.append(node("p", "canvas-tip", `Not eklemek için Shift veya ${modKey()} tuşuyla adımlara tıklayın.`));
     pane.scrollTop = oldScroll;
   }
   // ----- Diagram view: the same steps drawn left → right, n8n style ------------------
@@ -1824,6 +1868,8 @@
       return { entry, exit: { x: nx + DG.w, y: ny }, open: true, node: item };
     }
     const top = spine - m.spine;
+    // The whole block with its branches and lanes: a note on the block frames all of it.
+    item.block = { x, y: top, w: m.w, h: m.h };
     const bx = x + DG.w + DG.bx;
     const merge = { x: x + m.w - 8, y: spine };
     const centre = nx + DG.w / 2;
@@ -1920,7 +1966,7 @@
   function diagramLayout() {
     const steps = state.workflow.steps;
     const m = measureSequence(steps);
-    const out = { nodes: [], edges: [], empties: [], merges: [], ports: [], loops: new Map() };
+    const out = { nodes: [], edges: [], empties: [], merges: [], ports: [], loops: new Map(), notes: [] };
     const spine = DG.pad + Math.max(m.spine, 24);
     const start = { x: DG.pad + DG.term, y: spine };
     const main = placeSequence(steps, start.x + DG.gx, spine, null, null, m, out);
@@ -1932,15 +1978,15 @@
         insert: main.empty ? null : { list: steps, index: steps.length, owner: null, branch: null } });
     endingEdges(out);
     out.terminals = [{ kind: "start", x: DG.pad, y: spine }, { kind: "end", x: end.x, y: spine }];
+    out.notes = noteFrames(out.nodes);
     const width = end.x + DG.term + DG.pad;
     const height = spine + Math.max(m.h - m.spine, 24) + DG.pad;
-    // Boxes the user dragged may lie outside the automatic drawing.
-    const xs = out.nodes.map((item) => item.x);
-    const ys = out.nodes.map((item) => item.y);
+    // Boxes the user dragged, and note frames, may lie outside the automatic drawing.
+    const boxes = [...out.nodes.map((item) => ({ x: item.x, y: item.y, w: DG.w, h: DG.h })), ...out.notes];
     return { ...out, width, height,
-      left: Math.min(0, ...xs.map((value) => value - DG.pad)), top: Math.min(0, ...ys.map((value) => value - DG.pad)),
-      right: Math.max(width, ...xs.map((value) => value + DG.w + DG.pad)),
-      bottom: Math.max(height, ...ys.map((value) => value + DG.h + DG.pad)) };
+      left: Math.min(0, ...boxes.map((box) => box.x - DG.pad)), top: Math.min(0, ...boxes.map((box) => box.y - DG.pad)),
+      right: Math.max(width, ...boxes.map((box) => box.x + box.w + DG.pad)),
+      bottom: Math.max(height, ...boxes.map((box) => box.y + box.h + DG.pad)) };
   }
   function curve(edge) {
     const { from: a, to: b } = edge;
@@ -2132,6 +2178,8 @@
       }
     });
     layout.merges.forEach((point) => svg.append(svgNode("circle", { cx: point.x, cy: point.y, r: 5, class: "merge" })));
+    // Notes lie under the connections and the boxes.
+    layout.notes.forEach((frame) => world.append(noteFrame(frame)));
     world.append(svg);
     // Drag from a port to a box: the path continues there (Adıma git), also back to earlier steps.
     layout.ports.forEach((port, index) => {
@@ -2187,10 +2235,18 @@
         }));
       viewport.append(chip);
     }
-    const hint = node("div", "diagram-hint", "Kutuyu sürükleyin: yerini değiştirir · + üzerine bırakın: sırasını değiştirir · Sağdaki noktayı bir kutuya sürükleyin: bağlantı kurar · Çizgideki ×: bağlantıyı kaldırır");
+    const hint = node("div", "diagram-hint", "Kutuyu sürükleyin: yerini değiştirir · + üzerine bırakın: sırasını değiştirir · Sağdaki noktayı bir kutuya sürükleyin: bağlantı kurar · Çizgideki ×: bağlantıyı kaldırır · Shift + sürükleyin: bölge seçer, not eklenir");
     const zoomLabel = node("span", "zoom-level");
     const controls = node("div", "diagram-controls");
+    const region = iconButton("Bölge seç: sürükleyerek adımları seçin, sonra not ekleyin", "select", () => {
+      state.lasso = !state.lasso;
+      region.setAttribute("aria-pressed", String(state.lasso));
+      viewport.classList.toggle("lasso-mode", state.lasso);
+    });
+    region.setAttribute("aria-pressed", String(state.lasso));
+    viewport.classList.toggle("lasso-mode", state.lasso);
     controls.append(
+      region,
       iconButton("Uzaklaştır", "down", () => zoomBy(-1)),
       zoomLabel,
       iconButton("Yakınlaştır", "up", () => zoomBy(1)),
@@ -2208,6 +2264,7 @@
     tidy.disabled = !allSteps(state.workflow.steps).some((item) => stepOffset(item).some(Boolean));
     controls.append(tidy);
     viewport.append(hint, controls);
+    if (state.multi.size) viewport.append(selectionBar());
     pane.append(caption, viewport);
 
     const d = state.diagram;
@@ -2341,6 +2398,56 @@
       viewport.addEventListener("pointerup", stop);
       viewport.addEventListener("pointercancel", stop);
     }
+    function startLasso(event) {
+      // A region drawn on the background chooses the boxes it touches, for a note.
+      event.preventDefault();
+      closeInsertMenu();
+      const area = viewport.getBoundingClientRect();
+      const at = (pointer) => ({ x: pointer.clientX - area.left, y: pointer.clientY - area.top });
+      const origin = at(event);
+      let corner = origin;
+      const additive = event.ctrlKey || event.metaKey;
+      const box = node("div", "diagram-lasso");
+      viewport.append(box);
+      viewport.setPointerCapture(event.pointerId);
+      const paintBox = () => {
+        box.style.left = `${Math.min(origin.x, corner.x)}px`;
+        box.style.top = `${Math.min(origin.y, corner.y)}px`;
+        box.style.width = `${Math.abs(corner.x - origin.x)}px`;
+        box.style.height = `${Math.abs(corner.y - origin.y)}px`;
+      };
+      const move = (pointer) => {
+        corner = at(pointer);
+        paintBox();
+      };
+      const stop = (finish) => {
+        viewport.removeEventListener("pointermove", move);
+        viewport.removeEventListener("pointerup", stop);
+        viewport.removeEventListener("pointercancel", stop);
+        box.remove();
+        if (finish.type !== "pointerup") return;
+        const swallow = (click) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        window.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+        const toWorld = (point) => ({ x: (point.x - d.x) / d.k, y: (point.y - d.y) / d.k });
+        const [a, b] = [toWorld(origin), toWorld(corner)];
+        const [x1, x2, y1, y2] = [Math.min(a.x, b.x), Math.max(a.x, b.x), Math.min(a.y, b.y), Math.max(a.y, b.y)];
+        if (!additive) state.multi.clear();
+        // A click without a drag only clears the choice.
+        if (x2 - x1 > 4 / d.k || y2 - y1 > 4 / d.k)
+          layout.nodes.filter((item) => item.x < x2 && item.x + item.w > x1 && item.y < y2 && item.y + item.h > y1)
+            .forEach((item) => state.multi.add(item.step.id));
+        renderCanvas();
+        if (state.selectedNote) renderInspector();
+      };
+      paintBox();
+      viewport.addEventListener("pointermove", move);
+      viewport.addEventListener("pointerup", stop);
+      viewport.addEventListener("pointercancel", stop);
+    }
     function startConnect(event, port) {
       event.preventDefault();
       event.stopPropagation();
@@ -2402,7 +2509,12 @@
         startNodeMove(event, box.dataset.stepId);
         return;
       }
-      const onBackground = !event.target.closest(".dnode, button, .diagram-insert, .diagram-run, .diagram-controls, .diagram-port");
+      const onBackground = !event.target.closest(
+        ".dnode, button, .diagram-insert, .diagram-run, .diagram-controls, .diagram-port, .selection-bar");
+      if (event.button === 0 && onBackground && (event.shiftKey || state.lasso)) {
+        startLasso(event);
+        return;
+      }
       if (!(event.button === 1 || (event.button === 0 && onBackground))) return;
       event.preventDefault();
       closeInsertMenu();
@@ -2463,13 +2575,19 @@
       y: (tall * k < height ? (height - tall * k) / 2 : 0) - layout.top * k,
     });
   }
+  function waitAfter(step) {
+    // Sonraki adıma geçmeden bekle as cards and boxes show it ("1,5"); null when the step does not wait.
+    const value = Number(step.params?.wait_after);
+    return Number.isFinite(value) && value > 0 ? String(value).replace(".", ",") : null;
+  }
   function diagramNode(item, run) {
     const { step } = item;
     const spec = specFor(step.action);
     const status = run ? stepStatus(run.step_stats?.[step.id], step, run) : null;
     const classes = ["dnode", item.shape && "dnode-container", item.pill && `dnode-pill ending-${step.action.split(".")[1]}`,
       state.selected === step.id && "selected", status && `status-${status.kind}`, item.moved && "moved",
-      state.diagram.moving === step.id && "moving", item.unreached && "unreached", item.problem && "invalid"];
+      state.diagram.moving === step.id && "moving", item.unreached && "unreached", item.problem && "invalid",
+      state.multi.has(step.id) && "chosen"];
     const el = node("div", classes.filter(Boolean).join(" "));
     el.dataset.stepId = step.id;
     el.tabIndex = 0;
@@ -2508,6 +2626,13 @@
       if (status.text) mark.append(node("span", "", status.text));
       el.append(mark);
     }
+    const pause = waitAfter(step);
+    if (pause) {
+      const chip = node("span", "dnode-wait");
+      chip.title = `Sonraki adıma geçmeden ${pause} saniye bekler`;
+      chip.append(icon("clock"), node("span", "", `${pause} sn`));
+      el.append(chip);
+    }
     const tools = node("div", "dnode-tools");
     const bar = node("div", "dnode-toolbar");
     if (!["control.break", "control.continue"].includes(step.action))
@@ -2522,14 +2647,19 @@
     tools.append(bar);
     el.append(tools);
     const select = () => {
-      if (state.selected === step.id) return;
+      if (state.selected === step.id && !state.multi.size && !state.selectedNote) return;
+      state.multi.clear();
+      state.selectedNote = null;
+      state.anchor = step.id;
       state.selected = step.id;
       renderCanvas();
       renderInspector();
       // Keep keyboard focus on the redrawn node so Delete and Tab keep working.
       document.querySelector(`#diagram-viewport [data-step-id="${CSS.escape(step.id)}"]`)?.focus({ preventScroll: true });
     };
-    el.addEventListener("click", select);
+    el.addEventListener("click", (event) => {
+      if (!chooseStep(event, step, item.list)) select();
+    });
     el.addEventListener("keydown", (event) => {
       if (event.target !== el) return;
       if (["Enter", " "].includes(event.key)) {
@@ -2673,9 +2803,10 @@
     const wrap = node("div", "step-wrap");
     const spec = specFor(step.action);
     const unreached = state.unreached?.has(step.id);
+    const owner = state.noteOwners?.get(step.id);
     const card = node(
       "div",
-      `step-card${state.selected === step.id ? " selected" : ""}${ENDINGS.has(step.action) ? " step-ending" : ""}${unreached ? " unreached" : ""}`,
+      `step-card${state.selected === step.id ? " selected" : ""}${ENDINGS.has(step.action) ? " step-ending" : ""}${unreached ? " unreached" : ""}${state.multi.has(step.id) ? " chosen" : ""}${owner ? ` in-note note-${owner.color}` : ""}`,
     );
     card.dataset.stepId = step.id;
     if (unreached) card.title = "Bu adıma hiçbir yol gelmiyor; akışta çalışmaz. Önceki adımın Bu adımdan sonra seçimini değiştirin veya bir Adıma git ile bağlayın.";
@@ -2686,11 +2817,16 @@
       `${step.title || spec.label} adımını düzenle`,
     );
     const select = () => {
+      state.multi.clear();
+      state.selectedNote = null;
+      state.anchor = step.id;
       state.selected = step.id;
       renderCanvas();
       renderInspector();
     };
-    card.addEventListener("click", select);
+    card.addEventListener("click", (event) => {
+      if (!chooseStep(event, step, list)) select();
+    });
     card.draggable = true;
     card.addEventListener("dragstart", (event) => {
       event.stopPropagation();
@@ -2763,6 +2899,13 @@
       if (problem) out.title = problem;
       card.append(out);
     }
+    const pause = waitAfter(step);
+    if (pause) {
+      const out = node("div", "step-output step-wait");
+      out.append(icon("clock"), node("span", "", `Sonraki adıma geçmeden ${pause} sn bekler`));
+      card.append(out);
+    }
+    for (const item of state.noteStarts?.get(step.id) || []) wrap.append(noteBand(item));
     wrap.append(card);
     const container =
       spec.container ||
@@ -2852,6 +2995,7 @@
         state.fieldErrors.delete(key);
     if (removedIds.has(state.selected)) state.selected = null;
     if (state.target && removedIds.has(state.target.id)) state.target = null;
+    if (pruneNotes(removedIds)) toast("Yalnız bu adımları kapsayan not da kaldırıldı.");
     markDirty();
     renderLibrary();
     renderCanvas();
@@ -2876,6 +3020,295 @@
     markDirty();
     renderCanvas();
     renderInspector();
+  }
+
+  // ----- Notes: a titled frame with text around part of the flow; a run ignores them ----------
+  const noteColors = [["yellow", "Sarı"], ["blue", "Mavi"], ["green", "Yeşil"], ["pink", "Pembe"], ["gray", "Gri"]];
+  const MAX_NOTES = 100;
+  function flowNotes() {
+    return state.workflow?.notes || [];
+  }
+  function findNote(id) {
+    return (id && flowNotes().find((item) => item.id === id)) || null;
+  }
+  function noteOpen(item) {
+    // The inspector shows the note while no step is selected.
+    return state.selectedNote === item.id && !findStep(state.selected);
+  }
+  function modKey() {
+    return state.platform === "Darwin" ? "⌘" : "Ctrl";
+  }
+  function flowOrder(ids) {
+    // The given steps in the order the flow shows them.
+    return allSteps(state.workflow?.steps || []).map((step) => step.id).filter((id) => ids.has(id));
+  }
+  function noteCovers(item) {
+    // A note on a loop, condition or Hata olursa block covers the steps inside it too.
+    const ids = new Set();
+    for (const id of item.steps) {
+      const located = findStep(id);
+      if (located) allSteps([located.step]).forEach((step) => ids.add(step.id));
+    }
+    return ids;
+  }
+  function noteOwners() {
+    // step id → the first note around it, for the colored edge on cards.
+    const owners = new Map();
+    for (const item of flowNotes())
+      for (const id of noteCovers(item)) if (!owners.has(id)) owners.set(id, item);
+    return owners;
+  }
+  function noteStarts() {
+    // step id → the notes whose band the list shows above that step (their first step).
+    const starts = new Map();
+    for (const item of flowNotes()) {
+      const first = flowOrder(new Set(item.steps))[0];
+      if (first) starts.set(first, [...(starts.get(first) || []), item]);
+    }
+    return starts;
+  }
+  function chooseStep(event, step, list) {
+    // Shift / Ctrl / ⌘ + click gathers steps for a note; a plain click edits the one step.
+    const toggle = event.ctrlKey || event.metaKey;
+    if (!toggle && !event.shiftKey) return false;
+    if (!state.multi.size && state.selected && state.selected !== step.id && findStep(state.selected))
+      state.multi.add(state.selected);
+    const from = list.findIndex((item) => item.id === state.anchor);
+    if (event.shiftKey && !toggle && from >= 0) {
+      // Shift: everything between the last chosen step and this one, in the same branch.
+      const to = list.indexOf(step);
+      list.slice(Math.min(from, to), Math.max(from, to) + 1).forEach((item) => state.multi.add(item.id));
+    } else if (state.multi.has(step.id)) state.multi.delete(step.id);
+    else state.multi.add(step.id);
+    state.anchor = step.id;
+    renderCanvas();
+    if (state.selectedNote) renderInspector();
+    return true;
+  }
+  function clearChoice() {
+    if (!state.multi.size) return;
+    state.multi.clear();
+    renderCanvas();
+    if (state.selectedNote) renderInspector();
+  }
+  function selectNote(id) {
+    state.selectedNote = id;
+    state.selected = null;
+    renderCanvas();
+    renderInspector();
+  }
+  function chosenForNote() {
+    // A block that is chosen already covers its inner steps.
+    const chosen = new Set([...state.multi].filter((id) => findStep(id)));
+    return flowOrder(chosen).filter((id) =>
+      !(enclosingSteps(id) || []).slice(0, -1).some((parent) => chosen.has(parent.id)));
+  }
+  function addNote() {
+    const notes = (state.workflow.notes ||= []);
+    if (notes.length >= MAX_NOTES) {
+      toast(`Bir akışta en fazla ${MAX_NOTES} not olabilir.`, true);
+      return;
+    }
+    const steps = chosenForNote();
+    if (!steps.length) return;
+    const item = { id: uid(), title: "Not", text: "", color: "yellow", steps };
+    notes.push(item);
+    state.multi.clear();
+    state.selectedNote = item.id;
+    state.selected = null;
+    markDirty();
+    renderCanvas();
+    renderInspector();
+    requestAnimationFrame(() => document.getElementById("note-title")?.select());
+  }
+  async function removeNote(item) {
+    if (item.text.trim() && !(await confirmDialog(
+      "Notu sil",
+      `“${item.title || "Not"}” notu silinecek. Adımlar akışta kalır.`,
+      "Notu sil",
+      true,
+    )))
+      return;
+    state.workflow.notes = flowNotes().filter((other) => other.id !== item.id);
+    if (state.selectedNote === item.id) state.selectedNote = null;
+    markDirty();
+    renderCanvas();
+    renderInspector();
+  }
+  function pruneNotes(removed) {
+    // Deleted steps leave their notes; a note left without steps goes with them.
+    let dropped = 0;
+    state.workflow.notes = flowNotes().filter((item) => {
+      item.steps = item.steps.filter((id) => !removed.has(id));
+      if (item.steps.length) return true;
+      dropped += 1;
+      return false;
+    });
+    removed.forEach((id) => state.multi.delete(id));
+    if (!findNote(state.selectedNote)) state.selectedNote = null;
+    return dropped;
+  }
+  function selectionBar() {
+    const bar = node("div", "selection-bar");
+    bar.setAttribute("role", "toolbar");
+    bar.setAttribute("aria-label", "Seçili adımlar");
+    bar.append(node("span", "selection-count", `${state.multi.size} adım seçili`));
+    const add = button("Not ekle", "note", addNote, "small primary");
+    add.title = "Seçili adımların çevresine başlıklı bir not ekler.";
+    const open = findNote(state.selectedNote);
+    bar.append(add);
+    if (open) bar.append(button("Açık nota ekle", "plus", () => addToNote(open), "small"));
+    bar.append(iconButton("Seçimi temizle (Esc)", "cross", clearChoice));
+    return bar;
+  }
+  function addToNote(item) {
+    const steps = chosenForNote().filter((id) => !item.steps.includes(id));
+    item.steps = flowOrder(new Set([...item.steps, ...steps]));
+    state.multi.clear();
+    markDirty();
+    renderCanvas();
+    renderInspector();
+  }
+  function noteBand(item) {
+    // List view: the note stands above its first step; its steps carry its color on the left.
+    const band = node("button", `note-band note-${item.color}${noteOpen(item) ? " selected" : ""}`);
+    band.type = "button";
+    band.title = "Notu düzenle";
+    const head = node("span", "note-band-title");
+    head.append(icon("note"), node("strong", "", item.title || "Not"),
+      node("small", "", `${item.steps.length} adım`));
+    band.append(head);
+    if (item.text.trim()) band.append(node("span", "note-band-text", item.text));
+    band.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectNote(item.id);
+    });
+    return band;
+  }
+  function noteInspector(pane, item) {
+    pane.append(
+      node("div", "eyebrow", "NOT"),
+      node("div", "pane-heading", "Akış notu"),
+      node("p", "pane-caption", "Akışın bir bölümünü açıklar; akışın çalışmasını etkilemez."),
+    );
+    const title = textInput(item.title, "Örn. Faturaları ERP'ye gir");
+    title.id = "note-title";
+    title.maxLength = 120;
+    title.addEventListener("input", () => {
+      item.title = title.value;
+      markDirty();
+      renderCanvas();
+    });
+    const text = node("textarea", "note-text");
+    text.value = item.text;
+    text.maxLength = 4000;
+    text.rows = 7;
+    text.placeholder = "Bu bölüm ne yapıyor, nelere dikkat edilmeli?";
+    text.addEventListener("input", () => {
+      item.text = text.value;
+      markDirty();
+      renderCanvas();
+    });
+    pane.append(field("Başlık", title), field("Not", text));
+    const colors = node("div", "note-colors");
+    colors.setAttribute("role", "radiogroup");
+    colors.setAttribute("aria-label", "Not rengi");
+    for (const [value, label] of noteColors) {
+      const swatch = node("button", `note-swatch note-${value}`);
+      swatch.type = "button";
+      swatch.title = label;
+      swatch.setAttribute("role", "radio");
+      swatch.setAttribute("aria-label", label);
+      swatch.setAttribute("aria-checked", String(item.color === value));
+      swatch.addEventListener("click", () => {
+        item.color = value;
+        colors.querySelectorAll(".note-swatch").forEach((other) =>
+          other.setAttribute("aria-checked", String(other === swatch)));
+        markDirty();
+        renderCanvas();
+      });
+      colors.append(swatch);
+    }
+    const colorField = node("div", "field");
+    colorField.append(node("span", "field-label", "Renk"), colors);
+    pane.append(colorField, node("div", "inspector-divider"));
+    const covered = node("section", "note-steps");
+    covered.append(node("h3", "pane-heading", `Kapsadığı adımlar (${item.steps.length})`));
+    const rows = node("ul");
+    item.steps.forEach((id) => {
+      const located = findStep(id);
+      if (!located) return;
+      const row = node("li");
+      const go = node("button", "note-step", stepName(located.step));
+      go.type = "button";
+      go.title = "Adımı düzenle";
+      go.addEventListener("click", () => {
+        state.selectedNote = null;
+        state.selected = id;
+        renderCanvas();
+        renderInspector();
+        requestAnimationFrame(() => {
+          if (state.canvasView === "diagram") state.diagram.reveal?.(id);
+          else document.querySelector(`[data-step-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" });
+        });
+      });
+      const only = item.steps.length === 1;
+      const remove = iconButton(only ? "Notta en az bir adım kalır; notu kaldırmak için Notu sil'i kullanın."
+        : "Adımı nottan çıkar", "cross", () => {
+        item.steps = item.steps.filter((other) => other !== id);
+        markDirty();
+        renderCanvas();
+        renderInspector();
+      });
+      remove.disabled = only;
+      row.append(go, remove);
+      rows.append(row);
+    });
+    covered.append(rows);
+    if (state.multi.size)
+      covered.append(button(`Seçili ${state.multi.size} adımı bu nota ekle`, "plus", () => addToNote(item), "small"));
+    else
+      covered.append(node("p", "help", `Adım eklemek için Shift veya ${modKey()} tuşuyla adımlara tıklayın ya da `
+        + "diyagramda Shift ile sürükleyerek bölge seçin; sonra buradan ekleyin."));
+    pane.append(covered, node("div", "inspector-divider"),
+      button("Notu sil", "trash", () => removeNote(item), "small danger"));
+  }
+  const NOTE_FRAME = { pad: 16, head: 52 };
+  function noteFrames(nodes) {
+    // Diagram: each note is a frame around its boxes (whole blocks for loops and conditions).
+    const rects = new Map(nodes.map((item) => [item.step.id, item.block ? [item, item.block] : [item]]));
+    return flowNotes().map((item) => {
+      const parts = [...noteCovers(item)].flatMap((id) => rects.get(id) || []);
+      if (!parts.length) return null;
+      const left = Math.min(...parts.map((box) => box.x)) - NOTE_FRAME.pad;
+      const top = Math.min(...parts.map((box) => box.y)) - NOTE_FRAME.pad - NOTE_FRAME.head;
+      const right = Math.max(...parts.map((box) => box.x + box.w)) + NOTE_FRAME.pad;
+      const bottom = Math.max(...parts.map((box) => box.y + box.h)) + NOTE_FRAME.pad;
+      return { note: item, x: left, y: top, w: right - left, h: bottom - top };
+    }).filter(Boolean).sort((a, b) => b.w * b.h - a.w * a.h);
+  }
+  function noteFrame(frame) {
+    const { note: item } = frame;
+    const el = node("div", `diagram-note note-${item.color}${noteOpen(item) ? " selected" : ""}`);
+    el.style.left = `${frame.x}px`;
+    el.style.top = `${frame.y}px`;
+    el.style.width = `${frame.w}px`;
+    el.style.height = `${frame.h}px`;
+    const head = node("button", "diagram-note-head");
+    head.type = "button";
+    head.style.height = `${NOTE_FRAME.head - 8}px`;
+    head.title = item.text.trim() ? `${item.title || "Not"}\n\n${item.text}` : item.title || "Not";
+    head.setAttribute("aria-label", `${item.title || "Not"} notunu düzenle`);
+    const title = node("span", "diagram-note-title");
+    title.append(icon("note"), node("strong", "", item.title || "Not"));
+    head.append(title);
+    if (item.text.trim()) head.append(node("span", "diagram-note-text", item.text));
+    head.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectNote(item.id);
+    });
+    el.append(head);
+    return el;
   }
 
   // ----- screen tools: pointer, region and screen image ---------------------
@@ -4387,6 +4820,11 @@
     if (!pane) return;
     pane.replaceChildren();
     const located = findStep(state.selected);
+    const openNote = !located && findNote(state.selectedNote);
+    if (openNote) {
+      noteInspector(pane, openNote);
+      return;
+    }
     if (!located) {
       pane.append(
         node("div", "pane-heading", "Adım ayarları"),
@@ -4724,16 +5162,20 @@
             }
           }
         }
+        if (f.name === "wait_after" && next !== undefined && (next < 0 || next > 3600)) {
+          invalid("0 ile 3600 saniye arasında bir değer girin.");
+          return;
+        }
         state.fieldErrors.delete(key);
         state.drafts.delete(key);
         error.textContent = "";
         control.classList.remove("invalid");
-        if (next === undefined) delete step.params[f.name];
+        if (next === undefined || (f.name === "wait_after" && next === 0)) delete step.params[f.name];
         else step.params[f.name] = next;
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();
         markDirty();
-        if (f.name === "output") renderCanvas();
+        if (f.name === "output" || f.name === "wait_after") renderCanvas();
         if ((spec.fields || []).some((definition) => Object.hasOwn(definition.visible_when || {}, f.name)) ||
             (f.name === "operator" && ["control.if", "control.while"].includes(step.action)))
           renderInspector();
@@ -4813,8 +5255,8 @@
     );
   }
   function workflowPayload() {
-    const { name, description, department, steps } = state.workflow;
-    return { name, description, department, steps };
+    const { name, description, department, steps, notes } = state.workflow;
+    return { name, description, department, steps, notes: notes || [] };
   }
   async function saveWorkflow() {
     if (state.saving) return false;
@@ -4981,7 +5423,7 @@
           node(
             "div",
             "table-sub",
-            `${run.department || "Genel"}${run.test_step_id ? " · Adım testi" : ""}${run.dry_run ? " · Önizleme" : ""}`,
+            `${run.department || "Genel"}${run.test_step_id ? " · Adım testi" : ""}${run.dry_run ? " · Önizleme" : ""}${run.trigger === "schedule" ? " · Zamanlanmış" : ""}`,
           ),
         );
         const status = node("td");
@@ -5044,7 +5486,8 @@
       ["Geçen süre", node("span", "", duration(run))],
       [
         "Çalışma türü",
-        node("span", "", run.test_step_id ? "Adım testi" : run.dry_run ? "Önizleme" : "Gerçek çalışma"),
+        node("span", "", run.test_step_id ? "Adım testi" : run.dry_run ? "Önizleme"
+          : run.trigger === "schedule" ? "Zamanlanmış çalışma" : "Gerçek çalışma"),
       ],
     ].forEach(([title, value]) => {
       const item = node("dl");
@@ -5213,6 +5656,521 @@
       }
       toast("Durdurma isteği gönderildi.");
     });
+  }
+
+  // ----- Zamanlayıcı: flows that start by themselves while the Studio is open ----------------
+  const scheduleKinds = [
+    ["daily", "Her gün"],
+    ["weekly", "Belirli günler"],
+    ["interval", "Belirli aralıklarla"],
+    ["once", "Bir kez"],
+  ];
+  const dayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+  const dayTitles = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+  const SCHEDULE_FIELDS = ["workflow_id", "enabled", "kind", "date", "time", "days", "every_minutes", "until", "catch_up"];
+  const scheduleStates = {
+    started: ["Başlatıldı", "success"],
+    skipped: ["Atlandı", "warning"],
+    missed: ["Kaçırıldı", "warning"],
+    cancelled: ["İptal edildi", "cancelled"],
+    error: ["Hata", "failed"],
+  };
+  async function refreshSchedules() {
+    state.schedules = await api("/api/schedules");
+    paintScheduleCount();
+    if (state.page === "schedules") renderPage();
+    return state.schedules;
+  }
+  function paintScheduleCount() {
+    const count = document.getElementById("schedule-count");
+    if (!count) return;
+    const on = (state.schedules?.schedules || []).filter((entry) => entry.enabled).length;
+    count.textContent = String(on);
+    count.hidden = !on;
+  }
+  function scheduleInput(entry) {
+    return Object.fromEntries(SCHEDULE_FIELDS.map((key) => [key, entry[key]]));
+  }
+  function localTime(value) {
+    // The scheduler keeps wall-clock local times without a zone, e.g. 2026-10-05T09:00.
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    return new Intl.DateTimeFormat("tr-TR", {
+      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    }).format(d);
+  }
+  function fromNow(value) {
+    const minutes = Math.round((new Date(value) - Date.now()) / 60000);
+    if (!Number.isFinite(minutes)) return "";
+    if (minutes < 1) return "birazdan";
+    if (minutes < 60) return `${minutes} dk sonra`;
+    const hours = Math.round(minutes / 60);
+    return hours < 48 ? `${hours} saat sonra` : `${Math.round(hours / 24)} gün sonra`;
+  }
+  function localDate(d = new Date()) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  function schedulesPage() {
+    const page = node("div", "page");
+    const actions = node("div", "actions");
+    actions.append(
+      button("Yenile", "refresh", () => attempt(refreshSchedules)),
+      button("Yeni zamanlama", "plus", () => scheduleDialog(), "primary"),
+    );
+    page.append(heading(
+      "OTOMATİK ÇALIŞTIRMA",
+      "Zamanlayıcı",
+      "Akışlarınızı seçtiğiniz gün ve saatlerde kendiliğinden çalıştırın.",
+      actions,
+    ));
+    const data = state.schedules;
+    if (!data) {
+      page.append(node("p", "small muted", "Zamanlamalar yükleniyor…"));
+      return page;
+    }
+    page.append(note(
+      "Zamanlanmış akışlar yalnız Studio açıkken çalışır; pencere simge durumunda kalabilir. Akış başlamadan önce "
+        + "Studio öne gelir ve geri sayım gösterir. O sırada başka bir akış çalışıyorsa zamanlanmış akış 10 dakikaya "
+        + "kadar bekler, sonra atlanır.",
+      "schedule-note",
+    ));
+    const panel = node("div", "panel table-wrap schedule-table");
+    if (!data.schedules.length)
+      panel.append(empty(
+        "Henüz zamanlama yok",
+        "Bir akışı her gün, haftanın belirli günlerinde veya belirli aralıklarla kendiliğinden çalıştırın.",
+        button("Zamanlama oluştur", "plus", () => scheduleDialog(), "small primary"),
+      ));
+    else {
+      const table = node("table", "data-table");
+      const head = node("thead");
+      const titles = node("tr");
+      ["Akış ve zaman", "Sonraki çalışma", "Son durum", "Etkin", ""].forEach((title) => titles.append(node("th", "", title)));
+      head.append(titles);
+      const body = node("tbody");
+      data.schedules.forEach((entry) => body.append(scheduleRow(entry)));
+      table.append(head, body);
+      panel.append(table);
+    }
+    page.append(panel, scheduleSettings(data));
+    return page;
+  }
+  function scheduleRow(entry) {
+    const row = node("tr", entry.enabled ? "" : "schedule-off");
+    const name = node("td");
+    const open = node("button", "table-name table-link", entry.workflow_name || "Silinmiş akış");
+    open.type = "button";
+    open.title = "Akışı aç";
+    open.addEventListener("click", () => openWorkflow(entry.workflow_id));
+    name.append(open, node("div", "table-sub", entry.summary));
+    const next = node("td");
+    if (entry.enabled && entry.next_run_at)
+      next.append(node("div", "", localTime(entry.next_run_at)), node("div", "table-sub", fromNow(entry.next_run_at)));
+    else next.append(node("span", "muted", entry.enabled ? "Yeniden çalışmayacak" : "Kapalı"));
+    const last = node("td");
+    const known = scheduleStates[entry.last_status];
+    if (known) {
+      last.append(node("span", `pill ${known[1]}`, known[0]));
+      const detail = [entry.last_run_at && localTime(entry.last_run_at), entry.last_message].filter(Boolean).join(" · ");
+      if (detail) last.append(node("div", "table-sub", detail));
+      if (entry.last_status === "started" && entry.last_run_id)
+        last.append(linkButton("Çalışmayı gör", () => openRun(entry.last_run_id)));
+    } else last.append(node("span", "muted", "Henüz çalışmadı"));
+    const toggle = node("td");
+    const check = node("input");
+    check.type = "checkbox";
+    check.checked = entry.enabled;
+    check.setAttribute("aria-label", `${entry.workflow_name || "Akış"} · ${entry.summary}: etkin`);
+    check.addEventListener("change", () => attempt(async () => {
+      check.disabled = true;
+      try {
+        await api(`/api/schedules/${encodeURIComponent(entry.id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...scheduleInput(entry), enabled: check.checked }),
+        });
+        await refreshSchedules();
+      } catch (error) {
+        check.checked = !check.checked;
+        throw error;
+      } finally {
+        check.disabled = false;
+      }
+    }));
+    toggle.append(check);
+    const tools = node("td", "row-tools");
+    tools.append(
+      iconButton("Zamanlamayı düzenle", "edit", () => scheduleDialog(entry)),
+      iconButton("Zamanlamayı sil", "trash", () => removeSchedule(entry), "danger"),
+    );
+    row.append(name, next, last, toggle, tools);
+    return row;
+  }
+  async function removeSchedule(entry) {
+    if (!(await confirmDialog(
+      "Zamanlamayı sil",
+      `“${entry.workflow_name || "Akış"}” akışının “${entry.summary}” zamanlaması silinecek. Akışın kendisi silinmez.`,
+      "Zamanlamayı sil",
+      true,
+    )))
+      return;
+    await attempt(async () => {
+      await api(`/api/schedules/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
+      await refreshSchedules();
+      toast("Zamanlama silindi.");
+    });
+  }
+  function scheduleSettings(data) {
+    const grid = node("div", "schedule-settings");
+    const login = node("section", "panel settings-panel");
+    const loginTitle = node("h2");
+    loginTitle.append(icon("desktop"), node("span", "", "Bilgisayar açılınca başlat"));
+    login.append(loginTitle, node("p", "",
+      "Studio, bilgisayarda oturum açtığınızda simge durumunda başlar; zamanlanmış akışlar siz açmadan çalışır. "
+        + "Bilgisayar uyku modundayken veya oturum kapalıyken akışlar çalışmaz."));
+    const auto = data.autostart || {};
+    const check = node("input");
+    check.type = "checkbox";
+    check.id = "autostart-toggle";
+    check.checked = Boolean(auto.enabled);
+    check.disabled = !auto.supported;
+    const label = node("label", "checkbox-label");
+    label.append(check, node("span", "", "Bilgisayar açılınca Studio'yu başlat (simge durumunda)"));
+    login.append(label);
+    if (!auto.supported && auto.reason) login.append(node("p", "help", auto.reason));
+    check.addEventListener("change", () => attempt(async () => {
+      check.disabled = true;
+      try {
+        state.schedules.autostart = await api("/api/autostart", {
+          method: "PUT",
+          body: JSON.stringify({ enabled: check.checked }),
+        });
+        toast(check.checked ? "Studio, bilgisayar açılınca simge durumunda başlayacak."
+          : "Studio artık bilgisayar açılınca kendiliğinden başlamayacak.");
+      } catch (error) {
+        check.checked = !check.checked;
+        throw error;
+      } finally {
+        check.disabled = !state.schedules?.autostart?.supported;
+      }
+    }));
+    const wait = node("section", "panel settings-panel");
+    const waitTitle = node("h2");
+    waitTitle.append(icon("clock"), node("span", "", "Başlamadan önce geri sayım"));
+    wait.append(waitTitle, node("p", "",
+      "Zamanlanmış akış ekranı kullanmadan önce Studio öne gelir ve geri sayım gösterir. Bu sürede fareyi bırakın "
+        + "veya çalışmayı iptal edin."));
+    const seconds = textInput(String(data.settings?.countdown ?? 10), "", "number");
+    seconds.id = "countdown-seconds";
+    seconds.min = "0";
+    seconds.max = "120";
+    seconds.step = "1";
+    seconds.addEventListener("change", () => attempt(async () => {
+      const value = Number(seconds.value);
+      if (!Number.isInteger(value) || value < 0 || value > 120) {
+        seconds.value = String(state.schedules.settings.countdown);
+        throw new Error("Geri sayım 0 ile 120 saniye arasında tam sayı olmalıdır.");
+      }
+      state.schedules.settings = await api("/api/schedule-settings", {
+        method: "PUT",
+        body: JSON.stringify({ countdown: value }),
+      });
+      toast(value ? `Zamanlanmış akışlar ${value} saniyelik geri sayımla başlayacak.`
+        : "Geri sayım kapatıldı; zamanlanmış akışlar hemen başlayacak.");
+    }));
+    wait.append(field("Geri sayım (saniye)", seconds, "0 ile 120 arasında; 0 geri sayımı kapatır."));
+    grid.append(login, wait);
+    return grid;
+  }
+  async function scheduleWorkflow() {
+    // From the editor: the schedule runs the saved flow.
+    const id = state.workflow?.id;
+    if (!(await requireSaved())) return;
+    if (state.page !== "editor" || state.workflow?.id !== id) return;
+    await attempt(refreshSchedules);
+    scheduleDialog(null, id);
+  }
+  function scheduleDialog(entry = null, workflowId = null) {
+    if (!state.workflows.length) {
+      toast("Önce bir akış oluşturun.", true);
+      return;
+    }
+    const soon = new Date(Date.now() + 60 * 60000);
+    const draft = entry ? clone(scheduleInput(entry)) : {
+      workflow_id: workflowId || state.workflows[0].id, enabled: true, kind: "daily", date: localDate(soon),
+      time: `${String(soon.getHours()).padStart(2, "0")}:00`, days: [0, 1, 2, 3, 4], every_minutes: 60, until: null,
+      catch_up: false,
+    };
+    draft.date ||= localDate(soon);
+    const controls = {};
+    let previewTimer = 0;
+    let previewTurn = 0;
+    const paintPreview = () => {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(async () => {
+        const turn = ++previewTurn;
+        const problem = scheduleProblem(draft);
+        const box = controls.preview;
+        if (!box?.isConnected) return;
+        if (problem) {
+          box.replaceChildren(note(problem, "warning"));
+          return;
+        }
+        try {
+          const result = await api("/api/schedules/preview", { method: "POST", body: JSON.stringify(draft) });
+          if (turn !== previewTurn || !box.isConnected) return;
+          box.replaceChildren(node("strong", "", result.summary));
+          if (!result.upcoming.length)
+            box.append(node("p", "help", "Bu zaman geçmişte kaldı; zamanlama çalışmaz."));
+          else {
+            const list = node("ul");
+            result.upcoming.forEach((due) => list.append(node("li", "", `${localTime(due)} · ${fromNow(due)}`)));
+            box.append(node("span", "small muted", "Sonraki çalışmalar:"), list);
+          }
+        } catch (error) {
+          if (turn === previewTurn && box.isConnected) box.replaceChildren(note(error.message, "warning"));
+        }
+      }, 200);
+    };
+    const paintKind = () => {
+      const kind = draft.kind;
+      controls.kinds.querySelectorAll("button").forEach((choice) =>
+        choice.setAttribute("aria-pressed", String(choice.dataset.kind === kind)));
+      controls.dateField.hidden = kind !== "once";
+      controls.daysField.hidden = !["weekly", "interval"].includes(kind);
+      controls.everyField.hidden = kind !== "interval";
+      controls.untilField.hidden = kind !== "interval";
+      controls.timeLabel.textContent = kind === "interval" ? "Başlangıç saati" : "Saat";
+      paintPreview();
+    };
+    const paintDays = () => controls.days.querySelectorAll("button").forEach((chip) =>
+      chip.setAttribute("aria-pressed", String(draft.days.includes(Number(chip.dataset.day)))));
+    const el = dialog(entry ? "Zamanlamayı düzenle" : "Yeni zamanlama", (body) => {
+      const flow = node("select");
+      state.workflows.forEach((workflow) => {
+        const option = node("option", "", workflow.name);
+        option.value = workflow.id;
+        flow.append(option);
+      });
+      flow.value = draft.workflow_id;
+      flow.addEventListener("change", () => {
+        draft.workflow_id = flow.value;
+      });
+      body.append(field("Akış", flow, "Zamanı gelince akışın kaydedilmiş hâli çalışır.", true));
+      const kinds = node("div", "segmented schedule-kinds");
+      kinds.setAttribute("role", "group");
+      kinds.setAttribute("aria-label", "Ne sıklıkla");
+      for (const [value, label] of scheduleKinds) {
+        const choice = button(label, "", () => {
+          draft.kind = value;
+          paintKind();
+        });
+        choice.dataset.kind = value;
+        kinds.append(choice);
+      }
+      controls.kinds = kinds;
+      const kindField = node("div", "field");
+      kindField.append(node("span", "field-label", "Ne sıklıkla?"), kinds);
+      const date = textInput(draft.date, "", "date");
+      date.addEventListener("input", () => {
+        draft.date = date.value || null;
+        paintPreview();
+      });
+      controls.dateField = field("Tarih", date);
+      const time = textInput(draft.time, "", "time");
+      time.required = true;
+      time.addEventListener("input", () => {
+        draft.time = time.value;
+        paintPreview();
+      });
+      const timeField = field("Saat", time);
+      controls.timeLabel = timeField.querySelector("label");
+      const days = node("div", "day-chips");
+      days.setAttribute("role", "group");
+      days.setAttribute("aria-label", "Günler");
+      dayNames.forEach((name, day) => {
+        const chip = node("button", "day-chip", name);
+        chip.type = "button";
+        chip.dataset.day = String(day);
+        chip.title = dayTitles[day];
+        chip.addEventListener("click", () => {
+          draft.days = draft.days.includes(day) ? draft.days.filter((other) => other !== day)
+            : [...draft.days, day].sort((a, b) => a - b);
+          paintDays();
+          paintPreview();
+        });
+        days.append(chip);
+      });
+      const quick = node("div", "day-quick");
+      for (const [label, chosen] of [["Hafta içi", [0, 1, 2, 3, 4]], ["Her gün", [0, 1, 2, 3, 4, 5, 6]],
+        ["Hafta sonu", [5, 6]]]) {
+        const shortcut = node("button", "link-button", label);
+        shortcut.type = "button";
+        shortcut.addEventListener("click", () => {
+          draft.days = [...chosen];
+          paintDays();
+          paintPreview();
+        });
+        quick.append(shortcut);
+      }
+      controls.days = days;
+      controls.daysField = node("div", "field");
+      controls.daysField.append(node("span", "field-label", "Günler"), days, quick);
+      const every = textInput(String(draft.every_minutes), "", "number");
+      every.min = "1";
+      every.max = "1440";
+      every.step = "1";
+      every.addEventListener("input", () => {
+        draft.every_minutes = Number(every.value);
+        paintPreview();
+      });
+      controls.everyField = field("Kaç dakikada bir?", every, "Örn. 30; 60 saatte bir demektir. En az 1, en fazla 1440.");
+      const until = textInput(draft.until || "", "", "time");
+      until.addEventListener("input", () => {
+        draft.until = until.value || null;
+        paintPreview();
+      });
+      controls.untilField = field("Bitiş saati (isteğe bağlı)", until,
+        "Bu saatten sonra o gün yeniden çalışmaz. Boş bırakılırsa gün sonuna kadar sürer.");
+      const catchUp = node("input");
+      catchUp.type = "checkbox";
+      catchUp.checked = draft.catch_up;
+      catchUp.addEventListener("change", () => {
+        draft.catch_up = catchUp.checked;
+      });
+      const catchLabel = node("label", "checkbox-label");
+      catchLabel.append(catchUp, node("span", "", "Studio kapalıyken kaçırılırsa, açılınca bir kez çalıştır"));
+      const enabled = node("input");
+      enabled.type = "checkbox";
+      enabled.checked = draft.enabled;
+      enabled.addEventListener("change", () => {
+        draft.enabled = enabled.checked;
+      });
+      const enabledLabel = node("label", "checkbox-label");
+      enabledLabel.append(enabled, node("span", "", "Etkin"));
+      const options = node("div", "field schedule-options");
+      options.append(catchLabel, enabledLabel);
+      controls.preview = node("div", "schedule-preview");
+      controls.preview.setAttribute("role", "status");
+      body.append(kindField, controls.dateField, timeField, controls.daysField, controls.everyField,
+        controls.untilField, options, controls.preview);
+      const others = (state.schedules?.schedules || []).filter((other) =>
+        other.workflow_id === draft.workflow_id && other.id !== entry?.id);
+      if (!entry && others.length)
+        body.append(note(`Bu akışın ${others.length} zamanlaması daha var; Zamanlayıcı sayfasında görebilirsiniz.`));
+      paintDays();
+      paintKind();
+    }, [
+      { label: "Vazgeç", fn: (d) => d.close() },
+      {
+        label: entry ? "Kaydet" : "Zamanlamayı oluştur",
+        icon: "check",
+        variant: "primary",
+        fn: (d) => attempt(async () => {
+          const problem = scheduleProblem(draft);
+          if (problem) throw new Error(problem);
+          const payload = { ...draft, date: draft.kind === "once" ? draft.date : null,
+            until: draft.kind === "interval" ? draft.until : null };
+          await api(entry ? `/api/schedules/${encodeURIComponent(entry.id)}` : "/api/schedules", {
+            method: entry ? "PUT" : "POST",
+            body: JSON.stringify(payload),
+          });
+          d.close();
+          await refreshSchedules();
+          toast(entry ? "Zamanlama kaydedildi." : "Zamanlama oluşturuldu. Studio açık kaldıkça akış zamanında çalışır.");
+        }),
+      },
+    ]);
+    el.classList.add("schedule-dialog");
+    el.addEventListener("close", () => clearTimeout(previewTimer));
+  }
+  function scheduleProblem(draft) {
+    if (!draft.workflow_id) return "Bir akış seçin.";
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time || "")) return "Saati girin.";
+    if (draft.kind === "once" && !draft.date) return "Tarihi seçin.";
+    if (["weekly", "interval"].includes(draft.kind) && !draft.days.length) return "En az bir gün seçin.";
+    if (draft.kind === "interval") {
+      if (!Number.isInteger(draft.every_minutes) || draft.every_minutes < 1 || draft.every_minutes > 1440)
+        return "Aralık 1 ile 1440 dakika arasında tam sayı olmalıdır.";
+      if (draft.until && draft.until <= draft.time) return "Bitiş saati başlangıç saatinden sonra olmalıdır.";
+    }
+    return null;
+  }
+  // The countdown before a scheduled run, shown over any page.
+  function watchPending() {
+    clearTimeout(state.pendingPoll);
+    if (root.querySelector(".license-screen")) return;
+    const shown = Boolean(document.getElementById("schedule-countdown"));
+    state.pendingPoll = setTimeout(async () => {
+      try {
+        showPending((await api("/api/schedules/pending")).pending);
+      } catch (_) {
+        // The Studio is closing or the license screen took over; the next tick asks again.
+      }
+      watchPending();
+    }, shown ? 1000 : 3000);
+  }
+  function showPending(pending) {
+    let panel = document.getElementById("schedule-countdown");
+    if (!pending) {
+      if (panel) {
+        panel.remove();
+        afterPending();
+      }
+      return;
+    }
+    if (panel?.dataset.key !== `${pending.schedule_id}@${pending.due_at}`) {
+      panel?.remove();
+      panel = node("section", "schedule-countdown");
+      panel.id = "schedule-countdown";
+      panel.dataset.key = `${pending.schedule_id}@${pending.due_at}`;
+      panel.setAttribute("role", "alertdialog");
+      panel.setAttribute("aria-label", "Zamanlanmış akış başlamak üzere");
+      const head = node("div", "schedule-countdown-head");
+      head.append(icon("calendar"), node("span", "", "ZAMANLANMIŞ AKIŞ"));
+      const seconds = node("div", "schedule-countdown-seconds");
+      seconds.setAttribute("aria-live", "polite");
+      const actions = node("div", "actions");
+      const cancel = button("İptal et", "cross", () => answerPending("cancel"), "small");
+      actions.append(cancel, button("Şimdi başlat", "play", () => answerPending("start"), "small primary"));
+      panel.append(head, node("strong", "schedule-countdown-name", pending.workflow_name), seconds,
+        node("p", "", "Akış birazdan fareyi ve klavyeyi kullanacak. Bilgisayarı bırakın veya bu çalışmayı iptal edin."),
+        actions);
+      document.body.append(panel);
+      cancel.focus({ preventScroll: true });
+    }
+    panel.querySelector(".schedule-countdown-seconds").textContent =
+      `${pending.seconds_left} sn sonra başlıyor`;
+  }
+  async function answerPending(choice) {
+    const panel = document.getElementById("schedule-countdown");
+    panel?.querySelectorAll("button").forEach((item) => {
+      item.disabled = true;
+    });
+    try {
+      await api(`/api/schedules/pending/${choice}`, { method: "POST" });
+      if (choice === "cancel") toast("Zamanlanmış çalışma iptal edildi.");
+    } catch (error) {
+      // 409: the countdown had already ended; what happened shows on the Zamanlayıcı page.
+      toast(error.message, true);
+    }
+    showPending(null);
+    watchPending();
+  }
+  async function afterPending() {
+    // The countdown ended: the run started, was cancelled or skipped. Lists catch up.
+    try {
+      await pause(1500);
+      await refreshSchedules();
+      const runs = await api("/api/runs");
+      state.runs = runs;
+      if (["dashboard", "runs"].includes(state.page)) renderPage();
+      const started = runs.find((run) => run.trigger === "schedule" && ["queued", "running"].includes(run.status));
+      if (started) toast(`“${started.workflow_name}” zamanlanmış olarak başladı. Çalışma geçmişinden izleyebilirsiniz.`);
+    } catch (_) {
+      // Nothing to update while the Studio is closing.
+    }
   }
 
   // ----- Named connections: chosen per step, like n8n credentials -------------------
@@ -5832,6 +6790,8 @@
   function showLicenseGate(status) {
     stopPolling();
     clearTimeout(state.updatePoll);
+    clearTimeout(state.pendingPoll);
+    document.getElementById("schedule-countdown")?.remove();
     clearInterval(state.licenseTimer);
     clearInterval(state.licenseWatch);
     document.querySelectorAll("dialog").forEach((el) => el.close());
@@ -6076,6 +7036,8 @@
       pollRunList();
       pollUpdates();
       watchLicense();
+      watchPending();
+      attempt(refreshSchedules);
     } catch (error) {
       root.replaceChildren();
       root.setAttribute("aria-busy", "false");
@@ -6117,6 +7079,12 @@
       event.preventDefault();
       event.returnValue = "";
     }
+  });
+  document.addEventListener("keydown", (event) => {
+    // Esc lets go of the steps chosen for a note.
+    if (event.key !== "Escape" || state.page !== "editor" || !state.multi.size) return;
+    if (document.querySelector("dialog[open]") || document.getElementById("diagram-insert")) return;
+    clearChoice();
   });
   boot();
 })();

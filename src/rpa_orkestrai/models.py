@@ -55,9 +55,26 @@ class Step(Model):
         return self
 
 
+def walk_steps(steps: list[Step]):
+    for step in steps:
+        yield step
+        yield from walk_steps(step.children)
+        yield from walk_steps(step.otherwise)
+
+
 # The editor checks the same nesting limit before a step is placed (MAX_DEPTH in static/app.js).
 MAX_DEPTH = 8
 MAX_STEPS = 200
+
+
+class Note(Model):
+    """A note over part of a flow, drawn around its steps; a run ignores it."""
+
+    id: str = Field(default_factory=uid, pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+    title: str = Field(default="Not", max_length=120)
+    text: str = Field(default="", max_length=4000)
+    color: Literal["yellow", "blue", "green", "pink", "gray"] = "yellow"
+    steps: list[str] = Field(default_factory=list, max_length=MAX_STEPS)
 
 
 class WorkflowInput(Model):
@@ -65,6 +82,19 @@ class WorkflowInput(Model):
     description: str = Field(default="", max_length=2000)
     department: str = Field(default="Genel", min_length=1, max_length=120)
     steps: list[Step] = Field(default_factory=list)
+    notes: list[Note] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def notes_on_existing_steps(self) -> WorkflowInput:
+        # A note keeps only the steps the flow still has; one left without steps goes with them.
+        present = {step.id for step in walk_steps(self.steps)}
+        kept = []
+        for note in self.notes:
+            steps = [step_id for step_id in dict.fromkeys(note.steps) if step_id in present]
+            if steps:
+                kept.append(note if steps == note.steps else note.model_copy(update={"steps": steps}))
+        self.notes = kept
+        return self
 
     @model_validator(mode="after")
     def bounded_tree(self) -> WorkflowInput:
@@ -142,6 +172,63 @@ class Run(Model):
     variables: dict[str, Any] | None = None
     # step id → {"runs", "ok", "errors", "skipped"}: shown on the diagram after a run.
     step_stats: dict[str, dict[str, int]] = Field(default_factory=dict)
+    # Who started it: a person in the Studio or the scheduler.
+    trigger: Literal["manual", "schedule"] = "manual"
+
+
+HOUR_MINUTE = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class ScheduleInput(Model):
+    """When a flow runs by itself: once, daily, on some weekdays, or every N minutes."""
+
+    workflow_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    enabled: bool = True
+    kind: Literal["once", "daily", "weekly", "interval"] = "daily"
+    date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")  # once
+    time: str = Field(default="09:00", pattern=HOUR_MINUTE)  # once, daily, weekly; interval: window start
+    days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], max_length=7)  # 0 Monday … 6 Sunday
+    every_minutes: int = Field(default=60, ge=1, le=1440)  # interval
+    until: str | None = Field(default=None, pattern=HOUR_MINUTE)  # interval: window end, none = midnight
+    # Like the Task Scheduler option: a run missed while the Studio was closed runs once when it opens.
+    catch_up: bool = False
+
+    @model_validator(mode="after")
+    def consistent(self) -> ScheduleInput:
+        if any(day not in range(7) for day in self.days) or len(set(self.days)) != len(self.days):
+            raise ValueError("Günler 0 (Pazartesi) ile 6 (Pazar) arasında ve tekrarsız olmalıdır.")
+        if self.kind == "once" and not self.date:
+            raise ValueError("Bir kez çalışacak zamanlama için tarih gereklidir.")
+        if self.date is not None:
+            try:
+                datetime.strptime(self.date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("Geçerli bir tarih girin.") from None
+        if self.kind in {"weekly", "interval"} and not self.days:
+            raise ValueError("En az bir gün seçin.")
+        if self.kind == "interval" and self.until is not None and self.until <= self.time:
+            raise ValueError("Saat aralığının bitişi başlangıcından sonra olmalıdır.")
+        return self
+
+
+class Schedule(ScheduleInput):
+    id: str = Field(default_factory=uid, pattern=r"^[a-f0-9]{32}$")
+    created_at: str = Field(default_factory=now)
+    # The next time it is due, kept so a run missed while the Studio was closed can be noticed.
+    next_run_at: str | None = None
+    last_run_at: str | None = None
+    last_run_id: str | None = None
+    last_status: Literal["started", "skipped", "missed", "cancelled", "error"] | None = None
+    last_message: str | None = Field(default=None, max_length=500)
+
+
+class ScheduleSettings(Model):
+    # Seconds the Studio shows "starting soon" (with Cancel) before a scheduled run takes the screen.
+    countdown: int = Field(default=10, ge=0, le=120)
+
+
+class AutostartRequest(Model):
+    enabled: bool
 
 
 class RunRequest(Model):

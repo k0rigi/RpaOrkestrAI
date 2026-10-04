@@ -65,10 +65,11 @@ def test_attach_opens_gui_on_main_thread_without_constructing_a_server(monkeypat
     monkeypatch.setattr("uvicorn.Server", server_factory)
     calls = []
     monkeypatch.setattr("rpa_orkestrai.native.open_window",
-                        lambda *args: calls.append((args, threading.current_thread())))
+                        lambda *args, **kwargs: calls.append((args, kwargs, threading.current_thread())))
     settings = Settings(tmp_path, dotenv=False)
     serve_native(settings)
-    assert calls == [((gui, f"http://127.0.0.1:{settings.port}"), threading.main_thread())]
+    # The window only attaches: it neither guards closing nor takes the countdown of another process.
+    assert calls == [((gui, f"http://127.0.0.1:{settings.port}"), {"minimized": False}, threading.main_thread())]
     server_factory.assert_not_called()
 
 
@@ -119,6 +120,58 @@ def test_native_window_enables_report_downloads():
     gui.start.assert_called_once()
 
 
+class Hook:
+    """window.events.<name> of pywebview: handlers are added with +=."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self):
+        for handler in self.handlers:
+            handler()
+
+
+def test_window_asks_before_closing_only_while_a_schedule_is_on(monkeypatch, tmp_path):
+    import time
+
+    from rpa_orkestrai import native
+    from rpa_orkestrai.models import Schedule
+    from rpa_orkestrai.scheduler import ScheduleBook
+
+    monkeypatch.setattr(native, "GUARD_INTERVAL", 0.02)
+    window = MagicMock()
+    for name in ("closed", "loaded", "minimized", "restored", "maximized"):
+        setattr(window.events, name, Hook())
+    gui = SimpleNamespace(settings={}, create_window=MagicMock(return_value=window), start=Mock())
+    settings = Settings(tmp_path, dotenv=False)
+    open_window(gui, "http://127.0.0.1:8765", minimized=True, settings=settings)
+    options = gui.create_window.call_args.kwargs
+    assert options["minimized"] is True
+    assert options["localization"]["global.quitConfirmation"].startswith("Zamanlanmış akışlar yalnız Studio açıkken")
+
+    def settles(expected):
+        deadline = time.monotonic() + 3
+        while window.confirm_close is not expected and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return window.confirm_close is expected
+
+    assert settles(False)
+    ScheduleBook(settings.data_dir).add(Schedule(workflow_id="a" * 32))
+    assert settles(True)
+    window.events.closed.fire()
+
+    # Started minimized at login: the countdown restores the window; a maximized one only comes forward.
+    settings.bring_to_front()
+    assert window.restore.call_count == 1 and window.show.call_count == 1 and window.on_top is True
+    window.events.maximized.fire()
+    settings.bring_to_front()
+    assert window.restore.call_count == 1 and window.show.call_count == 2
+
+
 def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(monkeypatch, tmp_path):
     import socket
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -145,7 +198,7 @@ def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(mon
     opener = build_opener(ProxyHandler({}))
     windows = []
 
-    def window(_gui, url):
+    def window(_gui, url, **_options):
         windows.append(url)
         with opener.open(url + "/api/instance", timeout=5) as response:
             assert json.load(response) == identity(settings.data_dir)

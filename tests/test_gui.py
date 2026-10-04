@@ -27,8 +27,8 @@ def test_gui_handles_missing_console_and_uses_explicit_checkout_workspace(monkey
 
     previous_cwd = Path.cwd()
     observed = []
-    def serve(settings, *, auto_port):
-        assert auto_port is True
+    def serve(settings, *, auto_port, minimized):
+        assert auto_port is True and minimized is False
         observed.append(settings.data_dir)
         assert Path.cwd() == tmp_path
         assert isinstance(sys.stderr, io.TextIOBase)
@@ -106,6 +106,16 @@ def test_source_shortcut_quotes_paths_and_does_not_interpolate_powershell(monkey
     assert str(root) not in arguments[-1]
     assert run.call_args.kwargs['env']['RPA_SHORTCUT_ROOT'] == str(root)
     assert run.call_args.kwargs['env']['RPA_SHORTCUT_PYTHON'].endswith('pythonw.exe')
+
+
+def test_started_at_login_the_window_opens_minimized(monkeypatch, tmp_path):
+    from rpa_orkestrai import native
+
+    monkeypatch.delenv('RPA_DATA_DIR', raising=False)
+    serve = Mock()
+    monkeypatch.setattr(native, 'serve_native', serve)
+    assert gui.main(workspace=tmp_path, argv=['--minimized']) == 0
+    assert serve.call_args.kwargs == {'auto_port': True, 'minimized': True}
 
 
 def test_update_handoff_exits_before_opening_workspace(monkeypatch, tmp_path):

@@ -1,5 +1,5 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "0.8.6"
+  #define AppVersion "0.9.0"
 #endif
 
 [Setup]
@@ -84,6 +84,13 @@ begin
   Result := (RegQueryStringValue(HKLM32, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0'));
   if not Result then
     Result := (RegQueryStringValue(HKCU, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0'));
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  { Bilgisayar açılınca Studio'yu başlat: the login entry would point to a removed program. }
+  if CurUninstallStep = usUninstall then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RpaOrkestrAI Studio');
 end;
 
 function InitializeSetup(): Boolean;

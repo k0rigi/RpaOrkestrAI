@@ -616,9 +616,18 @@ for entry in CATALOG:
     if entry["type"] in BRANCHES:
         entry["branches"] = BRANCHES[entry["type"]]
 CATALOG = sorted(CATALOG + LIBRARY, key=lambda entry: CATEGORY_ORDER.index(entry["category"]))
+# Every step can pause before the flow moves on, instead of a separate Bekle step after it. Steps that
+# end a path never hand over to a next step, and Bekle is itself a pause.
+WAIT_AFTER = field("wait_after", "Sonraki adıma geçmeden bekle (saniye)", "number", 0, min=0, max=3600, step=0.1,
+                   help="Adım bitince akış bu kadar bekler, sonra sonraki adıma geçer; 0 beklemez. Döngü, koşul ve "
+                        "Hata olursa bloklarında blok bütünüyle bittikten sonra beklenir. Ekranın hazır olmasını "
+                        "beklemek için Pencerede görseli bekle / ara daha güvenlidir.")
+NO_WAIT_AFTER = {"control.goto", "control.continue", "control.break", "control.stop", "core.wait"}
 for entry in ACTION_DEFINITIONS + CATALOG:
     # Field definitions are shared between steps; each step gets its own copy before help is filled in.
     entry["fields"] = [dict(item) for item in entry["fields"]]
+    if entry["type"] not in NO_WAIT_AFTER and all(item["name"] != "wait_after" for item in entry["fields"]):
+        entry["fields"].append(dict(WAIT_AFTER))
     for item in entry["fields"]:
         if item["name"] in NAME_PARAMETERS or (item["name"] == "name" and entry["type"] in NAMING_ACTIONS):
             # The name a step gives to its result: the form takes only the name and shows how it is used.

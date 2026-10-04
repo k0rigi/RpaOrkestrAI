@@ -22,6 +22,15 @@ class LicensedForTests:
 
 
 @pytest.fixture(autouse=True)
+def no_native_alerts(monkeypatch):
+    """A failed desktop start must fail the test, not wait on a native alert nobody can click."""
+    def alert(message):
+        pytest.fail(f"Beklenmeyen hata penceresi: {message}")
+
+    monkeypatch.setattr("rpa_orkestrai.gui.show_error", alert)
+
+
+@pytest.fixture(autouse=True)
 def licensed_studio(request, monkeypatch):
     if "real_license" not in request.keywords:
         monkeypatch.setattr("rpa_orkestrai.app.LicenseService", LicensedForTests)

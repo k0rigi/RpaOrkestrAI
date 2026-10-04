@@ -6,6 +6,7 @@ import json
 import platform
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from . import __version__, template_bundle
+from . import __version__, autostart, template_bundle
 from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
 from .engine import ARTIFACT_TYPES, RunManager, WorkflowError, validate_workflow
@@ -24,6 +25,7 @@ from .instance import identity
 from .licensing import OPEN_PATHS, LicenseError, LicenseService, LicenseUnavailable
 from .locking import WorkspaceLock
 from .models import (
+    AutostartRequest,
     DesktopPickRequest,
     FavoriteRequest,
     LicenseLoginRequest,
@@ -31,6 +33,9 @@ from .models import (
     PointerRequest,
     RecordRequest,
     RunRequest,
+    Schedule,
+    ScheduleInput,
+    ScheduleSettings,
     StepTestRequest,
     TemplateCropRequest,
     WindowCheckRequest,
@@ -40,6 +45,7 @@ from .models import (
     now,
     uid,
 )
+from .scheduler import ScheduleBook, Scheduler, next_occurrence, planned, summary, upcoming
 from .storage import Store
 
 REQUEST_LIMIT = 2_000_000
@@ -80,15 +86,35 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     from .connections import Connections
 
     connections = Connections(settings.data_dir, settings)
+    book = ScheduleBook(settings.data_dir)
+
+    def workflow_name(workflow_id: str) -> str | None:
+        try:
+            return store.workflow(workflow_id).name
+        except (KeyError, ValueError):
+            return None
+
+    def attention() -> None:
+        # The desktop window sets this (native.py); in a browser there is nothing to bring forward.
+        hook = getattr(settings, "bring_to_front", None)
+        if hook:
+            hook()
+
+    scheduler = Scheduler(book, start_run=lambda workflow_id: manager.start(store.workflow(workflow_id),
+                                                                            trigger="schedule"),
+                          allowed=licensing.allowed, busy=manager.busy, workflow_name=workflow_name,
+                          attention=attention)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         with WorkspaceLock(settings.data_dir):
             store.recover_runs()
             licensing.start()
+            scheduler.start()
             try:
                 yield
             finally:
+                scheduler.stop()
                 licensing.stop()
                 records.close()
                 picks.close()
@@ -98,6 +124,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                   docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
     app.state.store, app.state.manager, app.state.settings = store, manager, settings
     app.state.picks, app.state.licensing, app.state.records = picks, licensing, records
+    app.state.scheduler = scheduler
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
     @app.middleware("http")
@@ -471,6 +498,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.delete("/api/workflows/{workflow_id}", status_code=204)
     def delete_workflow(workflow_id: str):
         store.delete_workflow(workflow_id)
+        # Its schedules would only fail from now on.
+        book.remove_workflow(workflow_id)
         return Response(status_code=204)
 
     @app.post("/api/workflows/{workflow_id}/duplicate", status_code=201)
@@ -484,12 +513,91 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     def export_workflow(workflow_id: str):
         workflow = store.workflow(workflow_id)
         data = workflow.model_dump(mode="json")
+        # A flow without notes stays readable by Studios that do not know them.
+        if not data["notes"]:
+            del data["notes"]
         # The reference images go along, so image steps work on the computer that imports the file.
         images = template_bundle.pack(workflow.steps, template_folder())
         if images:
             data["templates"] = images
         return Response(json.dumps(data, ensure_ascii=False, indent=2), media_type="application/json",
                         headers={"Content-Disposition": f'attachment; filename="akis-{workflow.id[:8]}.json"'})
+
+    # ----- Zamanlayıcı: flows that run by themselves while the Studio is open -----------------
+    def schedule_view(item: Schedule) -> dict:
+        times = upcoming(item, datetime.now()) if item.enabled else []
+        return {**item.model_dump(), "summary": summary(item), "workflow_name": workflow_name(item.workflow_id),
+                "upcoming": [due.isoformat(timespec="minutes") for due in times]}
+
+    @app.get("/api/schedules")
+    def list_schedules():
+        return {"settings": book.settings().model_dump(), "schedules": [schedule_view(item) for item in book.schedules()],
+                "pending": scheduler.pending(), "autostart": autostart.status()}
+
+    @app.post("/api/schedules/preview")
+    def preview_schedule(body: ScheduleInput):
+        return {"summary": summary(body),
+                "upcoming": [due.isoformat(timespec="minutes") for due in upcoming(body, datetime.now())]}
+
+    def check_schedule(body: ScheduleInput) -> None:
+        if workflow_name(body.workflow_id) is None:
+            raise HTTPException(status_code=404, detail="Zamanlanacak akış bulunamadı.")
+        if body.enabled and next_occurrence(body, datetime.now()) is None:
+            raise HTTPException(status_code=422, detail="Seçilen tarih ve saat geçmişte kaldı.")
+
+    @app.post("/api/schedules", status_code=201)
+    def create_schedule(body: ScheduleInput):
+        check_schedule(body)
+        try:
+            schedule = book.add(planned(Schedule(**body.model_dump()), datetime.now()))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        scheduler.poke()
+        return schedule_view(schedule)
+
+    @app.put("/api/schedules/{schedule_id}")
+    def update_schedule(schedule_id: str, body: ScheduleInput):
+        check_schedule(body)
+        changed = book.change(schedule_id, lambda item: planned(item.model_copy(update=body.model_dump()),
+                                                                datetime.now()))
+        if changed is None:
+            raise HTTPException(status_code=404, detail="Zamanlama bulunamadı.")
+        scheduler.poke()
+        return schedule_view(changed)
+
+    @app.delete("/api/schedules/{schedule_id}", status_code=204)
+    def delete_schedule(schedule_id: str):
+        if not book.remove(schedule_id):
+            raise HTTPException(status_code=404, detail="Zamanlama bulunamadı.")
+        return Response(status_code=204)
+
+    @app.put("/api/schedule-settings")
+    def update_schedule_settings(body: ScheduleSettings):
+        return book.set_settings(body).model_dump()
+
+    @app.get("/api/schedules/pending")
+    def schedule_pending():
+        return {"pending": scheduler.pending()}
+
+    @app.post("/api/schedules/pending/{choice}")
+    def answer_pending(choice: str):
+        # The countdown before a scheduled run: İptal or Şimdi başlat.
+        if choice not in {"cancel", "start"}:
+            raise HTTPException(status_code=404, detail="Geçersiz seçim.")
+        if not scheduler.answer(choice):
+            raise HTTPException(status_code=409, detail="Başlamayı bekleyen zamanlanmış bir akış yok.")
+        return {"pending": scheduler.pending()}
+
+    @app.get("/api/autostart")
+    def autostart_status():
+        return autostart.status()
+
+    @app.put("/api/autostart")
+    def set_autostart(body: AutostartRequest):
+        try:
+            return autostart.set_enabled(body.enabled)
+        except (RuntimeError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc) or "Başlangıç ayarı değiştirilemedi.") from exc
 
     @app.post("/api/workflows/{workflow_id}/run", status_code=202)
     def start_run(workflow_id: str, body: RunRequest):

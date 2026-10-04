@@ -488,6 +488,9 @@ QUICK_GUIDE = [
                          "orada biter. Aynısını adımın Bu adımdan sonra seçimiyle de yapabilirsiniz."],
     ["Adımı test edin", "Bu adımı test et, yalnız o adımı çalıştırır. Pencereyi ve tablodaki ilk satırı kendisi bulur."],
     ["Çalıştırın", "Çalıştır tüm akışı uygular. Diyagramda her adımın üzerinde ✓ veya ✗ görünür."],
+    ["Not bırakın", "Shift veya Ctrl/⌘ ile adımları seçin (diyagramda Shift ile sürükleyin) ve Not ekle'ye "
+                    "basın. Not, akışın o bölümünü açıklar; çalışmayı etkilemez."],
+    ["Zamanlayın", "Zamanla, akışı seçtiğiniz gün ve saatlerde kendiliğinden çalıştırır; Studio açık kalmalıdır."],
 ]
 
 

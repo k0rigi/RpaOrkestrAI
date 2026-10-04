@@ -17,6 +17,13 @@ Adım kütüphanesi 64 adımdır ve hareketleriniz kaydedilip adımlara çevrile
   - Hiçbir yolun gelmediği adımlar soluk ve kesikli çizilir; çalışmazlar. Bir bağlantıyla bağlayın veya silin. Bir adımı sildiğinizde ona gelen **Adıma git** bağlantıları da kaldırılır.
   - Düğümün üzerine gelince test ▶, çoğalt ve sil düğmeleri çıkar. Seçili düğümde Delete tuşu adımı siler.
   - Son çalışmada her düğümün sağ üstünde ✓ (birden çok çalıştıysa kaç kez) veya ✗ (hata verdi) görünür. Çalışma ayrıntısındaki **Diyagramda göster**, o çalışmanın sonuçlarını hatalı adım seçili olarak açar.
+- **Sonraki adıma geçmeden bekle:** Her adımın ayarlarının en altındaki alandır; varsayılanı 0'dır (beklemez). Örneğin 1,5 yazarsanız adım bittikten sonra akış 1,5 saniye bekler, sonra sıradaki adıma geçer; ayrıca **Bekle** adımı eklemeniz gerekmez. Döngü, koşul ve **Hata olursa** bloklarında blok bütünüyle bittikten sonra bir kez beklenir. Bekleme liste kartında ve diyagram kutusunda saat simgesiyle görünür. Yolu bitiren adımlarda (**Adıma git**, **Sonraki tura geç**, **Döngüden çık**, **Akışı bitir**) ve **Bekle** adımında bu alan yoktur. Önizleme ve **Bu adımı test et** beklemez; **Durdur** beklemeyi hemen keser. Ekranın gerçekten hazır olmasını beklemek için **Pencerede görseli bekle / ara** daha güvenlidir.
+- **Not eklemek (bölge seçimi):** Akışın bir bölümünü seçip ona başlıklı bir not ekleyebilirsiniz.
+  - Adımları seçmek için Shift veya Ctrl (Mac'te ⌘) basılıyken adımlara tıklayın. Liste görünümünde Shift + tıklama, son tıkladığınız adımla arasındaki adımları da seçer. Diyagramda boş alanda Shift basılıyken sürükleyerek bir bölge çizin; bölgenin değdiği kutular seçilir. Sağ alttaki **Bölge seç** düğmesi açıkken Shift'e basmadan da sürükleyerek seçebilirsiniz.
+  - Alttaki çubukta **Not ekle**'ye basın. Sağ panelde notun **Başlık**, **Not** ve **Renk** (sarı, mavi, yeşil, pembe, gri) alanlarını doldurun. Esc tuşu seçimi bırakır.
+  - Diyagramda not, adımlarının çevresinde renkli bir çerçeve olarak çizilir; bir döngü veya koşul seçildiyse bloğun tamamını çerçeveler. Liste görünümünde not, ilk adımının üstünde bir bant olarak görünür; kapsadığı adımların sol kenarı notun rengini alır.
+  - Notu düzenlemek için başlığına (bandına) tıklayın. Sağ panelde kapsadığı adımlar listelenir: bir adımı nottan çıkarabilir veya seçtiğiniz başka adımları **Seçili adımları bu nota ekle** ile ekleyebilirsiniz. **Notu sil** yalnız notu siler, adımlara dokunmaz.
+  - Notlar akışın çalışmasını etkilemez. Bir adımı sildiğinizde notlardan da çıkar; notun son adımı silinirse not da kaldırılır. Bir akışta en fazla 100 not olabilir.
 - **Bağlantı seçmek:** Google Sheets adımlarının (ve eski akışlardaki veritabanı adımının) ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
 - **Çalıştır:** Adımları gerçekten uygular. **Önizleme (ekranı kullanmadan)** işaretliyse fare, klavye, ekran, dosya, bağlantı ve mesaj adımları atlanır; yalnız veri, metin, hesap ve akış adımları çalışır.
 - **Nasıl kullanılır? kutusu:** Bir adıma tıkladığınızda sağ panelin üstünde o adımın kısa kullanım özeti çıkar: sırayla ne yapılacağı, adımın ne ürettiği ve bir ipucu. Her alanın altında da ne yazılacağını anlatan bir açıklama vardır. Kutuyu **Gizle** ile kapatabilirsiniz; adım seçili değilken aynı yerde akışın nasıl kurulacağı özetlenir.
@@ -181,7 +188,7 @@ Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dos
 | Hata olursa | **DENE** dalında hata olursa akışı durdurmak yerine **HATA OLURSA** dalını çalıştırır. Mesaj `${error_message}` içindedir. Örneğin hatalı satırı Excel'e "Hata" olarak işaretleyip sonraki satıra geçmek için kullanılır. |
 | Başka akışı çalıştır | Kayıtlı bir akışı bu noktada çalıştırır; değişkenler ortaktır. ERP'ye giriş gibi ortak işleri tek yerde tutun. En fazla 5 seviye olabilir ve akış kendini çağıramaz. |
 | Akışı bitir | Başarıyla veya hata mesajıyla sonlandırır. |
-| Bekle / Çalışma notu | Sabit bekleme; günlüğe değer yazma. |
+| Bekle / Çalışma notu | Sabit bekleme; günlüğe değer yazma. Bir adımdan sonra beklemek için o adımın **Sonraki adıma geçmeden bekle** alanı da kullanılabilir. |
 
 Bir akış en fazla 200 adım ve 8 seviye iç içe blok içerebilir; Studio bir adımı daha derine bırakmanıza izin vermez. Bir çalışma en fazla 1.000.000 adım çalıştırır.
 

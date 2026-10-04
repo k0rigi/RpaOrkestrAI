@@ -504,6 +504,7 @@ class Executor:
             self.attempt(step, {**defaults(step.action), **step.params}, inner)
         else:
             self.steps(getattr(step, branch), inner)
+        self.pause_after(step)
         return "ok"
 
     def step(self, step: Step, entry: list[tuple[str | None, int]] | None = None) -> str:
@@ -537,6 +538,8 @@ class Executor:
             self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
                      level="warning", step_id=step.id)
             return "skipped"
+        # The pause belongs to the flow, not to the step's own work.
+        delay = p.pop("wait_after", 0)
         if step.action == "control.for_each":
             self.for_each(step, p)
         elif step.action == "control.while":
@@ -567,7 +570,24 @@ class Executor:
                 self.variables[variable_name(p["output"])] = result
         self.check_cancelled()
         self.log(f"Tamamlandı: {label}", step_id=step.id)
+        self.pause_after(step, delay)
         return "ok"
+
+    def pause_after(self, step: Step, delay: Any = None) -> None:
+        """Sonraki adıma geçmeden bekle: the step's own pause before the flow moves on."""
+        if self.run.dry_run or self.run.test_step_id:
+            return  # a preview or a single-step test does not wait, like Bekle in a preview
+        if delay is None:
+            delay = resolve(step.params.get("wait_after", 0), self.variables)
+        if delay is None or delay == "" or delay == 0:
+            return
+        from .actions.common import number
+
+        seconds = number(delay, "Sonraki adıma geçmeden bekle", 0, 3600)
+        if seconds:
+            amount = f"{seconds:g}".replace(".", ",")
+            self.log(f"Sonraki adıma geçmeden {amount} saniye bekleniyor.", step_id=step.id)
+            self.wait(seconds)
 
     def jump(self, step: Step, label: str, p: dict) -> None:
         from .actions.common import integer
@@ -1219,8 +1239,14 @@ class RunManager:
         return self.start(single, dry_run=dry_run, variables=variables, test_step_id=step_id, plan=plan,
                           locate=locate)
 
+    def busy(self) -> bool:
+        """A run or an on-screen target selection holds the mouse and keyboard."""
+        with self._lock:
+            return bool(self._closed or self._active or self._setup_cancel is not None)
+
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
-              test_step_id: str | None = None, plan: dict | None = None, locate: bool = False) -> Run:
+              test_step_id: str | None = None, plan: dict | None = None, locate: bool = False,
+              trigger: str = "manual") -> Run:
         # A tested step runs alone: its Adıma git target lies outside the copy that is run.
         validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]), jumps=plan is None)
         if self.gate is not None and not self.gate():
@@ -1230,8 +1256,8 @@ class RunManager:
                 raise RuntimeError("Bir hedef seçimi devam ediyor. Tamamlanmasını bekleyin veya iptal edin.")
             if self._closed or self._active:
                 raise RuntimeError("Zaten bir akış çalışıyor. Tamamlanmasını bekleyin veya durdurun.")
-            run = Run(workflow_id=workflow.id, workflow_name=workflow.name,
-                      department=workflow.department, dry_run=dry_run, test_step_id=test_step_id)
+            run = Run(workflow_id=workflow.id, workflow_name=workflow.name, department=workflow.department,
+                      dry_run=dry_run, test_step_id=test_step_id, trigger=trigger)
             cancel = threading.Event()
             self.store.save_run(run)
             self._active = (run.id, cancel)

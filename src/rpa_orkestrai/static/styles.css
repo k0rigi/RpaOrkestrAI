@@ -179,6 +179,27 @@
   --cat-flow: #c2501d;
   --cat-ui: #b03a72;
   --cat-web: #3d4fc4;
+  /* Notes on a flow: frame wash, frame edge, header paper, header ink. */
+  --note-yellow-bg: rgba(255, 210, 63, 0.16);
+  --note-yellow-edge: #c79a12;
+  --note-yellow-head: #fff1bf;
+  --note-yellow-ink: #4f3b00;
+  --note-blue-bg: rgba(36, 86, 184, 0.08);
+  --note-blue-edge: #6f8fd6;
+  --note-blue-head: #e2e9fa;
+  --note-blue-ink: #1d3a7a;
+  --note-green-bg: rgba(28, 124, 75, 0.08);
+  --note-green-edge: #5aa77e;
+  --note-green-head: #dff1e6;
+  --note-green-ink: #165536;
+  --note-pink-bg: rgba(176, 58, 114, 0.08);
+  --note-pink-edge: #cf78a1;
+  --note-pink-head: #f8e0ec;
+  --note-pink-ink: #74224b;
+  --note-gray-bg: rgba(74, 83, 104, 0.07);
+  --note-gray-edge: #969cab;
+  --note-gray-head: #ebe8e0;
+  --note-gray-ink: #343b4b;
   --r-s: 3px;
   --r-m: 4px;
   --r-l: 6px;
@@ -255,6 +276,26 @@
   --cat-flow: #ff9a66;
   --cat-ui: #ff8fc0;
   --cat-web: #9db0ff;
+  --note-yellow-bg: rgba(255, 210, 63, 0.09);
+  --note-yellow-edge: #b4922d;
+  --note-yellow-head: #35300f;
+  --note-yellow-ink: #ffe28a;
+  --note-blue-bg: rgba(123, 147, 255, 0.09);
+  --note-blue-edge: #5d73c9;
+  --note-blue-head: #1c2752;
+  --note-blue-ink: #c3cfff;
+  --note-green-bg: rgba(92, 203, 143, 0.08);
+  --note-green-edge: #3f9a6a;
+  --note-green-head: #12321f;
+  --note-green-ink: #a6f0c6;
+  --note-pink-bg: rgba(255, 143, 192, 0.08);
+  --note-pink-edge: #b0628a;
+  --note-pink-head: #3a1829;
+  --note-pink-ink: #ffc2dc;
+  --note-gray-bg: rgba(169, 180, 204, 0.07);
+  --note-gray-edge: #5d6886;
+  --note-gray-head: #1d2638;
+  --note-gray-ink: #d5dbe8;
 }
 * {
   box-sizing: border-box;
@@ -1546,6 +1587,34 @@ label.field-label {
 .step-output svg {
   width: 11px;
   height: 11px;
+}
+.step-wait {
+  color: var(--accent-text);
+}
+.step-output.step-wait {
+  font-family: var(--font);
+}
+.dnode-wait {
+  position: absolute;
+  right: 6px;
+  bottom: -9px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-l);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+.dnode-wait svg {
+  width: 10px;
+  height: 10px;
 }
 .branch {
   border-left: 1px dashed var(--line-strong);
@@ -3340,6 +3409,8 @@ body.dragging-step .dnode-tools {
   position: absolute;
   left: 14px;
   bottom: 16px;
+  /* Room for the zoom controls on the right; a long hint wraps upwards. */
+  max-width: calc(100% - 270px);
   font-size: 11.5px;
   color: var(--muted);
   pointer-events: none;
@@ -4494,4 +4565,427 @@ body.dragging-step .edge-remove {
 }
 .field.path-end .field {
   margin: 10px 0 0;
+}
+
+/* ----- notes on a flow: frames on the diagram, bands in the list ------------------- */
+.note-yellow {
+  --note-bg: var(--note-yellow-bg);
+  --note-edge: var(--note-yellow-edge);
+  --note-head: var(--note-yellow-head);
+  --note-ink: var(--note-yellow-ink);
+}
+.note-blue {
+  --note-bg: var(--note-blue-bg);
+  --note-edge: var(--note-blue-edge);
+  --note-head: var(--note-blue-head);
+  --note-ink: var(--note-blue-ink);
+}
+.note-green {
+  --note-bg: var(--note-green-bg);
+  --note-edge: var(--note-green-edge);
+  --note-head: var(--note-green-head);
+  --note-ink: var(--note-green-ink);
+}
+.note-pink {
+  --note-bg: var(--note-pink-bg);
+  --note-edge: var(--note-pink-edge);
+  --note-head: var(--note-pink-head);
+  --note-ink: var(--note-pink-ink);
+}
+.note-gray {
+  --note-bg: var(--note-gray-bg);
+  --note-edge: var(--note-gray-edge);
+  --note-head: var(--note-gray-head);
+  --note-ink: var(--note-gray-ink);
+}
+.diagram-note {
+  position: absolute;
+  border: 1.5px dashed var(--note-edge);
+  border-radius: var(--r-l);
+  background: var(--note-bg);
+  /* The frame lets the background pan and the region selection through; only its header takes clicks. */
+  pointer-events: none;
+}
+.diagram-note.selected {
+  border-style: solid;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.diagram-note-head {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 10px;
+  border: 1px solid var(--note-edge);
+  border-radius: var(--r-m);
+  background: var(--note-head);
+  color: var(--note-ink);
+  text-align: left;
+  overflow: hidden;
+  pointer-events: auto;
+}
+.diagram-note-head:hover {
+  box-shadow: 2px 2px 0 var(--shadow-hard);
+}
+.diagram-note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.diagram-note-title svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.diagram-note-title strong,
+.diagram-note-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diagram-note-title strong {
+  font-size: 12.5px;
+}
+.diagram-note-text {
+  font-size: 11.5px;
+  opacity: 0.85;
+}
+.note-band {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 9px 13px;
+  border: 1.5px solid var(--note-edge);
+  border-radius: var(--r-m);
+  background: var(--note-head);
+  color: var(--note-ink);
+  text-align: left;
+}
+.note-band.selected {
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.note-band-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.note-band-title svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.note-band-title small {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.75;
+}
+.note-band-text {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.step-card.in-note {
+  border-left: 5px solid var(--note-edge);
+}
+.step-card.chosen,
+.dnode.chosen {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px 6px 6px 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--r-m);
+  box-shadow: 4px 4px 0 var(--shadow-hard);
+  z-index: 6;
+  cursor: default;
+}
+.selection-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.flow-canvas:not(.diagram-mode) > .selection-bar {
+  position: sticky;
+  bottom: 12px;
+  margin: 18px auto 0;
+}
+.diagram-viewport > .selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 58px;
+  transform: translateX(-50%);
+}
+.canvas-tip {
+  margin: 16px auto 0;
+  max-width: 530px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.diagram-viewport.lasso-mode {
+  cursor: crosshair;
+}
+.diagram-lasso {
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  background: var(--accent-tint);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 7;
+}
+.diagram-controls .icon-button[aria-pressed="true"] {
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+.field > span.field-label {
+  display: block;
+  font-size: 12.5px;
+  margin-bottom: 7px;
+}
+.note-colors {
+  display: flex;
+  gap: 9px;
+}
+.note-swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--note-edge);
+  background: var(--note-head);
+}
+.note-swatch[aria-checked="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.note-steps ul {
+  list-style: none;
+  margin: 10px 0 12px;
+  padding: 0;
+}
+.note-steps li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.note-step {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent-text);
+  font-size: 12.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-step:hover {
+  text-decoration: underline;
+}
+.note-steps .help {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* ----- Zamanlayıcı ------------------------------------------------------------------- */
+.schedule-note {
+  margin-bottom: 18px;
+}
+.schedule-table {
+  margin-bottom: 22px;
+}
+.schedule-table .table-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+.schedule-table .table-link:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+.schedule-table .schedule-off td {
+  color: var(--muted);
+}
+.schedule-table .row-tools {
+  white-space: nowrap;
+  text-align: right;
+}
+.schedule-table .row-tools .icon-button {
+  display: inline-grid;
+}
+.schedule-table .link-button {
+  margin-top: 5px;
+}
+.schedule-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  max-width: 1080px;
+}
+.schedule-settings .settings-panel {
+  margin-bottom: 0;
+}
+.schedule-settings .field {
+  max-width: 220px;
+}
+.schedule-settings .help {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.schedule-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.schedule-dialog .dialog-body {
+  max-height: calc(90vh - 160px);
+  overflow: auto;
+}
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-m);
+  background: var(--surface);
+}
+.segmented .button {
+  flex: 1 1 auto;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+.segmented .button[aria-pressed="true"] {
+  background: var(--edge);
+  color: var(--surface);
+  font-weight: 600;
+}
+:root[data-theme="dark"] .segmented .button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-solid);
+}
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.day-chip {
+  min-width: 46px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.day-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.day-quick {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+.schedule-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.schedule-preview {
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-m);
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.schedule-preview ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.schedule-preview li {
+  line-height: 1.7;
+}
+.schedule-countdown {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1.5px solid var(--edge);
+  border-top: 5px solid var(--mark);
+  border-radius: var(--r-m);
+  box-shadow: 6px 6px 0 var(--shadow-hard);
+}
+.schedule-countdown-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.schedule-countdown-head svg {
+  width: 14px;
+  height: 14px;
+}
+.schedule-countdown-name {
+  font-size: 16px;
+}
+.schedule-countdown-seconds {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+.schedule-countdown p {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.schedule-countdown .actions {
+  justify-content: flex-end;
+  margin-top: 6px;
 }

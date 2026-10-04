@@ -8,6 +8,8 @@ Bir akış ad, açıklama, departman ve sıralı adımlardan oluşur. Her adım�
 
 Kütüphaneye eklenen bir adımın yanındaki yıldız düğmesi, adımı en üstteki **Sık kullanılanlar** bölümüne taşır. Yıldıza tekrar basmak adımı kendi kategorisine döndürür. Adım adına veya artıya basmak akışa adım ekler; yıldız yalnız favori tercihini değiştirir. Favoriler çalışma alanına `favorites.json` olarak hemen kaydedilir, uygulama yeniden açıldığında korunur ve akış JSON dışa aktarımına dahil edilmez. Aynı özellik macOS ve Windows'ta, tarayıcıda ve yerel pencerede kullanılır.
 
+Her adımın ayarlarındaki **Sonraki adıma geçmeden bekle** alanı, adım bitince akışın kaç saniye bekleyeceğini belirler (varsayılan 0). Akışın bir bölümünü Shift veya Ctrl/⌘ ile seçip **Not ekle** ile başlıklı, renkli bir not bırakabilirsiniz; not diyagramda adımların çevresinde çerçeve, listede ilk adımın üstünde bant olarak görünür ve akışın çalışmasını etkilemez. Ayrıntılar: [adım rehberi](adimlar.md#akışı-düzenleme).
+
 Kaydettiğiniz akış yerel veri klasörüne yazılır. Çalıştırılan sürümle sonradan yaptığınız düzenlemeleri karıştırmamak için her değişiklikten sonra kaydedip yeni bir çalışma başlatın. Farklı bilgisayara taşımak için JSON dışa aktarın ve diğer Studio'da içe aktarın. Ekrandan seçilen referans görseller (şablonlar) dosyaya eklenir ve içe aktarırken o bilgisayarın şablon klasörüne yazılır. Orada aynı adla farklı bir görsel varsa üzerine yazılmaz: yeni görsel ek bir numarayla kaydedilir ve adımlar onu kullanır. Hedef bilgisayarın bağlantıları ve ekran ayarları ayrıca hazırlanmalıdır.
 
 Harici bağlantı gerektirmeyen küçük bir JSON örneği:
@@ -32,7 +34,7 @@ Harici bağlantı gerektirmeyen küçük bir JSON örneği:
 }
 ```
 
-Bir `.json` dosyasına kaydedip içe aktarabilirsiniz. Studio'nun kendi dışa aktarımı ayrıca akış ve adım kimlikleri gibi alanlar içerebilir.
+Bir `.json` dosyasına kaydedip içe aktarabilirsiniz. Studio'nun kendi dışa aktarımı ayrıca akış ve adım kimlikleri gibi alanlar içerebilir. Not (`notes`) veya **Sonraki adıma geçmeden bekle** (`wait_after`) içeren akış dosyaları 0.8.6 ve önceki sürümlerde içe aktarılamaz; bu alanları kullanmayan akışlar eski sürümlerle uyumlu kalır.
 
 ## Değişkenler
 
@@ -90,7 +92,7 @@ Atlanan veri kaynağının sonucu **bilinmeyen** olarak taşınır. Bu veriye ba
 
 ## Çalışma geçmişi ve iptal
 
-Çalışma durumu kuyrukta, çalışıyor, başarılı, başarısız veya iptal edilmiş olabilir. Adım günlükleri ve üretilen dosyalar çalışma kaydında tutulur. Uygulama kapanırken yarım kalan çalışma, sonraki açılışta kesilmiş olarak işaretlenir; kaldığı yerden otomatik devam etmez.
+Çalışma durumu kuyrukta, çalışıyor, başarılı, başarısız veya iptal edilmiş olabilir. Zamanlayıcının başlattığı çalışmalar geçmişte **Zamanlanmış** olarak işaretlenir ([zamanlayıcı rehberi](zamanlayici.md)). Adım günlükleri ve üretilen dosyalar çalışma kaydında tutulur. Uygulama kapanırken yarım kalan çalışma, sonraki açılışta kesilmiş olarak işaretlenir; kaldığı yerden otomatik devam etmez.
 
 İptal isteği işbirliklidir: motor adımlar arasında ve desteklenen beklemelerde isteği denetler. Devam eden veritabanı veya tarayıcı çağrısı kendi zaman aşımına kadar sürebilir. Yapılmış bir ERP kaydı veya Sheets yazması geri alınmaz. Tekrar çalıştırmadan önce dış sistemde önceki işlemin tamamlanıp tamamlanmadığını kontrol edin.
 

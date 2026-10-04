@@ -13,14 +13,63 @@ from contextlib import ExitStack
 from .config import Settings, atomic_json
 from .instance import StartupError, existing_instance, identity
 
+# Shown when the window is closed while a schedule is on (pywebview reads confirm_close at that moment).
+CLOSE_TEXTS = {
+    "global.quitConfirmation": "Zamanlanmış akışlar yalnız Studio açıkken çalışır. Studio kapatılsın mı?",
+    "global.quit": "Kapat",
+    "global.cancel": "Açık kalsın",
+}
 
-def open_window(webview, url: str) -> None:
+
+GUARD_INTERVAL = 3.0
+
+
+def watch_schedules(window, settings: Settings) -> None:
+    """Ask before closing only while a schedule is on; follow changes made in the Studio."""
+    from .scheduler import ScheduleBook
+
+    book = ScheduleBook(settings.data_dir)
+    closed = threading.Event()
+    window.events.closed += closed.set
+
+    def follow():
+        while not closed.is_set():
+            try:
+                window.confirm_close = book.active()
+            except Exception:
+                window.confirm_close = False
+            closed.wait(GUARD_INTERVAL)
+
+    threading.Thread(target=follow, daemon=True, name="rpa-close-guard").start()
+
+
+def bring_to_front(window, minimized: bool) -> None:
+    """A scheduled run is about to take the screen: show its countdown above other windows."""
+    # Restoring a maximized window would shrink it (Windows); only a minimized one is restored.
+    if minimized:
+        window.restore()
+    window.show()
+    window.on_top = True
+    timer = threading.Timer(2.0, lambda: setattr(window, "on_top", False))
+    timer.daemon = True
+    timer.start()
+
+
+def open_window(webview, url: str, *, minimized: bool = False, settings: Settings | None = None) -> None:
     # CSV downloads are disabled by pywebview unless explicitly enabled.
     webview.settings["ALLOW_DOWNLOADS"] = True
     window = webview.create_window(
         "RpaOrkestrAI Studio", url, width=1440, height=940, min_size=(980, 680),
-        background_color="#F5F7F3",
+        background_color="#F5F7F3", minimized=minimized, localization=CLOSE_TEXTS,
     )
+    if settings is not None:
+        watch_schedules(window, settings)
+        shown = {"minimized": minimized}
+        window.events.minimized += lambda: shown.update(minimized=True)
+        window.events.restored += lambda: shown.update(minimized=False)
+        window.events.maximized += lambda: shown.update(minimized=False)
+        # The scheduler in this process calls it when a countdown starts.
+        settings.bring_to_front = lambda: bring_to_front(window, shown["minimized"])
 
     def on_loaded():
         print("Masaüstü penceresi hazır.", flush=True)
@@ -39,7 +88,7 @@ def open_window(webview, url: str) -> None:
         unregister_native_host(window)
 
 
-def serve_native(settings: Settings, *, auto_port: bool = False) -> None:
+def serve_native(settings: Settings, *, auto_port: bool = False, minimized: bool = False) -> None:
     # This is only a discovery hint. Never attach without verifying the live server.
     hint = settings.data_dir / ".native-instance.json"
     if auto_port:
@@ -66,7 +115,8 @@ def serve_native(settings: Settings, *, auto_port: bool = False) -> None:
         raise StartupError('Masaüstü penceresi için önce: python -m pip install ".[native]"') from exc
     if reuse:
         print("Açık çalışma alanına bağlanılıyor.", flush=True)
-        open_window(webview, url)
+        # The schedules run in the process that owns the server; closing this window stops nothing.
+        open_window(webview, url, minimized=minimized)
         return
 
     with ExitStack() as resources:
@@ -83,10 +133,10 @@ def serve_native(settings: Settings, *, auto_port: bool = False) -> None:
                     raise
                 sock.bind(("127.0.0.1", 0))
             settings.port = sock.getsockname()[1]
-        _serve_new_window(settings, webview, sock, hint if auto_port else None)
+        _serve_new_window(settings, webview, sock, hint if auto_port else None, minimized)
 
 
-def _serve_new_window(settings, webview, sock, hint) -> None:
+def _serve_new_window(settings, webview, sock, hint, minimized: bool = False) -> None:
     url = f"http://127.0.0.1:{settings.port}"
 
     print("Yerel çalışma alanı başlatılıyor…", flush=True)
@@ -123,7 +173,7 @@ def _serve_new_window(settings, webview, sock, hint) -> None:
             time.sleep(0.05)
         if hint is not None:
             atomic_json(hint, {"identity": identity(settings.data_dir), "port": settings.port})
-        open_window(webview, url)
+        open_window(webview, url, minimized=minimized, settings=settings)
     finally:
         # Only stop the server created by this window, never one it attached to.
         server.should_exit = True

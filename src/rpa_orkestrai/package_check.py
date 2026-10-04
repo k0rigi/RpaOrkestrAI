@@ -82,6 +82,24 @@ def _check_license_verification() -> None:
         raise RuntimeError("Paket içindeki lisans doğrulaması başka bir isteğin yanıtını kabul etti.")
 
 
+def _check_login_item() -> None:
+    """Bilgisayar açılınca başlat must find the installed program; nothing is registered here."""
+    import platform
+
+    from . import autostart
+
+    if not getattr(sys, "frozen", False):
+        return
+    if not autostart.supported():
+        raise RuntimeError("Bilgisayar açılınca başlat ayarı paketlenen uygulamada kullanılamıyor.")
+    if platform.system() == "Darwin":
+        arguments = autostart.agent(autostart.app_bundle())["ProgramArguments"]
+        if not arguments[2].endswith(".app") or arguments[-1] != autostart.MINIMIZED:
+            raise RuntimeError("macOS giriş öğesi uygulama paketini gösteremedi.")
+    elif not autostart.windows_command().lower().endswith('.exe" --minimized'):
+        raise RuntimeError("Windows başlangıç kaydı programı gösteremedi.")
+
+
 def run_check(report: Path) -> int:
     previous_stdout, previous_stderr = sys.stdout, sys.stderr
     server, worker, logger, sock = None, None, None, None
@@ -112,6 +130,7 @@ def run_check(report: Path) -> int:
             _check_license_verification()
             _check_accessibility()
             _check_ocr_and_tables(root)
+            _check_login_item()
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -168,7 +187,7 @@ def run_check(report: Path) -> int:
                       "version": __version__, "platform": current_platform_key(),
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
-                                 "excel-tables", "http-api",
+                                 "excel-tables", "http-api", "login-item",
                                  "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

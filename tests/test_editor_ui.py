@@ -869,7 +869,9 @@ def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
             page.get_by_role("button", name="Kılavuzlu akış", exact=True).click()
             inspector = page.locator("#inspector")
             # Nothing selected: the short guide to building a flow.
-            playwright.expect(inspector.locator(".quick-guide li")).to_have_count(7)
+            playwright.expect(inspector.locator(".quick-guide li")).to_have_count(9)
+            playwright.expect(inspector.locator(".quick-guide")).to_contain_text("Not ekle")
+            playwright.expect(inspector.locator(".quick-guide")).to_contain_text("Zamanla")
 
             # A selected step explains how it is used, and every field carries a help line.
             page.locator('[data-step-id="click"]').click()
@@ -1380,5 +1382,225 @@ def test_merged_image_step_and_the_place_for_metin_yaz(tmp_path):
                 "window": "${erp_window}", "template": "hata.png", "timeout": 4, "on_missing": "continue",
                 "output": "hata"}
             assert "region" not in step["params"] and "relative_to" not in step["params"]
+            browser.close()
+    assert errors == []
+
+
+def studio_page(runner, client, errors, viewport=None):
+    browser = runner.chromium.launch()
+    page = browser.new_page(viewport=viewport or {"width": 1500, "height": 1000})
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    def handle(route):
+        request = route.request
+        path = urlsplit(request.url).path
+        if path == "/api/desktop/pick/capabilities":
+            route.fulfill(json={"native": True})
+            return
+        result = client.request(request.method, path, content=request.post_data_buffer,
+                                headers={"content-type": "application/json"})
+        route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+    page.route("http://127.0.0.1:8765/**", handle)
+    page.goto("http://127.0.0.1:8765/")
+    return browser, page
+
+
+def test_notes_frame_chosen_steps_and_steps_wait_before_the_next(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    log = lambda step_id, text: {"id": step_id, "title": text, "action": "core.log", "params": {"message": text}}  # noqa: E731
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        created = client.post("/api/workflows", json={"name": "Notlu akış", "steps": [
+            log("a", "ERP'yi aç"), log("b", "Giriş yap"), log("c", "Raporu al"),
+            {"id": "loop", "title": "Satırlar", "action": "control.repeat", "params": {"count": 2},
+             "children": [log("inside", "Satırı işle")]},
+            log("d", "Kapat")]})
+        assert created.status_code == 201, created.text
+        workflow_id = created.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser, page = studio_page(runner, client, errors)
+            page.get_by_role("button", name="Notlu akış", exact=True).click()
+            canvas, inspector = page.locator("#flow-canvas"), page.locator("#inspector")
+            playwright.expect(canvas.locator(".canvas-tip")).to_contain_text("Shift")
+
+            # Click, then Shift + click: the steps between are chosen too.
+            page.locator('[data-step-id="a"]').click()
+            page.locator('[data-step-id="c"]').click(modifiers=["Shift"])
+            playwright.expect(canvas.locator(".step-card.chosen")).to_have_count(3)
+            bar = canvas.locator(".selection-bar")
+            playwright.expect(bar).to_contain_text("3 adım seçili")
+            bar.get_by_role("button", name="Not ekle").click()
+            playwright.expect(inspector.locator(".pane-heading").first).to_have_text("Akış notu")
+            inspector.locator("#note-title").fill("Giriş bölümü")
+            inspector.locator("textarea.note-text").fill("ERP açılır ve oturum açılır.")
+            inspector.get_by_role("radio", name="Mavi").click()
+            band = canvas.locator(".note-band")
+            playwright.expect(band).to_contain_text("Giriş bölümü")
+            playwright.expect(band).to_contain_text("ERP açılır ve oturum açılır.")
+            playwright.expect(canvas.locator(".step-card.in-note")).to_have_count(3)
+
+            # A step waits before the next one; 0 leaves nothing behind in the saved flow.
+            page.locator('[data-step-id="b"]').click()
+            wait = inspector.get_by_label("Sonraki adıma geçmeden bekle (saniye)")
+            wait.fill("1.5")
+            playwright.expect(page.locator('[data-step-id="b"] .step-wait')).to_have_text(
+                "Sonraki adıma geçmeden 1,5 sn bekler")
+            page.locator('[data-step-id="c"]').click()
+            inspector.get_by_label("Sonraki adıma geçmeden bekle (saniye)").fill("2")
+            inspector.get_by_label("Sonraki adıma geçmeden bekle (saniye)").fill("0")
+            playwright.expect(page.locator('[data-step-id="c"] .step-wait')).to_have_count(0)
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.get_by_text("Tüm değişiklikler kaydedildi")).to_be_visible()
+            saved = client.get(f"/api/workflows/{workflow_id}").json()
+            assert [(note["title"], note["color"], note["steps"]) for note in saved["notes"]] == [
+                ("Giriş bölümü", "blue", ["a", "b", "c"])]
+            params = {step["id"]: step["params"] for step in saved["steps"]}
+            assert params["b"]["wait_after"] == 1.5 and "wait_after" not in params["c"]
+
+            # A step added from the library does not carry the pause at all.
+            page.locator("#step-library").get_by_text("Çalışma notu", exact=True).first.click()
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.get_by_text("Tüm değişiklikler kaydedildi")).to_be_visible()
+            added = client.get(f"/api/workflows/{workflow_id}").json()["steps"][-1]
+            assert added["action"] == "core.log" and "wait_after" not in added["params"]
+
+            # The diagram draws the note as a frame; its header opens the note.
+            canvas.get_by_role("button", name="Diyagram").click()
+            frame = canvas.locator(".diagram-note")
+            playwright.expect(frame).to_have_count(1)
+            playwright.expect(frame).to_contain_text("Giriş bölümü")
+            page.locator('#diagram-viewport [data-step-id="d"]').click()
+            frame.locator(".diagram-note-head").click()
+            playwright.expect(inspector.locator("#note-title")).to_have_value("Giriş bölümü")
+
+            # Shift + drag on the background chooses a region; the loop joins the open note.
+            viewport = page.locator("#diagram-viewport")
+            loop_box = page.locator('#diagram-viewport [data-step-id="loop"]').bounding_box()
+            inside_box = page.locator('#diagram-viewport [data-step-id="inside"]').bounding_box()
+            page.keyboard.down("Shift")
+            page.mouse.move(loop_box["x"] - 12, loop_box["y"] - 30)
+            page.mouse.down()
+            page.mouse.move(inside_box["x"] + inside_box["width"] + 8, inside_box["y"] + inside_box["height"] + 30,
+                            steps=6)
+            page.mouse.up()
+            page.keyboard.up("Shift")
+            bar = viewport.locator(".selection-bar")
+            playwright.expect(bar).to_contain_text("2 adım seçili")
+            bar.get_by_role("button", name="Açık nota ekle").click()
+            playwright.expect(inspector.locator(".note-steps li")).to_have_count(4)
+            page.locator('#diagram-viewport [data-step-id="d"]').click(modifiers=["ControlOrMeta"])
+            playwright.expect(viewport.locator(".selection-bar")).to_contain_text("1 adım seçili")
+            page.keyboard.press("Escape")
+            playwright.expect(viewport.locator(".selection-bar")).to_have_count(0)
+
+            # Deleting a noted step shortens the note; the last one takes the note with it.
+            page.locator('#diagram-viewport [data-step-id="a"]').click()
+            page.locator('#diagram-viewport [data-step-id="a"]').press("Delete")
+            frame.locator(".diagram-note-head").click()
+            playwright.expect(inspector.locator(".note-steps li")).to_have_count(3)
+            inspector.get_by_role("button", name="Notu sil").click()
+            page.get_by_role("dialog").get_by_role("button", name="Notu sil").click()
+            playwright.expect(canvas.locator(".diagram-note")).to_have_count(0)
+            browser.close()
+    assert errors == []
+
+
+def test_scheduler_page_plans_runs_and_the_countdown_can_be_cancelled(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        created = client.post("/api/workflows", json={"name": "Sabah raporu", "steps": [
+            {"id": "a", "action": "core.log", "params": {"message": "Rapor"}}]})
+        assert created.status_code == 201, created.text
+        workflow_id = created.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser, page = studio_page(runner, client, errors)
+            page.get_by_role("button", name="Zamanlayıcı").click()
+            playwright.expect(page.get_by_text("Henüz zamanlama yok")).to_be_visible()
+            # Started from source: the login item belongs to the installed app.
+            playwright.expect(page.locator("#autostart-toggle")).to_be_disabled()
+            page.get_by_role("button", name="Yeni zamanlama").click()
+            dialog = page.locator("dialog[open]")
+            dialog.get_by_role("button", name="Belirli günler").click()
+            dialog.locator('input[type="time"]').first.fill("09:00")
+            playwright.expect(dialog.locator(".schedule-preview")).to_contain_text("Hafta içi 09:00")
+            playwright.expect(dialog.locator(".schedule-preview li")).to_have_count(3)
+            dialog.get_by_role("button", name="Cmt").click()
+            playwright.expect(dialog.locator(".schedule-preview")).to_contain_text("Pzt, Sal, Çar, Per, Cum, Cmt 09:00")
+            for day in ("Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"):
+                dialog.get_by_role("button", name=day, exact=True).click()
+            playwright.expect(dialog.locator(".schedule-preview")).to_contain_text("En az bir gün seçin")
+            dialog.get_by_role("button", name="Hafta içi").click()
+            dialog.get_by_role("button", name="Zamanlamayı oluştur").click()
+            row = page.locator(".schedule-table tbody tr")
+            playwright.expect(row).to_have_count(1)
+            playwright.expect(row).to_contain_text("Sabah raporu")
+            playwright.expect(row).to_contain_text("Hafta içi 09:00")
+            playwright.expect(page.locator("#schedule-count")).to_have_text("1")
+            [schedule] = client.get("/api/schedules").json()["schedules"]
+            assert (schedule["workflow_id"], schedule["kind"], schedule["days"], schedule["time"]) == (
+                workflow_id, "weekly", [0, 1, 2, 3, 4], "09:00")
+
+            # Every 30 minutes within working hours.
+            row.get_by_role("button", name="Zamanlamayı düzenle").click()
+            dialog = page.locator("dialog[open]")
+            dialog.get_by_role("button", name="Belirli aralıklarla").click()
+            dialog.get_by_label("Kaç dakikada bir?").fill("30")
+            dialog.get_by_label("Bitiş saati (isteğe bağlı)").fill("08:00")
+            playwright.expect(dialog.locator(".schedule-preview")).to_contain_text("Bitiş saati başlangıç")
+            dialog.get_by_label("Bitiş saati (isteğe bağlı)").fill("18:00")
+            playwright.expect(dialog.locator(".schedule-preview")).to_contain_text(
+                "Her 30 dakikada bir, 09:00–18:00 arası, hafta içi")
+            dialog.get_by_role("button", name="Kaydet").click()
+            playwright.expect(row).to_contain_text("Her 30 dakikada bir")
+            row.get_by_role("checkbox").uncheck()
+            playwright.expect(row).to_contain_text("Kapalı")
+            playwright.expect(page.locator("#schedule-count")).to_be_hidden()
+            page.locator("#countdown-seconds").fill("25")
+            page.locator("#countdown-seconds").press("Tab")
+            playwright.expect(page.locator(".toast").last).to_contain_text("25 saniyelik")
+            assert client.get("/api/schedules").json()["settings"] == {"countdown": 25}
+
+            # The editor schedules the open flow.
+            page.get_by_role("button", name="Genel bakış").click()
+            page.get_by_role("button", name="Sabah raporu", exact=True).click()
+            page.get_by_role("button", name="Zamanla", exact=True).click()
+            dialog = page.locator("dialog[open]")
+            playwright.expect(dialog.get_by_role("combobox").first).to_have_value(workflow_id)
+            playwright.expect(dialog).to_contain_text("1 zamanlaması daha var")
+            dialog.get_by_role("button", name="Vazgeç").click()
+
+            # A due run counts down over any page; İptal et stops it.
+            answers = []
+            pending = {"schedule_id": schedule["id"], "workflow_id": workflow_id, "workflow_name": "Sabah raporu",
+                       "due_at": "2026-10-05T09:00", "seconds_left": 9}
+
+            def countdown(route):
+                if route.request.method == "POST":
+                    answers.append(urlsplit(route.request.url).path.rsplit("/", 1)[-1])
+                    pending.clear()
+                    route.fulfill(json={"pending": None})
+                else:
+                    route.fulfill(json={"pending": dict(pending) or None})
+
+            page.route("http://127.0.0.1:8765/api/schedules/pending**", countdown)
+            panel = page.locator("#schedule-countdown")
+            playwright.expect(panel).to_contain_text("Sabah raporu", timeout=8000)
+            playwright.expect(panel).to_contain_text("9 sn sonra başlıyor")
+            panel.get_by_role("button", name="İptal et").click()
+            playwright.expect(panel).to_have_count(0)
+            assert answers == ["cancel"]
+            playwright.expect(page.locator(".toast").last).to_contain_text("iptal edildi")
             browser.close()
     assert errors == []

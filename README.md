@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.8.6-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.8.6-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.0-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.0-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -90,7 +90,9 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 
 | Alan | İşlev |
 | --- | --- |
-| Akış tasarımı | Adım ekleme, sıralama, düzenleme; iç içe koşul ve döngüler |
+| Akış tasarımı | Adım ekleme, sıralama, düzenleme; iç içe koşul ve döngüler; her adımda **Sonraki adıma geçmeden bekle** süresi |
+| Notlar | Akışın bir bölümünü seçip başlıklı, renkli not ekleme; diyagramda çerçeve, listede bant olarak görünür |
+| Zamanlayıcı | Akışı bir kez, her gün, haftanın belirli günlerinde veya belirli aralıklarla çalıştırma; başlamadan önce iptal edilebilir geri sayım |
 | Akış yönetimi | Kaydetme, açma, JSON içe/dışa aktarma ve departman bilgisi |
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
@@ -101,7 +103,7 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
 | Web | **HTTP isteği gönder** ile web servisleri (API); eski akışlardaki tarayıcı (Playwright) adımları çalışmaya devam eder |
 
-Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve ayarlar o bilgisayarın çalışma alanında kalır. Departman alanı raporları ve akışları sınıflandırır; akış bazında erişim yetkisi oluşturmaz. Merkezi çok kullanıcılı sunucu, uzak robot yönetimi ve zamanlayıcı bu sürümün kapsamı dışındadır.
+Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve ayarlar o bilgisayarın çalışma alanında kalır. Departman alanı raporları ve akışları sınıflandırır; akış bazında erişim yetkisi oluşturmaz. Zamanlayıcı bu bilgisayarda, Studio açıkken çalışır; Studio isterseniz bilgisayar açılınca simge durumunda başlar ([zamanlayıcı rehberi](docs/zamanlayici.md)). Merkezi çok kullanıcılı sunucu ve uzak robot yönetimi bu sürümün kapsamı dışındadır.
 
 ## İlk gerçek otomasyon
 
@@ -165,9 +167,9 @@ Tarayıcıyı otomatik açmadan çalıştırmak için `rpa-studio --no-browser` 
 
 Zaman aşımı tarayıcı, veritabanı, ekran bekleme ve OCR işlemlerine aktarılır. Sheets için istek başına üst sınır 120 saniyedir. Tek bir adım birden fazla istek, yeniden deneme veya dropdown sayfası içerebilir; bu değer tüm akışın toplam süre sınırı değildir.
 
-Adlandırılmış bağlantılar `data/connections.json`, uygulama ayarları `data/settings.json` içindedir. `RPA_DATABASE_URL` ve `RPA_GOOGLE_CREDENTIALS_PATH` gibi `.env` değerleri yalnız ilk açılışta varsayılan bağlantıya dönüştürülür; sonrasında bağlantıyı adımın **Bağlantı** alanından veya **Bağlantılar** penceresinden düzenleyin. `data/` ile `.env` Git'e eklenmez. Yerel ayar dosyası bir şifre kasası değildir; bilgisayar hesabı ve dosya erişimleri bu bilgileri korur.
+Adlandırılmış bağlantılar `data/connections.json`, uygulama ayarları `data/settings.json`, zamanlamalar `data/schedules.json` içindedir. `RPA_DATABASE_URL` ve `RPA_GOOGLE_CREDENTIALS_PATH` gibi `.env` değerleri yalnız ilk açılışta varsayılan bağlantıya dönüştürülür; sonrasında bağlantıyı adımın **Bağlantı** alanından veya **Bağlantılar** penceresinden düzenleyin. `data/` ile `.env` Git'e eklenmez. Yerel ayar dosyası bir şifre kasası değildir; bilgisayar hesabı ve dosya erişimleri bu bilgileri korur.
 
-Akış dışa aktarımı bağlantı bilgilerini içermez; adımda yalnız bağlantının kimliği kalır. Akışı başka bir bilgisayara aktardığınızda adım "bağlantı bu bilgisayarda yok" uyarısı gösterir; orada bağlantıyı seçin veya oluşturun. Adımların kullandığı referans görseller dışa aktarılan dosyaya eklenir ve içe aktarırken şablon klasörüne yazılır; aynı adla farklı bir görsel varsa üzerine yazılmaz, yeni görsel ek bir numarayla kaydedilir. Akış dosyası en fazla 16 MB olabilir. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
+Akış dışa aktarımı bağlantı bilgilerini içermez; adımda yalnız bağlantının kimliği kalır. Akışı başka bir bilgisayara aktardığınızda adım "bağlantı bu bilgisayarda yok" uyarısı gösterir; orada bağlantıyı seçin veya oluşturun. Adımların kullandığı referans görseller dışa aktarılan dosyaya eklenir ve içe aktarırken şablon klasörüne yazılır; aynı adla farklı bir görsel varsa üzerine yazılmaz, yeni görsel ek bir numarayla kaydedilir. Akış dosyası en fazla 16 MB olabilir. Not veya **Sonraki adıma geçmeden bekle** süresi içeren akış dosyaları 0.8.6 ve önceki sürümlerde içe aktarılamaz. Ancak adımlara sizin yazdığınız sabit metinler, değişkenler ve iş verileri JSON içinde yer alabilir. Çalışma günlükleri ve CSV dosyaları da iş verisi içerebilir; paylaşılacak çıktıyı inceleyin.
 
 ## Geliştirme ve doğrulama
 
@@ -192,6 +194,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 - [ERP penceresini tanıtma, alan kimliği ve Sheets hücresini kullanma](docs/pencere-tanitma.md)
 - [Sheets satırları, boş/Bekliyor koşulu ve iç içe döngüler](docs/sheets-satir-dongusu.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
+- [Zamanlayıcı: akışı belirli zamanlarda çalıştırma, bilgisayar açılınca başlatma](docs/zamanlayici.md)
 - [Salt okunur veritabanı hesabı](docs/veritabani.md)
 - [Mimari ve genişletme](docs/mimari.md)
 - [GitHub remote ve push](docs/github.md)
