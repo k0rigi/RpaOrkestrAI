@@ -100,7 +100,7 @@ def test_documents_open_with_their_program_and_missing_files_are_reported(runner
 
 @pytest.mark.parametrize("name, system_name, expected", [
     ("a.ps1", "Windows", ["POWERSHELL", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]),
-    ("a.vbs", "Windows", ["cscript.exe", "//nologo", "//U"]),
+    ("a.vbs", "Windows", ["cscript.exe", "//nologo"]),
     ("a.bat", "Windows", []),
     ("a.exe", "Windows", []),
     ("a.sh", "Darwin", ["/bin/bash"]),
@@ -138,6 +138,11 @@ def test_turkish_text_survives_the_console_on_windows(monkeypatch, tmp_path):
     assert "chcp 65001" in shell and "powershell -File" in shell
     _, env = system.launch(["C:/Python/python.exe", str(tmp_path / "a.py")], tmp_path / "a.py")
     assert env["PYTHONIOENCODING"] == "utf-8" and env["PYTHONUTF8"] == "1"
+
+
+def test_quoted_values_reach_the_script_without_their_quotes(monkeypatch):
+    monkeypatch.setattr(system.os, "name", "nt")
+    assert system._arguments('"Ayşe Çelik" 42 C:\\Rapor') == ["Ayşe Çelik", "42", "C:\\Rapor"]
 
 
 def test_python_must_be_installed(monkeypatch, tmp_path):

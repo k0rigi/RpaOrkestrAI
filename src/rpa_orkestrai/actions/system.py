@@ -26,9 +26,11 @@ def _arguments(value) -> list[str]:
     if not raw:
         return []
     try:
-        return shlex.split(raw, posix=os.name != "nt")
+        parts = shlex.split(raw, posix=os.name != "nt")
     except ValueError as exc:
         raise WorkflowError("Parametrelerdeki tırnak işaretlerini kontrol edin.") from exc
+    # Windows splitting keeps the quotes ("Ayşe Çelik"); the program must receive the value without them.
+    return [part[1:-1] if len(part) >= 2 and part[0] == part[-1] == '"' else part for part in parts]
 
 
 @handler("system.open")
@@ -217,8 +219,7 @@ def script_command(file: Path, arguments: list[str]) -> list[str] | None:
         return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(file), *arguments]
     if kind == "wsh":
         cscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "cscript.exe"
-        # //U: the script's output comes back as Unicode, so Turkish text survives any code page.
-        return [str(cscript), "//nologo", "//U", str(file), *arguments]
+        return [str(cscript), "//nologo", str(file), *arguments]
     if kind in {"bash", "zsh"}:
         return [f"/bin/{kind}", str(file), *arguments]
     if kind == "osascript":
