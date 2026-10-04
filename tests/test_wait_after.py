@@ -12,6 +12,8 @@ from rpa_orkestrai.errors import Cancelled
 from rpa_orkestrai.models import Run, Step, Workflow
 from rpa_orkestrai.storage import Store
 
+TIMER_SLACK = 0.03
+
 
 def run_flow(tmp_path, steps, *, dry_run=False, cancel=None):
     settings = Settings(tmp_path, dotenv=False)
@@ -43,7 +45,8 @@ def test_every_step_that_hands_over_to_a_next_step_can_wait():
 def test_the_flow_waits_after_the_step_and_says_so(tmp_path):
     executor, run, elapsed = run_flow(tmp_path, [note("a", wait_after=0.3), note("b")])
     assert executor.variables["seen"] == ["a", "b"]
-    assert elapsed >= 0.3
+    # Windows timers tick every ~15 ms, so the measured pause may fall a few ms short.
+    assert elapsed >= 0.3 - TIMER_SLACK
     messages = [event.message for event in run.events]
     assert "Sonraki adıma geçmeden 0,3 saniye bekleniyor." in messages
     # The pause comes after the step is done and before the next one starts.
@@ -56,7 +59,7 @@ def test_a_block_waits_once_after_all_its_turns(tmp_path):
     executor, run, elapsed = run_flow(tmp_path, [loop, note("after")])
     assert executor.variables["seen"] == ["inside"] * 3 + ["after"]
     assert sum("bekleniyor" in event.message for event in run.events) == 1
-    assert 0.2 <= elapsed < 2
+    assert 0.2 - TIMER_SLACK <= elapsed < 2
 
 
 def test_a_preview_does_not_wait(tmp_path):
