@@ -82,6 +82,15 @@ def _check_license_verification() -> None:
         raise RuntimeError("Paket içindeki lisans doğrulaması başka bir isteğin yanıtını kabul etti.")
 
 
+def _check_password_store() -> None:
+    """Kayıtlı şifreler must reach the Keychain / Credential Manager; nothing is written here."""
+    from .vault import system_store
+
+    store = system_store()
+    if not all(callable(getattr(store, name, None)) for name in ("store", "load", "remove")):
+        raise RuntimeError("Şifre kasası paketlenen uygulamada yüklenemedi.")
+
+
 def _check_login_item() -> None:
     """Bilgisayar açılınca başlat must find the installed program; nothing is registered here."""
     import platform
@@ -131,6 +140,7 @@ def run_check(report: Path) -> int:
             _check_accessibility()
             _check_ocr_and_tables(root)
             _check_login_item()
+            _check_password_store()
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -187,7 +197,7 @@ def run_check(report: Path) -> int:
                       "version": __version__, "platform": current_platform_key(),
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
-                                 "excel-tables", "http-api", "login-item",
+                                 "excel-tables", "http-api", "login-item", "password-store",
                                  "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

@@ -1511,6 +1511,37 @@ def test_notes_frame_chosen_steps_and_steps_wait_before_the_next(tmp_path):
     assert errors == []
 
 
+def test_saved_passwords_are_kept_by_name_only(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai import vault as vault_module
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    stored = {}
+    monkeypatch.setattr(vault_module, "system_store", lambda: type("Memory", (), {
+        "store": lambda self, account, value: stored.__setitem__(account, value),
+        "load": lambda self, account: stored.get(account),
+        "remove": lambda self, account: stored.pop(account, None)})())
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        with playwright.sync_playwright() as runner:
+            browser, page = studio_page(runner, client, errors)
+            page.get_by_role("button", name="Ayarlar").click()
+            panel = page.locator(".secrets-panel")
+            playwright.expect(panel).to_contain_text("Henüz kayıtlı şifre yok")
+            panel.get_by_label("Ad").fill("erp")
+            panel.get_by_label("Şifre").fill("Çok-Gizli-123")
+            panel.get_by_label("Şifre").press("Enter")
+            playwright.expect(panel.locator(".secret-row")).to_contain_text("${sifre.erp}")
+            playwright.expect(panel.get_by_role("textbox", name="Şifre")).to_have_value("")
+            assert list(stored.values()) == ["Çok-Gizli-123"]
+            assert "Çok-Gizli" not in page.content()
+            browser.close()
+    assert errors == []
+
+
 def test_scheduler_page_plans_runs_and_the_countdown_can_be_cancelled(tmp_path):
     from fastapi.testclient import TestClient
 

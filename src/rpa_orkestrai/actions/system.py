@@ -263,7 +263,12 @@ def run_file(ctx, p):
         open_target(ctx, {"target": str(file), "arguments": p.get("arguments", ""), "wait": 0})
         ctx.log(f"{file.name} varsayılan programıyla açıldı; bitmesi beklenmez.")
         return {"code": None, "output": "", "error": "", "file": str(file), "opened": True}
-    finish = p.get("wait_finish", True) is True
+    mode = p.get("wait_finish", "auto")
+    if isinstance(mode, bool):
+        mode = "wait" if mode else "no"
+    # A program such as the ERP stays open; only a script is something to wait for.
+    program = command[0] == str(file) and file.suffix.lower() not in {".bat", ".cmd"}
+    finish = mode == "wait" or (mode == "auto" and not program)
     command, env = launch(command, file)
     try:
         if not finish:

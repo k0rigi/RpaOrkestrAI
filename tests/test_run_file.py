@@ -77,7 +77,7 @@ def test_without_waiting_the_flow_moves_on(runner, tmp_path, python_found):
     marker = tmp_path / "bitti.txt"
     script.write_text(f"import time\ntime.sleep(0.5)\nopen({str(marker)!r}, 'w').write('tamam')\n", encoding="utf-8")
     started = time.monotonic()
-    result = go(runner, path=str(script), wait_finish=False)
+    result = go(runner, path=str(script), wait_finish="no")
     assert time.monotonic() - started < 0.5 and result["code"] is None and not marker.exists()
     deadline = time.monotonic() + 15
     while not marker.exists() and time.monotonic() < deadline:
@@ -143,6 +143,30 @@ def test_turkish_text_survives_the_console_on_windows(monkeypatch, tmp_path):
 def test_quoted_values_reach_the_script_without_their_quotes(monkeypatch):
     monkeypatch.setattr(system.os, "name", "nt")
     assert system._arguments('"Ayşe Çelik" 42 C:\\Rapor') == ["Ayşe Çelik", "42", "C:\\Rapor"]
+
+
+def test_a_program_is_not_waited_for_by_default_but_a_script_is(runner, tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setattr(system.subprocess, "Popen", lambda command, **options: started.append(options) or Mock(
+        communicate=Mock(return_value=(b"", b"")), returncode=0))
+    program = tmp_path / "ERP"
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
+    monkeypatch.setattr(system.platform, "system", lambda: "Darwin")
+    assert go(runner, path=str(program))["code"] is None  # left running, the flow goes on
+    assert started[-1]["stdout"] == system.subprocess.DEVNULL
+    script = tmp_path / "rapor.sh"
+    script.write_text("echo x\n")
+    assert go(runner, path=str(script))["code"] == 0  # waited for
+    assert started[-1]["stdout"] == system.subprocess.PIPE
+    assert go(runner, path=str(program), wait_finish="wait")["code"] == 0
+
+
+def test_a_flow_saved_with_the_old_yes_no_box_still_runs():
+    from rpa_orkestrai.models import Step
+
+    assert Step(action="system.run_file", params={"wait_finish": True}).params["wait_finish"] == "wait"
+    assert Step(action="system.run_file", params={"wait_finish": False}).params["wait_finish"] == "no"
 
 
 def test_python_must_be_installed(monkeypatch, tmp_path):

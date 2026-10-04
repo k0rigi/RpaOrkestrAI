@@ -71,6 +71,15 @@ Bir adımın sonucu bir **adla** saklanır, sonraki adımlar o adı `${ad}` biç
 - **Pencere** alanı listedir: önceki **Pencereyi tanı** adımlarında ad verdiğiniz pencerelerden seçilir. Seçili ad önceki adımlarda yoksa alanın altında uyarı çıkar.
 - Bir adımın kullandığı adı hiçbir önceki adım vermiyorsa **Bu adımı test et** bunu "Bulunamayan değerler" başlığıyla söyler ve yakın bir ad varsa önerir.
 
+## Kayıtlı şifreler
+
+ERP girişi gibi işlerde şifreyi adıma yazmayın. **Ayarlar → Kayıtlı şifreler** bölümünde bir ad (ör. `erp`) ve şifreyi girip kaydedin; adımda `${sifre.erp}` yazın (ör. şifre alanı için **Alanı doldur**). Tipik giriş: **Uygulama, dosya veya adres aç** → **Pencereyi tanı** → **Alanı doldur** (kullanıcı adı) → **Alanı doldur** (`${sifre.erp}`) → **Tuşa bas** (Enter).
+
+- Şifre bu bilgisayarın şifre kasasında durur: Windows'ta **Kimlik Bilgisi Yöneticisi**, Mac'te **Anahtar Zinciri**. Studio yalnız adını tutar ve şifreyi bir daha göstermez; değiştirmek için aynı adla yeniden kaydedin.
+- Şifre akış dosyasına ve dışa aktarıma girmez; akışı başka bilgisayara aktarırsanız orada aynı adla yeniden kaydedin. Çalışma günlüğünde, hata mesajlarında ve **Bu adımı test et** sonuçlarında `[gizlendi]` olarak görünür.
+- Zamanlanmış akışlar da şifreyi kasadan alır. Mac'te Studio güncellendikten sonra ilk kullanımda Anahtar Zinciri erişim izni sorabilir; **Her Zaman İzin Ver** deyin, aksi halde gözetimsiz çalışan akış bu adımda bekler.
+- Her çalışma alanının şifreleri ayrıdır; en fazla 200 şifre kaydedilebilir.
+
 ## Hazır değişkenler
 
 Her çalışmada `${sistem}` hazır gelir. Aynı akış Windows'ta ve Mac'te doğru klasörü bulur.
@@ -143,7 +152,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
 | Uygulama, dosya veya adres aç | Windows: `notepad.exe`, `excel.exe`, `C:\Rapor.xlsx` · Mac: `TextEdit`, `Microsoft Excel`, `~/Desktop/rapor.xlsx` · `https://…` | — |
-| Dosya / script çalıştır | Klasördeki dosyayı türüne göre çalıştırır: `.py` (Python), `.ps1` (PowerShell), `.bat`/`.cmd`/`.exe`, `.vbs` (Windows), `.sh`/`.command`, `.scpt` (Mac), `.jar` (Java). Excel, PDF gibi belgeler kendi programıyla açılır. **Bitmesini bekle** açıksa akış bekler ve çıktıyı alır; script hata koduyla biterse akış durur (kapatılabilir). **Durdur** çalışan script'i de kapatır. Python için bilgisayarda Python kurulu olmalıdır. Örnek: Excel makrosunu çağıran bir `.vbs` dosyası. | `${script.output}`, `${script.code}` |
+| Dosya / script çalıştır | Klasördeki dosyayı türüne göre çalıştırır: `.py` (Python), `.ps1` (PowerShell), `.bat`/`.cmd`/`.exe`, `.vbs` (Windows), `.sh`/`.command`, `.scpt` (Mac), `.jar` (Java). Excel, PDF gibi belgeler kendi programıyla açılır. **Bitmesini bekle** varsayılan olarak *Otomatik*tir: script bitene kadar beklenir ve çıktısı alınır, ERP gibi açık kalan programlar (`.exe`) beklenmez, açılınca akış devam eder; *Bitmesini bekle* veya *Bekleme* olarak da seçilebilir. Script hata koduyla biterse akış durur (kapatılabilir). **Durdur** çalışan script'i de kapatır. Python için bilgisayarda Python kurulu olmalıdır. Örnek: Excel makrosunu çağıran bir `.vbs` dosyası. | `${script.output}`, `${script.code}` |
 | Uygulamayı kapat | Windows: `EXCEL.EXE` · Mac: `Microsoft Excel`. Zorla kapatma kaydedilmemiş işi kaybettirir. | Kapatıldı mı |
 | Komut çalıştır | Windows'ta cmd, Mac'te terminal komutu. Çıktı `${command.output}`, kod `${command.code}`. | `${command}` |
 | Panoya kopyala / Panodaki metni oku | Pano üzerinden veri aktarır. | `${clipboard}` |

@@ -290,7 +290,7 @@ def snapshot(variables: dict[str, Any], limit: int = 200_000) -> dict[str, Any]:
 
     result = {}
     for name, value in variables.items():
-        if name == "sistem":
+        if name in {"sistem", "sifre"}:
             continue
         if isinstance(value, PreviewValue):
             result[name] = "(önizlemede bilinmiyor)"
@@ -299,6 +299,33 @@ def snapshot(variables: dict[str, Any], limit: int = 200_000) -> dict[str, Any]:
         encoded = json.dumps(copied, ensure_ascii=False)
         result[name] = copied if len(encoded) <= limit // 4 else encoded[:2000] + " …"
     return result
+
+
+class SecretVariables(dict):
+    """${sifre.ad}: read from the system password store only when a step uses it, never kept in the run."""
+
+    def __init__(self, vault: Any, reveal: Callable[[str], None]):
+        super().__init__()
+        self._vault, self._reveal = vault, reveal
+
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str)
+
+    def __getitem__(self, name: str) -> str:
+        from .vault import VaultError
+
+        try:
+            value = self._vault.get(name)
+        except VaultError as exc:
+            raise WorkflowError(str(exc)) from exc
+        if value is None:
+            raise WorkflowError(f"Kayıtlı şifre bulunamadı: {name}. Ayarlar → Kayıtlı şifreler bölümünden bu "
+                                "bilgisayara kaydedin.")
+        self._reveal(value)
+        return value
+
+    def __repr__(self) -> str:
+        return "<kayıtlı şifreler>"
 
 
 class Executor:
@@ -320,6 +347,10 @@ class Executor:
         self.connections = Connections(settings.data_dir, settings)
         self._secrets = [value for value in (self.config.get("database_url"), self.config.get("google_credentials_path"))
                          if value] + self.connections.secrets()
+        if "sifre" not in self.variables:
+            from .vault import Vault
+
+            self.variables["sifre"] = SecretVariables(Vault(settings.data_dir), self.remember_secret)
         self._last_save = 0.0
         self.resources = ExitStack()
         self._browser: Any = None
@@ -341,11 +372,21 @@ class Executor:
         if self._deadlines and time.monotonic() >= min(self._deadlines):
             raise WorkflowError("Koşullu döngünün süre sınırı doldu; işlem durduruldu.")
 
-    def log(self, message: str, *, level: str = "info", step_id: str | None = None) -> None:
-        # Never persist configured credentials, even when accidentally used in a log step.
-        for secret in self._secrets:
+    def remember_secret(self, value: str) -> None:
+        if value and value not in self._secrets:
+            self._secrets.append(value)
+
+    def mask(self, message: str) -> str:
+        # Never persist configured credentials or a ${sifre.…} value, even when used in a log step.
+        for secret in sorted(self._secrets, key=len, reverse=True):
             message = message.replace(secret, "[gizlendi]")
-        message = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
+            escaped = json.dumps(secret, ensure_ascii=False)[1:-1]
+            if escaped != secret:
+                message = message.replace(escaped, "[gizlendi]")
+        return re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
+
+    def log(self, message: str, *, level: str = "info", step_id: str | None = None) -> None:
+        message = self.mask(message)
         self.run.events.append(Event(message=message[:2000], level=level, step_id=step_id))
         self.run.events = self.run.events[-1000:]
         # Long loops log every step; keep the run file current without rewriting it each time.
@@ -1321,8 +1362,13 @@ class RunManager:
             run.error = describe_error(exc)
             runner.log(run.error, level="error")
         finally:
+            if run.error:
+                run.error = runner.mask(run.error)
             if run.test_step_id:
-                run.variables = snapshot(runner.variables)
+                try:
+                    run.variables = json.loads(runner.mask(json.dumps(snapshot(runner.variables), ensure_ascii=False)))
+                except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
+                    run.variables = {}
             run.finished_at = now()
             # Free the worker before the result becomes visible: whoever sees the finished run can
             # start the next one at once. The single worker thread still writes this file first.

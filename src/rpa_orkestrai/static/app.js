@@ -27,6 +27,7 @@
     lasso: false,
     schedules: null,
     pendingPoll: null,
+    secrets: { names: [], supported: true },
     target: null,
     dirty: false,
     dryRun: false,
@@ -663,7 +664,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.9.2"}`),
+      node("span", "version", `v${state.version || "0.9.3"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -5233,6 +5234,7 @@
           .filter(Boolean),
       ),
     ];
+    state.secrets.names.forEach((entry) => names.push(`sifre.${entry.name}`));
     for (const name of ["sistem.masaustu", "sistem.indirilenler", "sistem.belgeler", "sistem.bugun",
       "sistem.isletim_sistemi", "sistem.kullanici"])
       if (!names.includes(name)) names.push(name);
@@ -6690,7 +6692,7 @@
     const updateActions = node("div", "update-actions");
     updateActions.append(checkUpdate, downloads);
     updatePanel.append(updateMessage, updateActions);
-    form.append(updatePanel);
+    form.append(updatePanel, secretsPanel(panel));
     const appearance = panel("Görünüm", "sun",
       "Açık tema çizim kâğıdı, koyu tema teknik çizim (blueprint) görünümündedir. Sistem seçeneği bilgisayarınızın ayarını izler.");
     appearance.classList.add("settings-appearance");
@@ -6798,6 +6800,88 @@
     return page;
   }
 
+  function secretsPanel(panel) {
+    // Passwords a flow uses as ${sifre.ad}; the value goes to the system password store, never back here.
+    const el = panel("Kayıtlı şifreler", "key",
+      "Akışlarda ${sifre.ad} olarak kullanılır (ör. ERP girişinde Alanı doldur). Şifre bu bilgisayarın şifre "
+        + "kasasında saklanır: Windows'ta Kimlik Bilgisi Yöneticisi, Mac'te Anahtar Zinciri. Akış dosyasına, dışa "
+        + "aktarıma, çalışma günlüğüne ve test sonuçlarına girmez; Studio şifreyi bir daha göstermez.");
+    el.classList.add("secrets-panel");
+    const list = node("div", "secret-list");
+    const name = textInput("", "ör. erp");
+    name.maxLength = 40;
+    name.spellcheck = false;
+    name.autocomplete = "off";
+    const value = textInput("", "Şifre", "password");
+    value.autocomplete = "new-password";
+    value.maxLength = 1000;
+    const save = button("Kaydet", "save", null, "small primary");
+    const paint = () => {
+      list.replaceChildren();
+      if (!state.secrets.names.length) list.append(node("p", "help", "Henüz kayıtlı şifre yok."));
+      state.secrets.names.forEach((entry) => {
+        const row = node("div", "secret-row");
+        const chip = node("button", "variable-chip mono", "${sifre." + entry.name + "}");
+        chip.type = "button";
+        chip.title = "Kopyala; adımın alanına yapıştırın";
+        chip.addEventListener("click", () => attempt(async () => {
+          await navigator.clipboard.writeText("${sifre." + entry.name + "}");
+          toast("Kopyalandı.");
+        }));
+        const change = linkButton("Değiştir", () => {
+          name.value = entry.name;
+          value.value = "";
+          value.focus();
+        }, "edit");
+        const remove = iconButton("Şifreyi sil", "trash", async () => {
+          if (!(await confirmDialog("Şifreyi sil", `\${sifre.${entry.name}} silinecek. Onu kullanan akışlar `
+            + "bu bilgisayarda çalışmaz.", "Sil", true))) return;
+          await attempt(async () => {
+            state.secrets = await api(`/api/secrets/${encodeURIComponent(entry.name)}`, { method: "DELETE" });
+            paint();
+            toast("Şifre silindi.");
+          });
+        }, "danger");
+        row.append(chip, node("small", "muted", `Güncellendi: ${when(entry.updated_at)}`), change, remove);
+        list.append(row);
+      });
+    };
+    const submit = () => attempt(async () => {
+      const key = name.value.trim();
+      if (!/^[a-z][a-z0-9_]{0,39}$/.test(key))
+        throw new Error("Ad küçük harfle başlamalı; yalnız İngilizce küçük harf, rakam ve alt çizgi (ör. erp).");
+      if (!value.value) throw new Error("Şifreyi yazın.");
+      save.disabled = true;
+      try {
+        state.secrets = await api(`/api/secrets/${encodeURIComponent(key)}`, {
+          method: "PUT", body: JSON.stringify({ value: value.value }),
+        });
+      } finally {
+        save.disabled = false;
+        value.value = "";
+      }
+      name.value = "";
+      paint();
+      toast(`Kaydedildi. Adımlarda \${sifre.${key}} olarak kullanın.`);
+    });
+    save.addEventListener("click", submit);
+    for (const input of [name, value])
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        // The settings form around this panel must not be submitted.
+        event.preventDefault();
+        submit();
+      });
+    const form = node("div", "secret-form");
+    form.append(field("Ad", name), field("Şifre", value), save);
+    paint();
+    if (!state.secrets.supported) {
+      el.append(note("Kayıtlı şifreler yalnız macOS ve Windows'ta kullanılabilir.", "warning"));
+      return el;
+    }
+    el.append(list, form);
+    return el;
+  }
   function initials(name) {
     const parts = String(name || "").split(/[\s@._-]+/).filter(Boolean);
     return (parts.slice(0, 2).map((part) => part[0]).join("") || "RO").toLocaleUpperCase("tr-TR");
@@ -7137,6 +7221,9 @@
       watchLicense();
       watchPending();
       attempt(refreshSchedules);
+      attempt(async () => {
+        state.secrets = await api("/api/secrets");
+      });
     } catch (error) {
       root.replaceChildren();
       root.setAttribute("aria-busy", "false");

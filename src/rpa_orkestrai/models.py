@@ -36,6 +36,13 @@ class Step(Model):
     # Where the user dragged the box in the diagram, relative to its automatic place: [dx, dy].
     offset: tuple[float, float] | None = None
 
+    @model_validator(mode="after")
+    def earlier_wait_choice(self) -> Step:
+        # Dosya / script çalıştır in 0.9.2 had a yes/no box; it is now auto / wait / no.
+        if self.action == "system.run_file" and isinstance(self.params.get("wait_finish"), bool):
+            self.params["wait_finish"] = "wait" if self.params["wait_finish"] else "no"
+        return self
+
     @field_validator("offset")
     @classmethod
     def bounded_offset(cls, value: tuple[float, float] | None) -> tuple[float, float] | None:
@@ -233,6 +240,10 @@ class ScheduleSettings(Model):
 
 class AutostartRequest(Model):
     enabled: bool
+
+
+class SecretRequest(Model):
+    value: str = Field(min_length=1, max_length=1000)
 
 
 class RunRequest(Model):

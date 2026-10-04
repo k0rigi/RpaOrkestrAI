@@ -5134,3 +5134,33 @@ body.dragging-step .edge-remove {
   display: block;
   margin-bottom: 4px;
 }
+.secret-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.secret-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.secret-row small {
+  margin-right: auto;
+}
+.secret-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.secret-form .field {
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .secret-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

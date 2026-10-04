@@ -37,6 +37,7 @@ from .models import (
     Schedule,
     ScheduleInput,
     ScheduleSettings,
+    SecretRequest,
     StepTestRequest,
     TemplateCropRequest,
     WindowCheckRequest,
@@ -48,6 +49,7 @@ from .models import (
 )
 from .scheduler import ScheduleBook, Scheduler, forecast, next_occurrence, planned, summary, upcoming
 from .storage import Store
+from .vault import Vault, VaultError
 
 REQUEST_LIMIT = 2_000_000
 # A flow file carries its reference images, so an import may be larger than other requests.
@@ -670,6 +672,34 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         if not scheduler.answer(choice):
             raise HTTPException(status_code=409, detail="Başlamayı bekleyen zamanlanmış bir akış yok.")
         return {"pending": scheduler.pending()}
+
+    # ----- Kayıtlı şifreler: names here, values only in the system password store --------------------
+    vault = Vault(settings.data_dir)
+
+    def vault_view() -> dict:
+        return {"names": vault.names(), "supported": platform.system() in {"Darwin", "Windows"}}
+
+    @app.get("/api/secrets")
+    def list_secrets():
+        return vault_view()
+
+    @app.put("/api/secrets/{name}")
+    def save_secret(name: str, body: SecretRequest):
+        try:
+            vault.set(name, body.value)
+        except VaultError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return vault_view()
+
+    @app.delete("/api/secrets/{name}")
+    def delete_secret(name: str):
+        try:
+            removed = vault.delete(name)
+        except VaultError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if not removed:
+            raise HTTPException(status_code=404, detail="Kayıtlı şifre bulunamadı.")
+        return vault_view()
 
     @app.get("/api/autostart")
     def autostart_status():

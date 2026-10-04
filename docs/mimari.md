@@ -24,6 +24,7 @@ data/
 ├── settings.json          # Yerel bağlantı ayarları
 ├── favorites.json         # Adım kütüphanesindeki sık kullanılanlar
 ├── schedules.json         # Zamanlamalar ve geri sayım ayarı
+├── secrets.json           # Kayıtlı şifrelerin yalnız adları (değerler sistem şifre kasasında)
 ├── workflows/            # Kaydedilen akış JSON dosyaları
 ├── runs/                 # Çalışma durumları ve günlükler
 └── artifacts/            # İndirilebilir çalışma çıktıları
