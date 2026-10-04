@@ -100,7 +100,7 @@ def test_documents_open_with_their_program_and_missing_files_are_reported(runner
 
 @pytest.mark.parametrize("name, system_name, expected", [
     ("a.ps1", "Windows", ["POWERSHELL", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]),
-    ("a.vbs", "Windows", ["cscript.exe", "//nologo"]),
+    ("a.vbs", "Windows", ["cscript.exe", "//nologo", "//U"]),
     ("a.bat", "Windows", []),
     ("a.exe", "Windows", []),
     ("a.sh", "Darwin", ["/bin/bash"]),
@@ -125,6 +125,19 @@ def test_a_kind_of_the_other_platform_is_refused(monkeypatch, tmp_path, name, sy
     monkeypatch.setattr(system.platform, "system", lambda: system_name)
     with pytest.raises(WorkflowError, match=message):
         system.script_command(tmp_path / name, [])
+
+
+def test_turkish_text_survives_the_console_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr(system.platform, "system", lambda: "Windows")
+    monkeypatch.setenv("COMSPEC", r"C:\Windows\system32\cmd.exe")
+    batch = tmp_path / "Script klasörü" / "aktar.bat"
+    command, env = system.launch([str(batch), "iş"], batch)
+    assert command == rf'"C:\Windows\system32\cmd.exe" /d /u /s /c "chcp 65001 >nul & "{batch}" iş"'
+    assert env is None
+    shell, _ = system.launch(["powershell", "-File", str(tmp_path / "a.ps1")], tmp_path / "a.ps1")
+    assert "chcp 65001" in shell and "powershell -File" in shell
+    _, env = system.launch(["C:/Python/python.exe", str(tmp_path / "a.py")], tmp_path / "a.py")
+    assert env["PYTHONIOENCODING"] == "utf-8" and env["PYTHONUTF8"] == "1"
 
 
 def test_python_must_be_installed(monkeypatch, tmp_path):

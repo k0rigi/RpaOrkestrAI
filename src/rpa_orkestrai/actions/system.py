@@ -217,7 +217,8 @@ def script_command(file: Path, arguments: list[str]) -> list[str] | None:
         return [shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(file), *arguments]
     if kind == "wsh":
         cscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "cscript.exe"
-        return [str(cscript), "//nologo", str(file), *arguments]
+        # //U: the script's output comes back as Unicode, so Turkish text survives any code page.
+        return [str(cscript), "//nologo", "//U", str(file), *arguments]
     if kind in {"bash", "zsh"}:
         return [f"/bin/{kind}", str(file), *arguments]
     if kind == "osascript":
@@ -226,6 +227,22 @@ def script_command(file: Path, arguments: list[str]) -> list[str] | None:
     if not java:
         raise WorkflowError("Java bulunamadı; .jar dosyasını çalıştırmak için Java kurun.")
     return [java, "-jar", str(file), *arguments]
+
+
+def launch(command: list[str], file: Path) -> tuple[list[str] | str, dict | None]:
+    """The process to start and its environment: Turkish text must survive the console code page.
+
+    Python writes UTF-8 when told to. On Windows, .bat/.cmd and PowerShell run in a console switched to UTF-8
+    (chcp 65001), and cmd's own commands write Unicode (/u); English Windows otherwise turns ş into s.
+    """
+    env = None
+    if command[0] != str(file) and Path(command[0]).stem.lower() in {"py", "python", "python3", "pythonw"}:
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    if platform.system() == "Windows" and (file.suffix.lower() in {".bat", ".cmd"}
+                                           or Path(command[0]).stem.lower() in {"powershell", "pwsh"}):
+        comspec = os.environ.get("COMSPEC", "cmd.exe")
+        return f'"{comspec}" /d /u /s /c "chcp 65001 >nul & {subprocess.list2cmdline(command)}"', env
+    return command, env
 
 
 @handler("system.run_file")
@@ -246,13 +263,14 @@ def run_file(ctx, p):
         ctx.log(f"{file.name} varsayılan programıyla açıldı; bitmesi beklenmez.")
         return {"code": None, "output": "", "error": "", "file": str(file), "opened": True}
     finish = p.get("wait_finish", True) is True
+    command, env = launch(command, file)
     try:
         if not finish:
-            subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=os.name != "nt", **_no_window())
             ctx.log(f"{file.name} başlatıldı; akış bitmesini beklemeden devam ediyor.")
             return {"code": None, "output": "", "error": "", "file": str(file), "opened": False}
-        process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, **_no_window())
     except OSError as exc:
         raise WorkflowError(f"{file.name} başlatılamadı: {exc.strerror or exc}") from exc
