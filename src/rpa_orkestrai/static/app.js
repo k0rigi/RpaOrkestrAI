@@ -663,7 +663,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.9.0"}`),
+      node("span", "version", `v${state.version || "0.9.1"}`),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -5667,13 +5667,16 @@
   ];
   const dayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
   const dayTitles = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
-  const SCHEDULE_FIELDS = ["workflow_id", "enabled", "kind", "date", "time", "days", "every_minutes", "until", "catch_up"];
+  const SCHEDULE_FIELDS = ["workflow_id", "enabled", "kind", "date", "time", "days", "every_minutes", "until", "catch_up",
+    "priority", "max_delay", "max_duration"];
+  const priorities = [["high", "Yüksek"], ["normal", "Normal"], ["low", "Düşük"]];
   const scheduleStates = {
     started: ["Başlatıldı", "success"],
     skipped: ["Atlandı", "warning"],
     missed: ["Kaçırıldı", "warning"],
     cancelled: ["İptal edildi", "cancelled"],
     error: ["Hata", "failed"],
+    stopped: ["Süre aşıldı", "failed"],
   };
   async function refreshSchedules() {
     state.schedules = await api("/api/schedules");
@@ -5732,8 +5735,8 @@
     }
     page.append(note(
       "Zamanlanmış akışlar yalnız Studio açıkken çalışır; pencere simge durumunda kalabilir. Akış başlamadan önce "
-        + "Studio öne gelir ve geri sayım gösterir. O sırada başka bir akış çalışıyorsa zamanlanmış akış 10 dakikaya "
-        + "kadar bekler, sonra atlanır.",
+        + "Studio öne gelir ve geri sayım gösterir. Aynı anda yalnız bir akış çalışır: zamanı çakışan akışlar sıraya "
+        + "girer, önceliğe göre başlar; en fazla gecikme süresini aşan çalışma atlanır.",
       "schedule-note",
     ));
     const panel = node("div", "panel table-wrap schedule-table");
@@ -5754,8 +5757,58 @@
       table.append(head, body);
       panel.append(table);
     }
-    page.append(panel, scheduleSettings(data));
+    page.append(panel);
+    if (data.schedules.some((entry) => entry.enabled)) page.append(schedulePlan(data));
+    page.append(scheduleSettings(data));
     return page;
+  }
+  function schedulePlan(data) {
+    // The coming 24 hours as the scheduler would run them: one flow at a time, by priority, with usual lengths.
+    const panel = node("section", "panel schedule-plan");
+    const title = node("h2");
+    title.append(icon("calendar"), node("span", "", "Önümüzdeki 24 saat"));
+    panel.append(title, node("p", "help", "Akışlar her seferinde bir tane çalışır. Süreler son çalışmaların "
+      + "ortalamasıdır; hiç çalışmamış akış 1 dakika sayılır. Turuncu: bekleyerek başlar, kırmızı: atlanır."));
+    const start = new Date();
+    start.setSeconds(0, 0);
+    const span = 24 * 60 * 60000;
+    const place = (iso) => Math.max(0, Math.min(100, ((new Date(iso) - start) / span) * 100));
+    const axis = node("div", "plan-axis");
+    for (let hour = 0; hour <= 24; hour += 3) {
+      const tick = node("span", "", new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" })
+        .format(new Date(start.getTime() + hour * 3600000)));
+      tick.style.left = `${(hour / 24) * 100}%`;
+      axis.append(tick);
+    }
+    const lanes = node("div", "plan-lanes");
+    const entries = data.plan || [];
+    data.schedules.filter((entry) => entry.enabled).forEach((entry) => {
+      const lane = node("div", "plan-lane");
+      const label = node("div", "plan-label");
+      label.append(node("strong", "", entry.workflow_name || "Silinmiş akış"), node("small", "", entry.summary));
+      const track = node("div", "plan-track");
+      const mine = entries.filter((item) => item.schedule_id === entry.id);
+      mine.slice(0, 400).forEach((item) => {
+        const block = node("span", `plan-block ${item.status === "skipped" ? "skipped" : item.delay ? "late" : ""}`);
+        const at = item.start || item.due;
+        block.style.left = `${place(at)}%`;
+        block.style.width = item.status === "skipped" ? "" : `${Math.max(0.25, (item.minutes / 1440) * 100)}%`;
+        block.title = item.status === "skipped"
+          ? `${localTime(item.due)}: önündeki akışlar ${entry.max_delay} dakikada bitmeyeceği için atlanır`
+          : `${localTime(item.start)} · ${item.known ? "yaklaşık " : "süresi bilinmiyor, "}${item.minutes} dk`
+            + (item.delay ? ` · ${localTime(item.due)} yerine ${item.delay} dk geç` : "");
+        track.append(block);
+      });
+      if (!mine.length) track.append(node("span", "plan-empty", "24 saat içinde çalışmıyor"));
+      const late = mine.filter((item) => item.status === "runs" && item.delay).length;
+      const skipped = mine.filter((item) => item.status === "skipped").length;
+      const status = node("div", `plan-status${skipped ? " skipped" : late ? " late" : ""}`,
+        skipped ? `${skipped} kez atlanır` : late ? `${late} kez gecikir` : `${mine.length} çalışma`);
+      lane.append(label, track, status);
+      lanes.append(lane);
+    });
+    panel.append(axis, lanes);
+    return panel;
   }
   function scheduleRow(entry) {
     const row = node("tr", entry.enabled ? "" : "schedule-off");
@@ -5764,7 +5817,10 @@
     open.type = "button";
     open.title = "Akışı aç";
     open.addEventListener("click", () => openWorkflow(entry.workflow_id));
-    name.append(open, node("div", "table-sub", entry.summary));
+    const limits = [entry.priority !== "normal" && `${priorities.find(([value]) => value === entry.priority)[1]} öncelik`,
+      entry.max_delay !== 60 && `en fazla ${entry.max_delay} dk gecikme`,
+      entry.max_duration && `en uzun ${entry.max_duration} dk`].filter(Boolean);
+    name.append(open, node("div", "table-sub", [entry.summary, ...limits].join(" · ")));
     const next = node("td");
     if (entry.enabled && entry.next_run_at)
       next.append(node("div", "", localTime(entry.next_run_at)), node("div", "table-sub", fromNow(entry.next_run_at)));
@@ -5900,7 +5956,7 @@
     const draft = entry ? clone(scheduleInput(entry)) : {
       workflow_id: workflowId || state.workflows[0].id, enabled: true, kind: "daily", date: localDate(soon),
       time: `${String(soon.getHours()).padStart(2, "0")}:00`, days: [0, 1, 2, 3, 4], every_minutes: 60, until: null,
-      catch_up: false,
+      catch_up: false, priority: "normal", max_delay: 60, max_duration: 0,
     };
     draft.date ||= localDate(soon);
     const controls = {};
@@ -5918,7 +5974,8 @@
           return;
         }
         try {
-          const result = await api("/api/schedules/preview", { method: "POST", body: JSON.stringify(draft) });
+          const query = entry ? `?editing=${encodeURIComponent(entry.id)}` : "";
+          const result = await api(`/api/schedules/preview${query}`, { method: "POST", body: JSON.stringify(draft) });
           if (turn !== previewTurn || !box.isConnected) return;
           box.replaceChildren(node("strong", "", result.summary));
           if (!result.upcoming.length)
@@ -5928,6 +5985,9 @@
             result.upcoming.forEach((due) => list.append(node("li", "", `${localTime(due)} · ${fromNow(due)}`)));
             box.append(node("span", "small muted", "Sonraki çalışmalar:"), list);
           }
+          (result.warnings || []).forEach((text) => box.append(note(text, "warning")));
+          if (draft.enabled && !result.warnings?.length && result.upcoming.length)
+            box.append(node("p", "help schedule-clear", "Önümüzdeki 7 günde başka zamanlamalarla çakışmıyor."));
         } catch (error) {
           if (turn === previewTurn && box.isConnected) box.replaceChildren(note(error.message, "warning"));
         }
@@ -6051,10 +6111,45 @@
       enabledLabel.append(enabled, node("span", "", "Etkin"));
       const options = node("div", "field schedule-options");
       options.append(catchLabel, enabledLabel);
+      const priority = node("select");
+      priorities.forEach(([value, label]) => {
+        const option = node("option", "", label);
+        option.value = value;
+        priority.append(option);
+      });
+      priority.value = draft.priority;
+      priority.addEventListener("change", () => {
+        draft.priority = priority.value;
+        paintPreview();
+      });
+      const delay = textInput(String(draft.max_delay), "", "number");
+      delay.min = "1";
+      delay.max = "1440";
+      delay.addEventListener("input", () => {
+        draft.max_delay = Number(delay.value);
+        paintPreview();
+      });
+      const longest = textInput(String(draft.max_duration), "", "number");
+      longest.min = "0";
+      longest.max = "1440";
+      longest.addEventListener("input", () => {
+        draft.max_duration = Number(longest.value);
+        paintPreview();
+      });
+      const limits = node("details", "schedule-limits");
+      limits.open = draft.priority !== "normal" || draft.max_delay !== 60 || Boolean(draft.max_duration);
+      const limitsTitle = node("summary", "", "Çakışma ve süre ayarları");
+      const limitsGrid = node("div", "schedule-limit-grid");
+      limitsGrid.append(
+        field("Öncelik", priority, "Aynı anda sıraya giren akışlarda yüksek öncelikli önce çalışır."),
+        field("En fazla gecikme (dakika)", delay, "Önündeki akışlar yüzünden bu süreden geç başlayacaksa o çalışma atlanır."),
+        field("En uzun çalışma süresi (dakika)", longest, "Aşılırsa akış durdurulur, sıradaki başlar. 0: sınır yok."),
+      );
+      limits.append(limitsTitle, limitsGrid);
       controls.preview = node("div", "schedule-preview");
       controls.preview.setAttribute("role", "status");
       body.append(kindField, controls.dateField, timeField, controls.daysField, controls.everyField,
-        controls.untilField, options, controls.preview);
+        controls.untilField, options, limits, controls.preview);
       const others = (state.schedules?.schedules || []).filter((other) =>
         other.workflow_id === draft.workflow_id && other.id !== entry?.id);
       if (!entry && others.length)
@@ -6095,6 +6190,10 @@
         return "Aralık 1 ile 1440 dakika arasında tam sayı olmalıdır.";
       if (draft.until && draft.until <= draft.time) return "Bitiş saati başlangıç saatinden sonra olmalıdır.";
     }
+    if (!Number.isInteger(draft.max_delay) || draft.max_delay < 1 || draft.max_delay > 1440)
+      return "En fazla gecikme 1 ile 1440 dakika arasında tam sayı olmalıdır.";
+    if (!Number.isInteger(draft.max_duration) || draft.max_duration < 0 || draft.max_duration > 1440)
+      return "En uzun çalışma süresi 0 ile 1440 dakika arasında tam sayı olmalıdır.";
     return null;
   }
   // The countdown before a scheduled run, shown over any page.

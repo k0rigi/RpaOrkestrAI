@@ -11,9 +11,9 @@ from pydantic import ValidationError
 from rpa_orkestrai.config import atomic_json
 from rpa_orkestrai.models import Schedule, ScheduleInput, ScheduleSettings
 from rpa_orkestrai.scheduler import (
-    GRACE,
     ScheduleBook,
     Scheduler,
+    forecast,
     next_occurrence,
     planned,
     summary,
@@ -21,6 +21,7 @@ from rpa_orkestrai.scheduler import (
 )
 
 FLOW = "a" * 32
+GRACE = timedelta(minutes=60)  # the default max_delay
 MONDAY = datetime(2026, 10, 5, 8, 0)
 assert MONDAY.weekday() == 0
 
@@ -130,15 +131,23 @@ class Desk:
         self.book.set_settings(ScheduleSettings(countdown=countdown))
         self.started, self.busy, self.allowed, self.names, self.alerts = [], False, True, {FLOW: "Fatura"}, 0
         self.failure = None
+        self.states, self.stopped = {}, []
         self.scheduler = Scheduler(self.book, start_run=self.start, allowed=lambda: self.allowed,
                                    busy=lambda: self.busy, workflow_name=self.names.get,
-                                   attention=self.attention, clock=lambda: self.now)
+                                   attention=self.attention, clock=lambda: self.now,
+                                   run_state=self.states.get, stop_run=self.stop)
+
+    def stop(self, run_id, reason):
+        self.stopped.append((run_id, reason))
+        return True
 
     def start(self, workflow_id):
         if self.failure:
             raise self.failure
         self.started.append(workflow_id)
-        return SimpleNamespace(id=f"run-{len(self.started)}")
+        run_id = f"run-{len(self.started)}"
+        self.states[run_id] = "running"
+        return SimpleNamespace(id=run_id)
 
     def attention(self):
         self.alerts += 1
@@ -203,7 +212,7 @@ def test_a_busy_desktop_or_missing_license_waits_then_skips(tmp_path):
     desk.scheduler.check()
     saved = desk.get(schedule)
     assert (saved.last_status, saved.next_run_at) == ("skipped", "2026-10-07T09:00")
-    assert "başka bir akış" in saved.last_message
+    assert "Önündeki akışlar 60 dakika" in saved.last_message
     desk.busy, desk.allowed = False, False
     desk.now = at(2, "09:00") + GRACE + timedelta(minutes=1)
     desk.scheduler.check()
@@ -260,6 +269,72 @@ def test_a_time_missed_while_closed_is_reported_or_run_once(tmp_path):
     desk.scheduler.check()
     assert desk.started == [FLOW]
     assert desk.get(caught).next_run_at == "2026-10-06T09:30"
+
+
+def test_flows_due_together_queue_by_priority_and_each_waits_its_own_limit(tmp_path):
+    desk = Desk(tmp_path)
+    other = "b" * 32
+    desk.names[other] = "Stok"
+    low = desk.add(kind="daily", time="09:00", priority="low")
+    high = desk.book.add(planned(Schedule(workflow_id=other, kind="daily", time="09:00", priority="high",
+                                          max_delay=5), desk.now))
+    desk.now = at(0, "09:00")
+    desk.scheduler.check()
+    assert desk.started == [other]  # created later, but first in the queue
+    desk.busy = True
+    desk.now = at(0, "09:30")
+    desk.scheduler.check()
+    assert desk.get(low).last_status is None  # still within its 60 minutes
+    desk.busy = False
+    desk.scheduler.check()
+    assert desk.started == [other, FLOW] and desk.get(low).last_status == "started"
+    # The next day the high-priority one waits only 5 minutes.
+    desk.busy, desk.now = True, at(1, "09:06")
+    desk.scheduler.check()
+    saved = desk.get(high)
+    assert saved.last_status == "skipped" and "5 dakika" in saved.last_message
+
+
+def test_a_run_longer_than_its_limit_is_stopped_and_one_that_ends_is_let_go(tmp_path):
+    desk = Desk(tmp_path)
+    schedule = desk.add(kind="daily", time="09:00", max_duration=30)
+    desk.now = at(0, "09:00")
+    desk.scheduler.check()
+    desk.now = at(0, "09:29")
+    desk.scheduler.check()
+    assert desk.stopped == []
+    desk.now = at(0, "09:30")
+    desk.scheduler.check()
+    assert desk.stopped == [("run-1", "En uzun çalışma süresi (30 dk) aşıldığı için durduruldu.")]
+    saved = desk.get(schedule)
+    assert (saved.last_status, saved.last_run_id) == ("stopped", "run-1")
+    desk.now = at(1, "09:00")
+    desk.scheduler.check()
+    desk.states["run-2"] = "succeeded"
+    desk.now = at(1, "10:00")
+    desk.scheduler.check()
+    assert len(desk.stopped) == 1 and desk.get(schedule).last_status == "started"
+
+
+def test_forecast_replays_the_queue_with_usual_run_lengths():
+    def made(workflow, **fields):
+        return planned(Schedule(workflow_id=workflow, kind="daily", time="09:00", **fields), at(0, "08:00"))
+
+    first, second, third = made("a" * 32), made("b" * 32, priority="high"), made("c" * 32, max_delay=10)
+    plan = forecast([first, second, third], {"a" * 32: 15, "b" * 32: 8}, at(0, "08:00"), at(0, "12:00"))
+    assert [(item["schedule_id"], item["start"], item["delay"], item["status"], item["known"]) for item in plan] == [
+        (second.id, "2026-10-05T09:00", 0, "runs", True),
+        (first.id, "2026-10-05T09:08", 8, "runs", True),
+        (third.id, None, None, "skipped", False),  # 10 minutes are not enough after 15 + 8
+    ]
+    # A run longer than its interval keeps the next turn waiting; the turns it overlaps are not doubled.
+    busy = planned(Schedule(workflow_id="a" * 32, kind="interval", time="09:00", until="10:00", every_minutes=10,
+                            days=list(range(7))), at(0, "08:00"))
+    plan = forecast([busy], {"a" * 32: 25}, at(0, "08:00"), at(0, "12:00"))
+    assert [(item["due"][11:], item["start"][11:], item["delay"]) for item in plan] == [
+        ("09:00", "09:00", 0), ("09:10", "09:25", 15), ("09:30", "09:50", 20)]
+    capped = planned(Schedule(workflow_id="a" * 32, kind="daily", time="09:00", max_duration=5), at(0, "08:00"))
+    assert forecast([capped], {"a" * 32: 25}, at(0, "08:00"), at(0, "12:00"))[0]["minutes"] == 5
 
 
 def test_the_scheduler_thread_starts_and_stops_promptly(tmp_path):
@@ -325,6 +400,37 @@ def test_schedules_refuse_unknown_flows_and_past_times_and_follow_deleted_flows(
         assert refused.status_code == 422 and "kurulu masaüstü" in refused.json()["detail"]
         client.delete(f"/api/workflows/{flow['id']}")
         assert client.get("/api/schedules").json()["schedules"] == []
+
+
+def test_preview_warns_about_flows_that_meet_and_lists_the_plan(tmp_path):
+    from datetime import timezone
+
+    from rpa_orkestrai.models import Run
+
+    with studio(tmp_path) as client:
+        report = client.post("/api/workflows", json={"name": "Rapor", "steps": [{"action": "core.log"}]}).json()
+        stock = client.post("/api/workflows", json={"name": "Stok", "steps": [{"action": "core.log"}]}).json()
+        began = datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc)
+        for minutes in (12, 14, 13):  # Rapor usually takes 13 minutes
+            client.app.state.store.save_run(Run(workflow_id=report["id"], workflow_name="Rapor", department="Genel",
+                                                status="succeeded", started_at=began.isoformat(),
+                                                finished_at=(began + timedelta(minutes=minutes)).isoformat()))
+        daily = {"kind": "daily", "time": "09:00"}
+        first = client.post("/api/schedules", json={"workflow_id": report["id"], **daily}).json()
+        body = {"workflow_id": stock["id"], "kind": "daily", "time": "09:05"}
+        warnings = client.post("/api/schedules/preview", json=body).json()["warnings"]
+        assert any("süresi henüz bilinmiyor" in text for text in warnings)
+        assert any("7 kez başka akışların bitmesini bekleyecek (en fazla 8 dk)" in text and "Rapor" in text
+                   for text in warnings), warnings
+        late = client.post("/api/schedules/preview", json={**body, "max_delay": 5}).json()["warnings"]
+        assert any("7 kez 5 dakikadan fazla bekleyeceği için atlanacak" in text for text in late), late
+        # Editing the schedule itself does not count as a conflict with itself.
+        assert client.post(f"/api/schedules/preview?editing={first['id']}",
+                           json={"workflow_id": report["id"], **daily}).json()["warnings"] == []
+        listing = client.get("/api/schedules").json()
+        assert listing["usual_minutes"] == {report["id"]: 13}
+        assert listing["plan"] and {item["schedule_id"] for item in listing["plan"]} == {first["id"]}
+        assert listing["plan"][0]["minutes"] == 13 and listing["plan"][0]["known"] is True
 
 
 def test_a_due_schedule_runs_the_saved_flow_and_the_history_says_so(tmp_path):

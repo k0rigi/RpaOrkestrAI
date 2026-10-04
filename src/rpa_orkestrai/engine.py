@@ -1337,6 +1337,15 @@ class RunManager:
                 self._active[1].set()
             return run
 
+    def stop_run(self, run_id: str, reason: str) -> bool:
+        """Stop this run if it is the one running now (e.g. it ran past its schedule's time limit)."""
+        with self._lock:
+            if self._active and self._active[0] == run_id:
+                self._stop_reason = reason
+                self._active[1].set()
+                return True
+            return False
+
     def stop_active(self, reason: str) -> None:
         """Stop the running flow, if any, and record why (e.g. the license was withdrawn)."""
         with self._lock:

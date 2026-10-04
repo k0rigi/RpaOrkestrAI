@@ -192,6 +192,10 @@ class ScheduleInput(Model):
     until: str | None = Field(default=None, pattern=HOUR_MINUTE)  # interval: window end, none = midnight
     # Like the Task Scheduler option: a run missed while the Studio was closed runs once when it opens.
     catch_up: bool = False
+    # When flows meet: who goes first, how late a waiting run may still start, and how long a run may take.
+    priority: Literal["high", "normal", "low"] = "normal"
+    max_delay: int = Field(default=60, ge=1, le=1440)  # minutes; a run that would start later is skipped
+    max_duration: int = Field(default=0, ge=0, le=1440)  # minutes; 0 = no limit, otherwise the run is stopped
 
     @model_validator(mode="after")
     def consistent(self) -> ScheduleInput:
@@ -218,7 +222,7 @@ class Schedule(ScheduleInput):
     next_run_at: str | None = None
     last_run_at: str | None = None
     last_run_id: str | None = None
-    last_status: Literal["started", "skipped", "missed", "cancelled", "error"] | None = None
+    last_status: Literal["started", "skipped", "missed", "cancelled", "error", "stopped"] | None = None
     last_message: str | None = Field(default=None, max_length=500)
 
 

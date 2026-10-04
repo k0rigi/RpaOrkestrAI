@@ -35,14 +35,30 @@ Geri sayım süresi Zamanlayıcı sayfasındaki **Başlamadan önce geri sayım*
 | Durum | Anlamı |
 | --- | --- |
 | Başlatıldı | Akış zamanında başladı. Sonucunu (tamamlandı / hata) çalışma geçmişinde görürsünüz. |
-| Atlandı | O sırada başka bir akış çalışıyordu veya lisans doğrulanamadı; zamanlama 10 dakika bekledi, yine başlayamadığı için o çalışmayı atladı. |
+| Atlandı | Önündeki akışlar zamanlamanın **en fazla gecikme** süresi içinde bitmedi veya lisans o süre boyunca doğrulanamadı; o çalışma yapılmadı. |
+| Süre aşıldı | Akış **en uzun çalışma süresi**ni aştığı için durduruldu; sıradaki akış başladı. |
 | Kaçırıldı | Studio o saatte kapalıydı. |
 | İptal edildi | Geri sayımda **İptal et**'e basıldı. |
 | Hata | Akış başlatılamadı (ör. akışta eksik bir ayar var) veya akış silindi. Akış silindiğinde zamanlama kapanır. |
 
 **Bir kez** zamanlaması çalıştıktan (veya atlandıktan) sonra kendiliğinden kapanır. Bir akışı sildiğinizde zamanlamaları da silinir.
 
-Aynı anda tek akış çalışır, çünkü fare ve klavye ortaktır. İki zamanlamanın saati çakışırsa ikincisi birincinin bitmesini en fazla 10 dakika bekler. Uzun süren bir akışı kısa aralıklarla zamanlarsanız, akış bitmeden gelen çalışma zamanları bu yüzden atlanabilir; aralığı akışın süresinden uzun seçin.
+## Çakışan akışlar
+
+Aynı anda tek akış çalışır, çünkü fare ve klavye ortaktır. Zamanı gelen akışlar **sıraya girer** ve biri bitince sıradaki başlar. Elle başlattığınız bir çalışma, hareket kaydı veya ekranda hedef seçimi sürerken de zamanlanmış akışlar sırada bekler. Zamanlama penceresindeki **Çakışma ve süre ayarları** bölümünde her zamanlama için üç ayar vardır:
+
+| Ayar | Varsayılan | Anlamı |
+| --- | --- | --- |
+| Öncelik | Normal | Sırada bekleyenlerden önce **Yüksek**, sonra **Normal**, en son **Düşük** öncelikli başlar. Aynı öncelikte saati daha erken olan önce başlar. |
+| En fazla gecikme (dakika) | 60 | Önündeki akışlar yüzünden bundan daha geç başlayacak çalışma **Atlandı** olarak yazılır ve sonraki zamanı beklenir. Saatinde yapılmazsa anlamsız olan işler için kısa tutun. |
+| En uzun çalışma süresi (dakika) | 0 (sınır yok) | Akış bu süreyi aşarsa durdurulur (**Süre aşıldı**) ve sıradaki akış başlar. Bir pencereyi sonsuza dek bekleyen akışın diğerlerini kilitlemesini önler. |
+
+Studio her akışın son başarılı çalışmalarına bakarak genelde ne kadar sürdüğünü hesaplar:
+
+- **Çakışma uyarısı:** Zamanlama penceresinin altındaki önizleme, önümüzdeki 7 günde bu zamanlamanın kaç kez bekleyeceğini veya atlanacağını, hangi akışlarla çakıştığını ve başka zamanlamaları geciktirip geciktirmediğini yazar. Akış genelde aralığından uzun sürüyorsa veya en uzun çalışma süresini aşıyorsa da uyarır. Hiç çalışmamış akış 1 dakika sayılır; birkaç çalışmadan sonra uyarılar doğrulaşır.
+- **Önümüzdeki 24 saat:** Zamanlayıcı sayfasındaki çizelge, açık zamanlamaların önümüzdeki 24 saatte ne zaman başlayacağını gösterir. Mavi zamanında, turuncu bekleyerek başlayan, kırmızı atlanacak çalışmadır. Bir bloğun üzerine gelince saat ve süre görünür.
+
+Birbirine bağlı akışları (B, A'nın sonucuyla çalışıyorsa) ayrı ayrı zamanlamak yerine bir ana akışta **Başka akışı çalıştır** adımlarıyla sırayla çağırın ve yalnız ana akışı zamanlayın; böylece sıra kesinleşir. Her akışın ilk adımları ERP'yi bilinen bir duruma getirsin (pencereyi tanı, açık kalmış uyarıları kapat); önceki akış yarıda kaldıysa sonraki akış kirli bir ekranla başlamaz.
 
 ## Studio açık olmalı
 
@@ -70,7 +86,8 @@ Zamanlayıcı sayfasındaki **Bilgisayar açılınca Studio'yu başlat (simge du
 | Bir kez / Günlük / Haftalık tetikleyici | Bir kez / Her gün / Belirli günler |
 | "Görevi şu aralıkla yinele … süresince" | Belirli aralıklarla, başlangıç ve bitiş saati |
 | "Zamanlanmış başlatma kaçırılırsa görevi en kısa sürede çalıştır" | Studio kapalıyken kaçırılırsa, açılınca bir kez çalıştır |
-| "Görev zaten çalışıyorsa yeni örnek başlatma" | Aynı anda tek akış; çakışan çalışma 10 dakika bekler, sonra atlanır |
+| "Görev zaten çalışıyorsa yeni örnek başlatma" | Aynı anda tek akış; çakışan çalışmalar öncelik sırasıyla bekler, en fazla gecikmeyi aşan atlanır |
+| "Görev şu süreden uzun çalışırsa durdur" | En uzun çalışma süresi |
 | Görev geçmişi | Son durum sütunu ve **Zamanlanmış** etiketli çalışma geçmişi |
 
 Saatler bilgisayarın yerel saatine göredir. Studio'nun kendisi kapalıyken çalışma başlatılamaz; bunun için **Bilgisayar açılınca Studio'yu başlat** ayarını kullanın.

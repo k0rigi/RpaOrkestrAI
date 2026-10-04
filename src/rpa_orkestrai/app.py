@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import platform
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -45,7 +46,7 @@ from .models import (
     now,
     uid,
 )
-from .scheduler import ScheduleBook, Scheduler, next_occurrence, planned, summary, upcoming
+from .scheduler import ScheduleBook, Scheduler, forecast, next_occurrence, planned, summary, upcoming
 from .storage import Store
 
 REQUEST_LIMIT = 2_000_000
@@ -100,10 +101,16 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         if hook:
             hook()
 
+    def run_state(run_id: str) -> str | None:
+        try:
+            return store.run(run_id).status
+        except (KeyError, ValueError):
+            return None
+
     scheduler = Scheduler(book, start_run=lambda workflow_id: manager.start(store.workflow(workflow_id),
                                                                             trigger="schedule"),
                           allowed=licensing.allowed, busy=manager.busy, workflow_name=workflow_name,
-                          attention=attention)
+                          attention=attention, run_state=run_state, stop_run=manager.stop_run)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -529,15 +536,91 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         return {**item.model_dump(), "summary": summary(item), "workflow_name": workflow_name(item.workflow_id),
                 "upcoming": [due.isoformat(timespec="minutes") for due in times]}
 
+    def usual_minutes() -> dict[str, int]:
+        """workflow id → how long its real runs usually take (median of the last five), in whole minutes."""
+        lengths: dict[str, list[float]] = {}
+        for run in store.runs():
+            if run.status != "succeeded" or run.dry_run or run.test_step_id or not run.finished_at:
+                continue
+            seen = lengths.setdefault(run.workflow_id, [])
+            if len(seen) < 5:
+                took = datetime.fromisoformat(run.finished_at) - datetime.fromisoformat(run.started_at)
+                seen.append(took.total_seconds() / 60)
+        return {key: max(1, math.ceil(sorted(values)[len(values) // 2])) for key, values in lengths.items()}
+
+    def plan_view() -> list[dict]:
+        moment = datetime.now().replace(second=0, microsecond=0)
+        return forecast(book.schedules(), usual_minutes(), moment, moment + timedelta(hours=24))
+
+    def conflict_warnings(body: ScheduleInput, editing: str | None) -> list[str]:
+        """What the next 7 days look like with this schedule among the others (usual run lengths)."""
+        draft = Schedule(**body.model_dump())
+        if not draft.enabled:
+            return []
+        minutes = usual_minutes()
+        others = [item for item in book.schedules() if item.id != editing]
+        moment = datetime.now().replace(second=0, microsecond=0)
+        end = moment + timedelta(days=7)
+        both = forecast(others + [draft], minutes, moment, end)
+        alone = forecast(others, minutes, moment, end)
+        names = {item.id: workflow_name(item.workflow_id) or "Silinmiş akış" for item in others}
+        names[draft.id] = workflow_name(draft.workflow_id) or "Bu akış"
+        warnings = []
+        length = minutes.get(draft.workflow_id)
+        if length is None:
+            warnings.append("Akışın süresi henüz bilinmiyor; çakışmalar 1 dakika varsayılarak hesaplandı. Akış "
+                            "birkaç kez çalıştıktan sonra uyarılar daha doğru olur.")
+        elif draft.kind == "interval" and length >= draft.every_minutes:
+            warnings.append(f"Akış genelde {length} dk sürüyor; her {draft.every_minutes} dakikada bir çalıştırılırsa "
+                            "turlar birbirini bekler. Aralığı akışın süresinden uzun seçin.")
+        if length and draft.max_duration and length > draft.max_duration:
+            warnings.append(f"Akış genelde {length} dk sürüyor; en uzun çalışma süresi {draft.max_duration} dk "
+                            "olduğu için büyük olasılıkla yarıda durdurulur.")
+
+        def blockers(item: dict) -> set[str]:
+            due = datetime.fromisoformat(item["due"])
+            return {names[other["schedule_id"]] for other in both
+                    if other["status"] == "runs" and other["schedule_id"] != item["schedule_id"]
+                    and datetime.fromisoformat(other["start"]) <= due
+                    < datetime.fromisoformat(other["start"]) + timedelta(minutes=other["minutes"])}
+
+        mine = [item for item in both if item["schedule_id"] == draft.id]
+        late = [item for item in mine if item["status"] == "runs" and item["delay"]]
+        skipped = [item for item in mine if item["status"] == "skipped"]
+        if late or skipped:
+            who = sorted(set().union(*(blockers(item) for item in late + skipped)))
+            parts = []
+            if late:
+                parts.append(f"{len(late)} kez başka akışların bitmesini bekleyecek "
+                             f"(en fazla {max(item['delay'] for item in late)} dk)")
+            if skipped:
+                parts.append(f"{len(skipped)} kez {draft.max_delay} dakikadan fazla bekleyeceği için atlanacak")
+            warnings.append("Önümüzdeki 7 günde bu zamanlama " + " ve ".join(parts) + "."
+                            + (f" Çakıştığı akışlar: {', '.join(who)}." if who else ""))
+        for other in others:
+            def count(entries: list[dict], status: str, key: str = other.id) -> int:
+                return sum(1 for item in entries if item["schedule_id"] == key
+                           and (item["status"] == "skipped" if status == "skipped"
+                                else item["status"] == "runs" and item["delay"]))
+            delayed = count(both, "late") - count(alone, "late")
+            dropped = count(both, "skipped") - count(alone, "skipped")
+            if delayed > 0 or dropped > 0:
+                effect = " ve ".join(text for text in (f"{delayed} kez gecikecek" if delayed > 0 else "",
+                                                       f"{dropped} kez atlanacak" if dropped > 0 else "") if text)
+                warnings.append(f"«{names[other.id]}» bu zamanlama yüzünden önümüzdeki 7 günde {effect}.")
+        return warnings
+
     @app.get("/api/schedules")
     def list_schedules():
         return {"settings": book.settings().model_dump(), "schedules": [schedule_view(item) for item in book.schedules()],
-                "pending": scheduler.pending(), "autostart": autostart.status()}
+                "pending": scheduler.pending(), "autostart": autostart.status(), "plan": plan_view(),
+                "usual_minutes": usual_minutes()}
 
     @app.post("/api/schedules/preview")
-    def preview_schedule(body: ScheduleInput):
+    def preview_schedule(body: ScheduleInput, editing: str | None = None):
         return {"summary": summary(body),
-                "upcoming": [due.isoformat(timespec="minutes") for due in upcoming(body, datetime.now())]}
+                "upcoming": [due.isoformat(timespec="minutes") for due in upcoming(body, datetime.now())],
+                "warnings": conflict_warnings(body, editing)}
 
     def check_schedule(body: ScheduleInput) -> None:
         if workflow_name(body.workflow_id) is None:
