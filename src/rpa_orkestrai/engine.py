@@ -1374,16 +1374,18 @@ class RunManager:
                 runner.execute(workflow)
             run.status = "succeeded"
         except StopWorkflow as signal:
-            run.status = "succeeded" if signal.succeeded else "failed"
+            # The error is masked before the status shows the run as finished: a reader polling
+            # the run must never see a ${sifre.…} value, not even for a moment.
             if not signal.succeeded:
-                run.error = signal.message or "Akış, Akışı bitir adımıyla hata sonucu verdi."
+                run.error = runner.mask(signal.message or "Akış, Akışı bitir adımıyla hata sonucu verdi.")
+            run.status = "succeeded" if signal.succeeded else "failed"
             runner.log(signal.message or "Akış bitirildi.", level="info" if signal.succeeded else "error")
         except (Cancelled, InterruptedError):
-            run.status = "cancelled"
             with self._lock:
                 reason, self._stop_reason = self._stop_reason, None
             if reason:
-                run.error = reason
+                run.error = runner.mask(reason)
+            run.status = "cancelled"
             runner.log(reason or "Çalışma kullanıcı tarafından durduruldu.", level="warning")
         except JumpTo as jump:
             if plan:
@@ -1406,8 +1408,8 @@ class RunManager:
                 run.error = "Döngüden çık / Sonraki tura geç adımı bir döngünün içinde olmalıdır."
                 runner.log(run.error, level="error")
         except Exception as exc:
+            run.error = runner.mask(describe_error(exc))
             run.status = "failed"
-            run.error = describe_error(exc)
             runner.log(run.error, level="error")
         finally:
             if run.error:
