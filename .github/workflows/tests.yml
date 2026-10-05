@@ -34,7 +34,7 @@ jobs:
       - name: Check runtime dependency consistency
         run: python -m pip check
       - name: Load automation dependencies
-        run: python -c "import pandas, cv2, pyautogui, pyodbc, psycopg, gspread, webview, openpyxl; from pynput import keyboard, mouse; from playwright.sync_api import sync_playwright"
+        run: python -c "import pandas, cv2, pyautogui, pyodbc, psycopg, oracledb, pymysql, gspread, webview, openpyxl; from pynput import keyboard, mouse; from playwright.sync_api import sync_playwright"
       - name: Load Windows native renderer
         if: runner.os == 'Windows'
         run: python -c "import clr; clr.AddReference('System.Windows.Forms'); import webview.platforms.winforms"
@@ -43,7 +43,7 @@ jobs:
         run: python -c "import comtypes.client; comtypes.client.GetModule('UIAutomationCore.dll'); from comtypes.gen import UIAutomationClient; from winrt.windows.media.ocr import OcrEngine; print(OcrEngine.try_create_from_user_profile_languages())"
       - name: Load macOS native renderer
         if: runner.os == 'macOS'
-        run: python -c "import AppKit, Quartz, WebKit; import webview.platforms.cocoa; import ApplicationServices, Vision"
+        run: python -c "import AppKit, Quartz, WebKit; import webview.platforms.cocoa; import ApplicationServices, Vision, pymssql"
       - name: Lint
         run: python -m ruff check .
       - name: Test without external accounts or desktop access

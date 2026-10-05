@@ -826,14 +826,17 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                 raise ValueError("Bağlantı türü geçersiz.")
             spreadsheet = body.get("spreadsheet") or ""
             if kind == "database":
-                from .database.reader import ReadOnlyDatabase
+                from .database.query import QueryDatabase, describe
 
-                if not config["url"] or not config["allowed_tables"]:
-                    raise ValueError("Bağlantı adresini ve en az bir izinli tabloyu girin.")
-                with ReadOnlyDatabase(config["url"], {t: None for t in config["allowed_tables"]},
-                                      timeout_seconds=15) as database:
-                    with database._connection() as connection:
-                        connection.exec_driver_sql("SELECT 1")
+                if not connections.ready({"type": "database", "config": config}):
+                    raise ValueError("Sunucu ve kullanıcı adını (SQLite için dosyayı) girin.")
+                try:
+                    with QueryDatabase(config, timeout_seconds=15) as database:
+                        database.ping()
+                except (WorkflowError, ValueError):
+                    raise
+                except Exception as exc:
+                    raise ValueError(describe(exc)) from exc
                 return {"ok": True, "message": "Veritabanına bağlanıldı."}
             if config["method"] == "apps_script":
                 client = AppsScriptSheets(config["script_url"], config["script_token"],

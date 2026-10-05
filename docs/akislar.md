@@ -34,7 +34,7 @@ Harici bağlantı gerektirmeyen küçük bir JSON örneği:
 }
 ```
 
-Bir `.json` dosyasına kaydedip içe aktarabilirsiniz. Studio'nun kendi dışa aktarımı ayrıca akış ve adım kimlikleri gibi alanlar içerebilir. Not (`notes`) veya **Sonraki adıma geçmeden bekle** (`wait_after`) içeren akış dosyaları 0.8.6 ve önceki sürümlerde içe aktarılamaz; bu alanları kullanmayan akışlar eski sürümlerle uyumlu kalır.
+Bir `.json` dosyasına kaydedip içe aktarabilirsiniz. Studio'nun kendi dışa aktarımı ayrıca akış ve adım kimlikleri gibi alanlar içerebilir. Not (`notes`) veya **Sonraki adıma geçmeden bekle** (`wait_after`) içeren akış dosyaları 0.8.6 ve önceki sürümlerde içe aktarılamaz; bu alanları kullanmayan akışlar eski sürümlerle uyumlu kalır. **Veritabanı sorgusu** adımı, **Her satır için** › **Kaçıncı satırdan başlasın?** veya **Komut / script çalıştır** › *Script dosyası* / *PowerShell* içeren akışlar 0.9.3 ve önceki sürümlerde açılmaz.
 
 ## Değişkenler
 

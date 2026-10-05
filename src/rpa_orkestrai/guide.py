@@ -113,9 +113,17 @@ STEP_FIELD_HELP = {
     ("screen.screenshot", "filename"): "Çalışma çıktılarında görünecek ad (ör. hata-ekrani.png).",
     ("system.open", "wait"): "Uygulamanın açılması için beklenecek süre; ağır programlarda artırın.",
     ("system.close_app", "force"): "Yalnız uygulama yanıt vermiyorsa açın; kaydedilmemiş veriler kaybolur.",
-    ("system.command", "command"): "Komut satırına yazacağınız komutun aynısı (ör. dir, ipconfig).",
-    ("system.command", "folder"): "Komutun çalışacağı klasör; boşsa kullanıcı klasörü.",
-    ("system.command", "timeout"): "Komut bu sürede bitmezse durdurulur.",
+    ("system.command", "run"): "Komut yaz: terminale yazacağınız satırı girersiniz. Script dosyası seç: .py, .ps1, "
+                               ".bat, .vbs, .sh gibi bir dosyayı türüne uygun programla çalıştırır.",
+    ("system.command", "shell"): "Komut İstemi Windows'ta cmd, Mac'te Terminal'dir. PowerShell komutları (Get-…) "
+                                 "için PowerShell seçin; Mac'te PowerShell (pwsh) kurulu olmalıdır.",
+    ("system.command", "command"): "Terminale yazacağınız komutun aynısı (ör. dir, ipconfig); ${değişken} "
+                                   "kullanılabilir.",
+    ("system.command", "folder"): "Komutun çalışacağı klasör. Boşsa komut kullanıcı klasöründe, script kendi "
+                                  "klasöründe çalışır.",
+    ("system.command", "timeout"): "Bu sürede bitmezse durdurulur ve akış hata verir.",
+    ("system.command", "fail_on_error"): "Kapalıysa hata kodu olsa da akış devam eder; ${command.code} ile kontrol "
+                                         "edin.",
     ("system.run_file", "timeout"): "Script bu sürede bitmezse kapatılır ve akış hata verir.",
     ("system.run_file", "fail_on_error"): "Kapalıysa script hata verse de akış devam eder; ${script.code} ile kontrol edin.",
     ("clipboard.set", "value"): "Panoya konacak metin veya ${değişken}.",
@@ -166,6 +174,9 @@ STEP_FIELD_HELP = {
     ("sheets.write", "values"): "Satır listesi: [[\"a\", \"b\"]] bir satırda yan yana iki hücreye yazar.",
     ("sheets.write", "spreadsheet_id"): "Google Sheets tablosunun tarayıcıdaki adresinin tamamını yapıştırabilirsiniz.",
     ("control.for_each", "items"): "Üzerinde dönülecek liste; genellikle okuma adımının çıktısı (${sheet_rows}).",
+    ("control.for_each", "start"): "Boş: ilk satırdan başlar. 1 listenin ilk kaydıdır; başlık satırını okuma adımı "
+                                   "zaten atlar. Ör. 50 yazarsanız ilk 49 kayıt atlanır (yarıda kalan işi "
+                                   "sürdürmek için).",
     ("control.while", "max_iterations"): "Koşul hiç değişmezse sonsuz döngüyü önler; sınıra ulaşılırsa akış hata ile durur.",
     ("core.wait", "seconds"): "Ondalık yazılabilir (0,5). Mümkünse sabit bekleme yerine Pencerede görseli bekle kullanın.",
     ("control.repeat", "count"): "İç adımların kaç kez çalışacağı.",
@@ -192,6 +203,13 @@ STEP_FIELD_HELP = {
     ("http.request", "headers"): "Gerekiyorsa {\"Authorization\": \"Bearer …\"} gibi başlıklar.",
     ("http.request", "timeout"): "Yanıt bu sürede gelmezse istek durdurulur.",
     ("database.read", "table"): "Bağlantıda izin verilen bir tablo: şema.tablo biçiminde.",
+    ("database.query", "query"): "Tek bir SELECT (veya WITH) sorgusu. Değerleri ${row.kod} ile yazın; tırnak "
+                                 "koymanıza gerek yok, güvenli parametre olarak gönderilir. Liste için "
+                                 "IN (${kodlar}), metin araması için LIKE '%${ad}%' yazabilirsiniz.",
+    ("database.query", "max_rows"): "Sorgu daha fazla satır döndürürse ilk bu kadar satır alınır ve günlükte "
+                                    "uyarı görünür.",
+    ("database.query", "output"): "Satır listesinin adı. Her satır için adımında ${rows} olarak verin; "
+                                  "${row.SUTUN_ADI} ile alanlara ulaşın.",
 }
 
 
@@ -318,9 +336,11 @@ GUIDES = {
         "Hata olursa dalına ekleyin: hata anında ekranın nasıl göründüğünü sonradan görürsünüz."),
     # ----- Uygulama ve sistem --------------------------------------------------------
     "system.open": guide(
-        ["Uygulamanın adını, dosyanın yolunu veya web adresini yazın.",
+        ["Seç… ile programı (ör. ERP'nin .exe dosyası), belgeyi veya klasörü gösterin ya da web adresini yazın.",
          "Açılması uzun sürüyorsa bekleme süresini artırın."],
-        "", "Ardından Pencereyi tanı ekleyip açılan pencereyi akışa tanıtın."),
+        "", "Masaüstünde çift tıklamak gibidir; akış programın kapanmasını beklemez. Ardından Pencereyi tanı "
+            "ekleyip açılan pencereyi akışa tanıtın. Script çalıştırıp çıktısını almak için Komut / script "
+            "çalıştır adımını kullanın."),
     "system.run_file": guide(
         ["Seç… ile çalıştırılacak dosyayı gösterin (ör. Masaüstündeki aktar.py).",
          "Gerekiyorsa parametreleri yazın.",
@@ -332,8 +352,14 @@ GUIDES = {
         ["Uygulamanın adını yazın (ör. notepad.exe veya TextEdit)."],
         "", "Zorla kapat kaydedilmemiş verileri kaybettirir; yalnız uygulama yanıt vermiyorsa açın."),
     "system.command": guide(
-        ["Komutu komut satırına yazacağınız gibi girin.", "Gerekiyorsa çalışma klasörünü seçin."],
-        "${command.output}: komutun çıktısı, ${command.code}: bitiş kodu."),
+        ["Ne çalıştırılsın? alanında Komut yaz veya Script dosyası seç'i seçin.",
+         "Komutu terminale yazacağınız gibi girin (PowerShell komutu için PowerShell'i seçin) ya da Seç… ile "
+         "script dosyasını gösterin.",
+         "Gerekiyorsa çalışma klasörünü ve zaman aşımını ayarlayın."],
+        "${command.output}: çıktı, ${command.error}: hata çıktısı, ${command.code}: bitiş kodu (0 başarılı).",
+        "Terminale veya PowerShell'e komut yazmak gibidir; akış komut bitene kadar bekler. Program açmak için "
+        "Uygulama, dosya veya adres aç adımını kullanın. Python script'leri için bilgisayarda Python kurulu "
+        "olmalıdır."),
     "clipboard.set": guide(
         ["Panoya konacak metni yazın.", "Ardından Klavye kısayolu gönder ile mod+v yapıştırın."]),
     "clipboard.get": guide(
@@ -415,6 +441,13 @@ GUIDES = {
         ["Bağlantıyı seçin, tablo adresini ve sayfa adını yazın.",
          "Başlangıç hücresini yazın (ör. L${row.row_number}).",
          "Değerleri satır listesi olarak verin: [[\"${baslama}\", \"${bitis}\"]] yan yana iki hücreye yazar."]),
+    "database.query": guide(
+        ["Bağlantı alanından veritabanını seçin; yoksa Yeni bağlantı ile sunucu, kullanıcı ve şifreyi girin.",
+         "SQL sorgusunu yazın (ör. SELECT FATURANO, TUTAR FROM FATURALAR WHERE DURUM = ${durum}).",
+         "Bu adımı test et ile sonucu kontrol edin."],
+        "Satır listesi: her satır sütun adlarıyla gelir. Her satır için ile döngüye verin.",
+        "Yalnız okuma yapılır; kayıt ekleyen, değiştiren veya silen sorgular reddedilir. Veritabanında yalnız "
+        "okuma yetkisi olan bir kullanıcı kullanın."),
     "database.read": guide(
         ["Bağlantıyı seçin (yoksa oluşturun) ve tabloyu şema.tablo biçiminde yazın.",
          "Gerekiyorsa sütunları ve eşitlik filtrelerini girin."],
@@ -425,7 +458,8 @@ GUIDES = {
         ["Satır listesine okuma adımının çıktısını verin (ör. ${sheet_rows}).",
          "Her satırda yapılacak adımları bu adımın içine ekleyin veya sürükleyin."],
         "İç adımlarda ${row}: geçerli satır, ${row.form_id}: satırın alanı, ${loop_index}: 0'dan başlayan sıra.",
-        "Bazı satırları atlamak için içine Koşul + Sonraki tura geç ekleyin."),
+        "Yarıda kalan işi sürdürmek için Kaçıncı satırdan başlasın alanını kullanın. Bazı satırları atlamak "
+        "için içine Koşul + Sonraki tura geç ekleyin."),
     "control.while": guide(
         ["Koşulu yazın: sol değer, karşılaştırma, sağ değer.",
          "İç adımlarda koşuldaki değeri değiştiren veya yeniden okuyan bir adım olmalı.",

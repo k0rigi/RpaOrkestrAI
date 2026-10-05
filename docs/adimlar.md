@@ -24,7 +24,7 @@ Adım kütüphanesi 65 adımdır ve hareketleriniz kaydedilip adımlara çevrile
   - Diyagramda not, adımlarının çevresinde renkli bir çerçeve olarak çizilir; bir döngü veya koşul seçildiyse bloğun tamamını çerçeveler. Liste görünümünde not, ilk adımının üstünde bir bant olarak görünür; kapsadığı adımların sol kenarı notun rengini alır.
   - Notu düzenlemek için başlığına (bandına) tıklayın. Sağ panelde kapsadığı adımlar listelenir: bir adımı nottan çıkarabilir veya seçtiğiniz başka adımları **Seçili adımları bu nota ekle** ile ekleyebilirsiniz. **Notu sil** yalnız notu siler, adımlara dokunmaz.
   - Notlar akışın çalışmasını etkilemez. Bir adımı sildiğinizde notlardan da çıkar; notun son adımı silinirse not da kaldırılır. Bir akışta en fazla 100 not olabilir.
-- **Bağlantı seçmek:** Google Sheets adımlarının (ve eski akışlardaki veritabanı adımının) ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
+- **Bağlantı seçmek:** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Listeden bir bağlantı seçin, **+ Yeni … bağlantısı** ile oluşturun veya kalemle düzenleyin. Boş bırakılan adım varsayılan bağlantıyı kullanır. Ayrıntılar: [Google Sheets bağlantısı](google-sheets.md).
 - **Çalıştır:** Adımları gerçekten uygular. **Önizleme (ekranı kullanmadan)** işaretliyse fare, klavye, ekran, dosya, bağlantı ve mesaj adımları atlanır; yalnız veri, metin, hesap ve akış adımları çalışır.
 - **Nasıl kullanılır? kutusu:** Bir adıma tıkladığınızda sağ panelin üstünde o adımın kısa kullanım özeti çıkar: sırayla ne yapılacağı, adımın ne ürettiği ve bir ipucu. Her alanın altında da ne yazılacağını anlatan bir açıklama vardır. Kutuyu **Gizle** ile kapatabilirsiniz; adım seçili değilken aynı yerde akışın nasıl kurulacağı özetlenir.
 - **Bu adımı test et:** Adımı seçin, sağ paneldeki düğmeye basın. Sadece o adım, içinde başka adımlar varsa onlarla birlikte, gerçek olarak çalışır; akışın geri kalanı çalışmaz. Değer yazmanız gerekmez:
@@ -151,11 +151,12 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
-| Uygulama, dosya veya adres aç | Windows: `notepad.exe`, `excel.exe`, `C:\Rapor.xlsx` · Mac: `TextEdit`, `Microsoft Excel`, `~/Desktop/rapor.xlsx` · `https://…` | — |
-| Dosya / script çalıştır | Klasördeki dosyayı türüne göre çalıştırır: `.py` (Python), `.ps1` (PowerShell), `.bat`/`.cmd`/`.exe`, `.vbs` (Windows), `.sh`/`.command`, `.scpt` (Mac), `.jar` (Java). Excel, PDF gibi belgeler kendi programıyla açılır. **Bitmesini bekle** varsayılan olarak *Otomatik*tir: script bitene kadar beklenir ve çıktısı alınır, ERP gibi açık kalan programlar (`.exe`) beklenmez, açılınca akış devam eder; *Bitmesini bekle* veya *Bekleme* olarak da seçilebilir. Script hata koduyla biterse akış durur (kapatılabilir). **Durdur** çalışan script'i de kapatır. Python için bilgisayarda Python kurulu olmalıdır. Örnek: Excel makrosunu çağıran bir `.vbs` dosyası. | `${script.output}`, `${script.code}` |
+| Uygulama, dosya veya adres aç | **Masaüstünde çift tıklamak gibi.** Programı (ERP'nin `.exe` dosyası), belgeyi, klasörü veya web adresini açar; **Seç…** ile dosya gösterilebilir. Akış programın kapanmasını beklemez. Windows: `notepad.exe`, `C:\Program Files\ERP\erp.exe`, `C:\Rapor.xlsx` · Mac: `TextEdit`, `Microsoft Excel`, `~/Desktop/rapor.xlsx` · `https://…` | — |
+| Komut / script çalıştır | **Terminale veya PowerShell'e komut yazmak gibi.** **Ne çalıştırılsın?** alanında: *Komut yaz* — Windows'ta Komut İstemi (cmd), Mac'te Terminal komutu; **Komut nerede çalışsın? = PowerShell** ile PowerShell komutu (Mac'te `pwsh` kurulu olmalıdır). *Script dosyası seç* — `.py` (Python), `.ps1` (PowerShell), `.bat`/`.cmd`, `.vbs` (Windows), `.sh`/`.command`, `.scpt` (Mac), `.jar` (Java) dosyasını türüne uygun programla çalıştırır; parametre verilebilir. Akış bitene kadar bekler; hata koduyla biterse akış durur (kapatılabilir), zaman aşımında ve **Durdur**'da işlem kapatılır. Python için bilgisayarda Python kurulu olmalıdır. Excel, PDF gibi belgeleri bu adım çalıştırmaz; onlar için **Uygulama, dosya veya adres aç**. | `${command.output}`, `${command.error}`, `${command.code}` |
 | Uygulamayı kapat | Windows: `EXCEL.EXE` · Mac: `Microsoft Excel`. Zorla kapatma kaydedilmemiş işi kaybettirir. | Kapatıldı mı |
-| Komut çalıştır | Windows'ta cmd, Mac'te terminal komutu. Çıktı `${command.output}`, kod `${command.code}`. | `${command}` |
 | Panoya kopyala / Panodaki metni oku | Pano üzerinden veri aktarır. | `${clipboard}` |
+
+**Dosya / script çalıştır** adımı kütüphaneden kaldırıldı: script'ler **Komut / script çalıştır**, programlar ve belgeler **Uygulama, dosya veya adres aç** ile çalıştırılır. Bu adımı içeren akışlar aynen çalışır; adımı seçince **…adımına dönüştür** düğmesi ayarlarını koruyarak yeni adıma çevirir. **Komut / script çalıştır** adımında *Script dosyası seç* veya *PowerShell* kullanan akışlar 0.9.3 ve önceki sürümlerde açılmaz; yalnız komut yazan akışlar eski sürümlerle uyumludur.
 
 ## Dosya ve Excel
 
@@ -185,12 +186,38 @@ Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dos
 
 **Hesapla** adımında kullanılabilenler: `+ - * / // % **`, karşılaştırmalar, `and`, `or`, `not`, `x if koşul else y` ve `round`, `abs`, `min`, `max`, `int`, `float`, `number`, `str`, `len`, `sum`, `floor`, `ceil`. Program çalıştıran veya dosyaya erişen ifadeler reddedilir.
 
+## Veritabanı
+
+| Adım | Ne yapar | Sonuç |
+| --- | --- | --- |
+| Veritabanı sorgusu | Seçilen bağlantıda tek bir `SELECT` (veya `WITH`) sorgusu çalıştırır; sonuç sütun adlarıyla gelen satır listesidir ve doğrudan **Her satır için** döngüsüne verilir. | `${rows}` |
+
+**Bağlantı:** Adımın **Bağlantı** alanından (veya editördeki **Bağlantılar** düğmesinden) **Veritabanı türü** seçilir: SQL Server, PostgreSQL, MySQL / MariaDB, Oracle (servis adıyla) veya SQLite dosyası. Sunucu, port (boşsa varsayılan), veritabanı adı, kullanıcı ve şifre girilir; **Bağlantıyı test et** bağlantıyı dener. SQL Server'da adlı örnek için sunucuya `SUNUCU\SQLEXPRESS` yazıp portu boş bırakın. Windows'ta SQL Server bilgisayardaki ODBC sürücüsüyle (varsa ODBC Driver 18/17, yoksa Windows'un kendi "SQL Server" sürücüsü), Mac'te uygulamayla gelen sürücüyle bağlanır; ek kurulum gerekmez. Listede olmayan durumlar için **Bağlantı adresi (gelişmiş)** seçilip SQLAlchemy adresi yazılabilir.
+
+**Değerler:** Sorguda akış değerlerini `${…}` ile yazın; tırnak koymayın:
+
+```sql
+SELECT FATURANO, MUSTERI, TUTAR
+FROM FATURALAR
+WHERE DURUM = ${durum} AND TARIH >= ${baslangic}
+  AND MUSTERIKODU IN (${kodlar})
+  AND MUSTERI LIKE '%${ad}%'
+```
+
+Tırnak dışındaki `${durum}` sorguya metin olarak eklenmez, ayrı parametre olarak gönderilir; değerdeki tırnak işareti sorguyu bozamaz. Liste değeri (`${kodlar}`) her öğe için bir parametreye açılır. Tırnak içindeki değer (`LIKE '%${ad}%'`) tırnakları kaçırılarak yazılır.
+
+**Yalnız okuma:** Adım `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `SELECT … INTO`, `FOR UPDATE`, `EXEC` gibi değiştiren veya kilitleyen ifadeleri ve noktalı virgülle ayrılmış birden fazla komutu reddeder. Sorgu bittikten sonra işlem her zaman geri alınır. PostgreSQL, MySQL ve Oracle oturumu ayrıca salt okunur açılır; SQLite dosyası salt okunur açılır. SQL Server'da salt okunur oturum yoktur: bağlantıda yalnız okuma yetkisi olan bir kullanıcı kullanın ([veritabanı yetki rehberi](veritabani.md)).
+
+**Satır sınırı:** **En fazla satır** (varsayılan 1000, en çok 100.000) aşılırsa ilk satırlar alınır ve çalışma günlüğünde uyarı görünür. Tarihler `2026-10-05 09:30:00` biçiminde metin, ondalıklar sayı olarak gelir.
+
+Eski akışlardaki **Tablo oku** adımı çalışmaya devam eder; yeni akışlarda **Veritabanı sorgusu** kullanın. **Veritabanı sorgusu** adımı ve yeni bağlantı formu 0.9.3 ve önceki sürümlerde yoktur; bu adımı içeren akışlar o sürümlerde açılmaz.
+
 ## Akış
 
 | Adım | Ne yapar |
 | --- | --- |
 | Koşul | Evet ve Değilse dalları. |
-| Her satır için | Listedeki her öğe için iç adımlar (en fazla 100.000 öğe). |
+| Her satır için | Listedeki her öğe için iç adımlar (en fazla 100.000 öğe). **Kaçıncı satırdan başlasın?** boşsa ilk kayıttan başlar; 50 yazılırsa ilk 49 kayıt atlanır (yarıda kalan işi sürdürmek için). 1 listenin ilk kaydıdır: Excel'deki başlık satırını **Excel / CSV oku** (**Başlık satırı**), Sheets'tekini **Sheets satırlarını oku** (**Başlangıç satırı**) zaten listeye almaz. `${loop_index}` atlanan kayıtlarla birlikte sayılır (50. kayıtta 49). Bu alanı kullanan akışlar 0.9.3 ve önceki sürümlerde açılmaz. |
 | Tekrarla (N kez) | İç adımları N kez çalıştırır; `${loop_index}` 0'dan başlar. |
 | Koşul sürdükçe tekrarla | Koşul doğru oldukça tekrarlar; tekrar ve süre sınırı vardır. |
 | Döngüden çık / Sonraki tura geç | En içteki döngüyü bitirir veya turu atlar. Yalnız döngü içinde eklenebilir. |
@@ -219,7 +246,7 @@ Bir akış en fazla 200 adım ve 8 seviye iç içe blok içerebilir; Studio bir 
 | `WinActivate`, `WinWait`, `WinWaitClose`, `WinMaximize`, `WinMove`, `WinClose` | Pencereyi tanı, Pencereyi öne getir, Pencerenin kapanmasını bekle, Pencereyi büyüt / küçült, Pencereyi taşı ve boyutlandır, Pencereyi kapat |
 | `ControlSetText`, `ControlGetText`, `ControlClick` | Alanı doldur, Alanın değerini oku, Tablodan değer oku, Pencerede tıkla (alan kimliğiyle) |
 | `ImageSearch`, `PixelGetColor` | Pencerede görseli bekle / ara, Ekranda görsele tıkla, Piksel rengini oku |
-| `Run`, `RunWait`, `WinClose` / `ProcessClose` | Uygulama, dosya veya adres aç; Komut çalıştır; Uygulamayı kapat |
+| `Run`, `RunWait`, `WinClose` / `ProcessClose` | Uygulama, dosya veya adres aç; Komut / script çalıştır; Uygulamayı kapat |
 | `FileRead`, `FileAppend`, `Loop Files`, `FileCopy`, `FileMove`, `FileDelete` | Dosya ve Excel adımları |
 | `A_Clipboard` | Panoya kopyala / Panodaki metni oku |
 | `MsgBox`, `InputBox` | Mesaj kutusu göster, Kullanıcıdan değer iste |

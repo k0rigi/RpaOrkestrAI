@@ -160,3 +160,53 @@ def test_image_target_does_not_require_inactive_coordinate_fields(row_runner):
     assert kwargs["offset_x"] == 120
     assert kwargs["template"].name == "result-ready.png"
     assert "x" not in kwargs and "y" not in kwargs
+
+
+# ----- Her satır için › Kaçıncı satırdan başlasın ---------------------------------------------------
+def _loop_from(start, items=("a", "b", "c", "d")):
+    import tempfile
+    import threading
+
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.engine import Executor, validate_workflow
+    from rpa_orkestrai.models import Run, Step, Workflow
+    from rpa_orkestrai.storage import Store
+
+    folder = tempfile.mkdtemp()
+    settings = Settings(f"{folder}/data", dotenv=False)
+    store = Store(settings.data_dir)
+    run = Run(workflow_id="0" * 32, workflow_name="Test", department="Genel")
+    runner = Executor(settings, store, run, threading.Event(), lambda: store.save_run(run))
+    params = {"items": list(items), "item_name": "row"}
+    if start is not None:
+        params["start"] = start
+    workflow = Workflow(steps=[Step(action="control.for_each", params=params, children=[
+        Step(action="data.append", params={"name": "seen", "value": "${row}:${loop_index}"})])])
+    validate_workflow(workflow)
+    runner.execute(workflow)
+    return runner.variables.get("seen", []), run
+
+
+def test_a_loop_can_start_from_a_later_row():
+    assert _loop_from(None)[0] == ["a:0", "b:1", "c:2", "d:3"]
+    assert _loop_from(1)[0] == ["a:0", "b:1", "c:2", "d:3"]
+    assert _loop_from(3)[0] == ["c:2", "d:3"]  # the turn number stays the row's place in the list
+    seen, run = _loop_from(9)
+    assert seen == [] and any("döngü çalışmadı" in event.message for event in run.events)
+
+
+def test_a_bad_start_row_is_refused():
+    import pytest
+
+    from rpa_orkestrai.engine import WorkflowError
+
+    for value in (0, 1.5):
+        with pytest.raises(WorkflowError):
+            _loop_from(value)
+
+
+def test_the_start_field_is_optional_and_not_written_by_default():
+    from rpa_orkestrai.catalog import BY_TYPE
+
+    start = next(item for item in BY_TYPE["control.for_each"]["fields"] if item["name"] == "start")
+    assert start["default"] is None and not start.get("required") and start["help"]

@@ -648,19 +648,24 @@ def test_connections_are_created_and_chosen_inside_the_step(tmp_path):
     assert not errors
 
 
-def test_the_connection_manager_offers_database_only_where_an_old_step_uses_it(tmp_path):
+def test_database_query_command_modes_and_loop_start_in_the_editor(tmp_path):
+    import sqlite3
+
     from fastapi.testclient import TestClient
 
     playwright = pytest.importorskip("playwright.sync_api")
     from rpa_orkestrai.app import create_app
     from rpa_orkestrai.config import Settings
 
+    database = tmp_path / "erp.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript("CREATE TABLE stok (kod TEXT, adet INTEGER); INSERT INTO stok VALUES ('Ç-1', 3);")
+    connection.close()
     errors = []
     with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
-        for name, steps in (("Sheets akışı", [{"id": "write", "action": "sheets.write_cell", "params": {}}]),
-                            ("Eski veritabanı akışı", [{"id": "db", "action": "database.read",
-                                                        "params": {"table": "public.A"}}])):
-            assert client.post("/api/workflows", json={"name": name, "steps": steps}).status_code == 201
+        response = client.post("/api/workflows", json={"name": "Sorgu akışı", "steps": []})
+        assert response.status_code == 201
+        workflow_id = response.json()["id"]
         with playwright.sync_playwright() as runner:
             browser = runner.chromium.launch()
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
@@ -674,16 +679,56 @@ def test_the_connection_manager_offers_database_only_where_an_old_step_uses_it(t
                 route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
 
             page.route("http://127.0.0.1:8765/**", handle)
-            for name, groups in (("Sheets akışı", ["Google Sheets"]), ("Eski veritabanı akışı",
-                                                                       ["Google Sheets", "Veritabanı"])):
-                page.goto("http://127.0.0.1:8765/")
-                page.get_by_role("button", name=name, exact=True).click()
-                page.get_by_role("button", name="Bağlantılar", exact=True).click()
-                manager = page.locator("dialog.connection-manager")
-                playwright.expect(manager.locator(".connection-group h3")).to_have_text(groups)
-                manager.get_by_role("button", name="Kapat").click()
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Sorgu akışı", exact=True).click()
+            # Database connections are always offered now that the library has a database step.
+            page.get_by_role("button", name="Bağlantılar", exact=True).click()
+            manager = page.locator("dialog.connection-manager")
+            playwright.expect(manager.locator(".connection-group h3")).to_have_text(["Google Sheets", "Veritabanı"])
+            manager.get_by_role("button", name="Kapat").click()
+
+            # Veritabanı sorgusu: a SQLite connection made from the step's own form.
+            page.locator(".library-action").filter(has_text="Veritabanı sorgusu").click()
+            inspector = page.locator("#inspector")
+            inspector.get_by_role("button", name="Veritabanı bağlantısı oluştur").click()
+            dialog = page.locator("dialog.connection-dialog")
+            playwright.expect(dialog.get_by_label("Sunucu")).to_be_visible()
+            dialog.get_by_label("Veritabanı türü").select_option("sqlite")
+            playwright.expect(dialog.get_by_label("Sunucu")).to_be_hidden()
+            dialog.locator(".path-row input").fill(str(database))
+            dialog.get_by_role("button", name="Bağlantıyı test et").click()
+            playwright.expect(dialog.locator(".connection-test-result")).to_contain_text("Veritabanına bağlanıldı")
+            dialog.get_by_role("button", name="Bağlantıyı oluştur").click()
+            playwright.expect(dialog).to_have_count(0)
+            playwright.expect(inspector.locator(".connection-meta")).to_contain_text("SQLite")
+            inspector.get_by_label("SQL sorgusu").fill("SELECT kod, adet FROM stok WHERE adet > ${en_az}")
+
+            # Komut / script çalıştır: the script fields appear only for a script, and are saved only then.
+            page.locator(".library-action").filter(has_text="Komut / script çalıştır").click()
+            playwright.expect(inspector.get_by_label(re.compile(r"^Komut\W*$"))).to_be_visible()
+            playwright.expect(inspector.get_by_label("Script dosyası")).to_have_count(0)
+            inspector.get_by_label("Ne çalıştırılsın?").select_option("file")
+            playwright.expect(inspector.get_by_label("Script dosyası")).to_be_visible()
+            playwright.expect(inspector.get_by_label("Komut nerede çalışsın?")).to_have_count(0)
+            playwright.expect(page.locator(".library-action").filter(has_text="Dosya / script çalıştır")).to_have_count(0)
+
+            # Her satır için › Kaçıncı satırdan başlasın stays out of the file until it is filled in.
+            page.locator(".library-action").filter(has_text="Her satır için").click()
+            playwright.expect(inspector.get_by_label("Kaçıncı satırdan başlasın?")).to_have_value("")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            steps = client.get(f"/api/workflows/{workflow_id}").json()["steps"]
+            assert [step["action"] for step in steps] == ["database.query", "system.command", "control.for_each"]
+            assert steps[0]["params"]["query"].endswith("${en_az}") and steps[0]["params"]["connection"]
+            assert steps[1]["params"]["run"] == "file" and "shell" not in steps[1]["params"]
+            assert "start" not in steps[2]["params"]
+            page.locator(f'[data-step-id="{steps[2]["id"]}"]').click()
+            inspector.get_by_label("Kaçıncı satırdan başlasın?").fill("5")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][2]["params"]["start"] == 5
             browser.close()
-    assert not errors
+    assert not errors, errors
 
 
 def test_diagram_view_draws_branches_inserts_moves_and_shows_the_last_run(tmp_path):

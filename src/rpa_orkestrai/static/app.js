@@ -1524,6 +1524,8 @@
     (spec.fields || []).forEach((f) => {
       // A step that does not wait carries no wait_after, so older Studio versions still open the file.
       if (f.name === "wait_after" && !f.default) return;
+      // Fields added later are written only once used, for the same reason.
+      if (f.omit_default) return;
       if (f.default !== undefined && f.default !== null)
         params[f.name] = clone(f.default);
     });
@@ -4816,6 +4818,51 @@
     );
     return box;
   }
+  const SCRIPT_FILE = /\.(py|pyw|ps1|bat|cmd|vbs|vbe|wsf|sh|command|bash|zsh|scpt|applescript|jar)$/i;
+  function retiredRunFile(step) {
+    // "Dosya / script çalıştır" was split: scripts went to Komut / script çalıştır, everything else to
+    // Uygulama, dosya veya adres aç. Old flows keep running as they are.
+    const box = node("div", "legacy-action-help");
+    const path = String(step.params?.path || "");
+    const script = step.params?.wait_finish !== "no" && (SCRIPT_FILE.test(path) || /\$\{[^}]+\}$/.test(path));
+    const replacement = specFor(script ? "system.command" : "system.open");
+    box.append(
+      note("Bu adım kütüphaneden kaldırıldı: script'ler «Komut / script çalıştır», programlar ve belgeler "
+        + "«Uygulama, dosya veya adres aç» adımıyla çalıştırılır. Kayıtlı akışınızda aynen çalışmaya devam eder."),
+      button(`«${replacement.label}» adımına dönüştür`, "edit", () => {
+        if ([...state.fieldErrors].some((key) => key.startsWith(`${step.id}:`))) {
+          toast("Önce bu adımdaki geçersiz değerleri düzeltin.", true);
+          return;
+        }
+        const previous = { ...step.params };
+        const oldLabel = specFor(step.action).label;
+        step.action = replacement.type;
+        step.params = {};
+        (replacement.fields || []).forEach((definition) => {
+          if (definition.omit_default || (definition.name === "wait_after" && !definition.default)) return;
+          if (definition.default !== undefined && definition.default !== null)
+            step.params[definition.name] = clone(definition.default);
+        });
+        if (script) {
+          Object.assign(step.params, { run: "file", path: previous.path, command: "" });
+          for (const key of ["arguments", "folder", "timeout", "fail_on_error", "output", "wait_after"])
+            if (previous[key] !== undefined && previous[key] !== "") step.params[key] = previous[key];
+        } else {
+          step.params.target = previous.path || "";
+          if (previous.arguments) step.params.arguments = previous.arguments;
+          if (previous.wait_after !== undefined) step.params.wait_after = previous.wait_after;
+        }
+        if (!step.title || step.title === oldLabel) step.title = replacement.label;
+        for (const key of state.fieldErrors) if (key.startsWith(`${step.id}:`)) state.fieldErrors.delete(key);
+        markDirty();
+        renderInspector();
+        renderCanvas();
+        toast(script ? "Dönüştürüldü. Script'in çıktısı yine aynı adla kullanılabilir."
+          : "Dönüştürüldü. Bu adım programın kapanmasını beklemez ve çıktı vermez.");
+      }, "small"),
+    );
+    return box;
+  }
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
@@ -4884,6 +4931,7 @@
     let targetTools = windowTarget ? windowTargetTools(step) : null;
     if (targetTools) pane.append(targetTools);
     if (spec.retired === "desktop.window_wait_image") pane.append(retiredImageSearch(step));
+    if (spec.retired === "system.command") pane.append(retiredRunFile(step));
     if (step.action === "desktop.window_write" && state.catalog.some((item) => item.type === "desktop.window_fill")) {
       const conversion = node("div", "legacy-action-help");
       conversion.append(
@@ -4995,6 +5043,12 @@
           control.append(option);
         });
         control.value = value ?? "";
+      } else if (f.type === "code") {
+        control = node("textarea", "mono");
+        control.rows = 6;
+        control.spellcheck = false;
+        control.value = value ?? "";
+        control.placeholder = f.placeholder || "";
       } else if (f.type === "json") {
         control = node("textarea", "mono");
         control.rows = 3;
@@ -5171,7 +5225,8 @@
         state.drafts.delete(key);
         error.textContent = "";
         control.classList.remove("invalid");
-        if (next === undefined || (f.name === "wait_after" && next === 0)) delete step.params[f.name];
+        if (next === undefined || (f.name === "wait_after" && next === 0) ||
+            (f.omit_default && (next === f.default || next === ""))) delete step.params[f.name];
         else step.params[f.name] = next;
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();
@@ -6287,20 +6342,16 @@
     return state.connections.filter((item) => item.type === kind);
   }
   function shownConnectionKinds() {
-    // The step library has no database step: database connections appear only once one exists
-    // or the open flow has an older step that uses one.
-    const usedHere = (kind) => allSteps(state.workflow?.steps || []).some((step) =>
-      (specFor(step.action).fields || []).some((f) => f.type === "connection" && f.connection_type === kind));
-    return Object.entries(connectionKinds).filter(([kind]) =>
-      kind === "google_sheets" || connectionsOf(kind).length || usedHere(kind));
+    return Object.entries(connectionKinds);
   }
   function connectionUsage(id) {
     return state.workflow ? allSteps(state.workflow.steps).filter((step) => step.params?.connection === id).length : 0;
   }
   function connectionSummary(profile) {
     if (profile.type === "google_sheets") return profile.method_label;
-    const tables = profile.allowed_tables.length;
-    return `${profile.engine || "SQL"} · ${tables ? `${tables} izinli tablo` : "izinli tablo yok"}`;
+    const place = profile.engine === "sqlite" ? profile.path.split(/[\\/]/).pop()
+      : profile.engine === "url" ? profile.url_kind : [profile.host, profile.database].filter(Boolean).join(" / ");
+    return [profile.engine_label, place].filter(Boolean).join(" · ");
   }
   function connectionStatus(profile) {
     const wrap = node("span", "connection-status");
@@ -6501,19 +6552,75 @@
       body.append(script, service, testArea());
     }
     function databaseForm(body) {
+      const engines = [
+        ["mssql", "SQL Server", 1433], ["postgresql", "PostgreSQL", 5432], ["mysql", "MySQL / MariaDB", 3306],
+        ["oracle", "Oracle", 1521], ["sqlite", "SQLite (dosya)", null], ["url", "Bağlantı adresi (gelişmiş)", null],
+      ];
+      inputs.engine = node("select");
+      for (const [value, label] of engines) {
+        const option = node("option", "", label);
+        option.value = value;
+        inputs.engine.append(option);
+      }
+      inputs.engine.value = profile?.engine || "mssql";
+      const plainInput = (value, placeholder) => {
+        const input = textInput(value || "", placeholder);
+        input.spellcheck = false;
+        input.autocomplete = "off";
+        return input;
+      };
+      inputs.host = plainInput(profile?.host, "Ör. 192.168.1.10 veya SUNUCU\\SQLEXPRESS");
+      inputs.port = plainInput(profile?.port, "");
+      inputs.database = plainInput(profile?.database, "Ör. ERP");
+      inputs.user = plainInput(profile?.user, "Ör. rpa_okuma");
+      inputs.password = textInput("", profile?.has_password
+        ? "Kayıtlı şifre kullanılıyor · değiştirmek için yazın" : "", "password");
+      inputs.password.autocomplete = "new-password";
+      inputs.path = plainInput(profile?.path, "Ör. C:\\Veri\\stok.db");
       inputs.url = textInput("", profile?.has_url
         ? "Kayıtlı adres kullanılıyor · değiştirmek için yeni adres girin"
-        : "postgresql+psycopg://kullanici:şifre@sunucu:5432/veritabani", "password");
+        : "mssql+pyodbc://kullanici:şifre@sunucu/veritabani?driver=…", "password");
       inputs.url.autocomplete = "new-password";
       inputs.url.spellcheck = false;
-      inputs.allowed_tables = textInput((profile?.allowed_tables || []).join(", "), "public.siparisler, public.stok");
-      body.append(
-        field("Bağlantı adresi", inputs.url,
-          "SQLAlchemy biçimi. Yalnız okuma yapılır; mümkünse salt okunur bir veritabanı kullanıcısı kullanın."),
-        field("İzin verilen tablolar", inputs.allowed_tables,
-          "Virgülle ayırın. Adımlar yalnız bu tablolardan okuyabilir."),
-        testArea(),
+      inputs.allowed_tables = textInput((profile?.allowed_tables || []).join(", "), "dbo.siparisler, dbo.stok");
+      const pathRow = node("div", "path-row");
+      pathRow.append(inputs.path, button("Seç…", "folder", () => attempt(async () => {
+        const chosen = await api("/api/desktop/choose-path", { method: "POST", body: JSON.stringify({ kind: "open" }) });
+        if (chosen.path) inputs.path.value = chosen.path;
+      }), "small"));
+      const databaseField = field("Veritabanı adı", inputs.database);
+      const server = node("div");
+      server.append(
+        field("Sunucu", inputs.host, "Sunucunun adı veya IP adresi. SQL Server'da adlı örnek için SUNUCU\\ÖRNEK yazın; portu boş bırakın.", true),
+        field("Port", inputs.port, "Boş bırakılırsa varsayılan port kullanılır."),
+        databaseField,
+        field("Kullanıcı", inputs.user, "Yalnız okuma yetkisi olan bir veritabanı kullanıcısı önerilir.", true),
+        field("Şifre", inputs.password, "Yalnız bu bilgisayarda saklanır."),
       );
+      const sqlite = field("SQLite dosyası", pathRow, "Dosya salt okunur açılır.", true);
+      const address = field("Bağlantı adresi", inputs.url,
+        "SQLAlchemy biçimi; yalnız listede olmayan özel durumlar için. Şifre adresin içinde saklanır.");
+      // Only the older Tablo oku step reads by an allow-list; Veritabanı sorgusu does not use it.
+      const legacyTables = Boolean(profile?.allowed_tables?.length) || allSteps(state.workflow?.steps || [])
+        .some((step) => step.action === "database.read");
+      const tables = field("İzin verilen tablolar (eski Tablo oku adımı)", inputs.allowed_tables,
+        "Virgülle ayırın. Veritabanı sorgusu adımı bu listeyi kullanmaz.");
+      const paint = () => {
+        const engine = inputs.engine.value;
+        const chosen = engines.find(([value]) => value === engine);
+        server.hidden = ["sqlite", "url"].includes(engine);
+        sqlite.hidden = engine !== "sqlite";
+        address.hidden = engine !== "url";
+        inputs.port.placeholder = chosen[2] ? `Varsayılan: ${chosen[2]}` : "";
+        databaseField.querySelector("label").textContent = engine === "oracle" ? "Servis adı" : "Veritabanı adı";
+        inputs.database.placeholder = engine === "oracle" ? "Ör. ORCLPDB1" : "Ör. ERP";
+      };
+      inputs.engine.addEventListener("change", paint);
+      body.append(field("Veritabanı türü", inputs.engine, "", true), server, sqlite, address);
+      if (legacyTables) body.append(tables);
+      body.append(note("Bağlantı yalnız okuma için açılır. SQL Server'da salt okunur oturum olmadığından, kayıt "
+        + "değiştiremeyen bir veritabanı kullanıcısı kullanın.", "", "shield"), testArea());
+      paint();
     }
     function testArea() {
       const wrap = node("div", "connection-test");
@@ -6547,7 +6654,10 @@
           script_url: inputs.script_url.value.trim(),
           credentials_path: inputs.credentials_path.value.trim(),
         };
-      return { url: inputs.url.value.trim(), allowed_tables: inputs.allowed_tables.value };
+      const values = { engine: inputs.engine.value, allowed_tables: inputs.allowed_tables.value };
+      for (const key of ["host", "port", "database", "user", "path", "password", "url"])
+        values[key] = inputs[key].value.trim();
+      return values;
     }
     async function persist({ quiet = false } = {}) {
       const payload = { name: inputs.name.value.trim(), config: config() };

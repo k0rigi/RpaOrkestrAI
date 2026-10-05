@@ -38,7 +38,7 @@ Bu kilit veri klasörü bazındadır. Farklı klasörlerin ayrı uygulama süre�
 
 ## Akış modeli
 
-Her `Step`, `action` ve `params` alanlarını taşır. `control.for_each` ve `control.if` alt adımları `children` alanında saklar. Koşulun olumsuz dalı `otherwise` alanındadır. Bu ağaç yapısı sıralı çalışır; keyfi Python betiği ya da kabuk komutu çalıştırma adımı sunulmaz.
+Her `Step`, `action` ve `params` alanlarını taşır. `control.for_each` ve `control.if` alt adımları `children` alanında saklar. Koşulun olumsuz dalı `otherwise` alanındadır. Bu ağaç yapısı sıralı çalışır. Kabuk komutu ve script dosyaları yalnız **Komut / script çalıştır** adımıyla, kullanıcının yetkisiyle çalışır.
 
 İşlem çıktıları çalışma kapsamındaki değişkenlere yazılır. `${orders}` referansı türünü korur; `${item.amount}` iç içe verilere erişir. Akış tanımı yalnız adımları ve sabit parametreleri taşır; adaptör bağlantıları yerel ayarlardan alınır. Bu ayrım, aynı akışın iki bilgisayarda farklı bağlantı hesaplarıyla kullanılmasını sağlar.
 
@@ -52,7 +52,7 @@ Akış, adımların yanında isteğe bağlı `notes` listesini taşır: her not 
 
 ## Dış sistemlerle sınırlar
 
-Veritabanı adaptörü serbest SQL kabul etmez ve sunucudaki salt okunur kullanıcıya dayanır. PostgreSQL işlemleri ayrıca salt okunur başlatılır. SQL Server'da hesap izinleri asıl sınırlamadır. [Veritabanı yetki rehberi](veritabani.md).
+**Veritabanı sorgusu** (`database/query.py`) SQLAlchemy ile SQL Server (Windows'ta pyodbc, macOS'ta pymssql), PostgreSQL (psycopg), MySQL (pymysql), Oracle (oracledb, thin) ve SQLite'a bağlanır. Sorgu metni yalnız tek bir `SELECT`/`WITH` olabilir; `${…}` değerleri metne eklenmez, bağlı parametre olur. İşlem her zaman geri alınır; PostgreSQL, MySQL ve Oracle oturumu salt okunur başlatılır, SQLite dosyası salt okunur açılır. Sunucudaki salt okunur kullanıcı asıl sınırdır; SQL Server'da hesap izinleri tek sınırlamadır. Eski **Tablo oku** adımı serbest SQL kabul etmez ve izin listesindeki tablolardan okur. [Veritabanı yetki rehberi](veritabani.md).
 
 Masaüstü adaptörü kullanıcının açık oturumunu kontrol eder. Ekran koordinatları, Retina/DPI ölçeği, OCR dili, ERP teması ve odak gerçek makinede kalibre edilir. PyAutoGUI'nin acil durdurma mekanizması korunur. Tarayıcı adaptörü kendi Chromium oturumunu açar; mevcut kişisel tarayıcı oturumuna kendiliğinden bağlanmaz.
 

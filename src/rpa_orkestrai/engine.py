@@ -97,6 +97,17 @@ def resolve(value: Any, variables: dict[str, Any]) -> Any:
     return value
 
 
+def loop_start(value: Any) -> int:
+    """Her satır için › Kaçıncı satırdan başlasın: 1 is the first item; empty starts at the first."""
+    if value is None or value == "":
+        return 0
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != int(value) or value < 1:
+        raise WorkflowError("Kaçıncı satırdan başlasın 1 veya daha büyük bir tam sayı olmalıdır.")
+    return int(value) - 1
+
+
 def has_unknown(value: Any) -> bool:
     if isinstance(value, PreviewValue):
         return True
@@ -444,8 +455,11 @@ class Executor:
                         continue
                     if not isinstance(items, list) or not items:
                         raise WorkflowError("listede hiç öğe yok; test için en az bir satır gerekir.")
-                    self.variables[name] = items[0]
-                    self.variables.setdefault("loop_index", 0)
+                    first = loop_start(resolve(step.params.get("start"), self.variables))
+                    if first >= len(items):
+                        raise WorkflowError("başlangıç satırından sonra listede öğe yok.")
+                    self.variables[name] = items[first]
+                    self.variables.setdefault("loop_index", first)
                     self.log(f"Hazırlık: {label} listesindeki ilk öğe ${{{name}}} olarak kullanılıyor "
                              f"({len(items)} öğe var).")
                 elif entry["kind"] == "error":
@@ -736,6 +750,10 @@ class Executor:
         if not isinstance(items, list) or len(items) > MAX_LOOP_ITEMS:
             raise WorkflowError("Döngü en fazla 100.000 öğelik bir liste gerektirir.")
         name = variable_name(p["item_name"])
+        first = loop_start(p.get("start"))
+        if first and first >= len(items):
+            self.log(f"Başlangıç satırı ({first + 1}) listedeki öğe sayısından ({len(items)}) büyük; döngü "
+                     "çalışmadı.", level="warning", step_id=step.id)
         sentinel = object()
         old_item = self.variables.get(name, sentinel)
         old_index = self.variables.get("loop_index", sentinel)
@@ -743,6 +761,8 @@ class Executor:
         self.turns.append([step.id, 0])
         try:
             for index, item in enumerate(list(items)):
+                if index < first:
+                    continue
                 self.check_cancelled()
                 self.turns[-1][1] = index
                 self.variables[name] = item
@@ -885,13 +905,41 @@ class Executor:
 
             profile = self.connections.resolve(p.get("connection"), "database")
             if profile["id"] not in self._databases:
+                from .database.query import QueryDatabase
+
+                if not profile["config"].get("allowed_tables"):
+                    raise WorkflowError("Tablo oku adımı yalnız bağlantıda izin verilen tablolardan okur; bağlantıda "
+                                        "izinli tablo yok. Bunun yerine Veritabanı sorgusu adımını kullanın.")
+                url = QueryDatabase(profile["config"]).url().render_as_string(hide_password=False)
                 self._databases[profile["id"]] = self.resources.enter_context(ReadOnlyDatabase(
-                    profile["config"]["url"], {t: None for t in profile["config"]["allowed_tables"]},
+                    url, {t: None for t in profile["config"]["allowed_tables"]},
                     max_rows=self.settings.max_rows, timeout_seconds=self.settings.action_timeout,
                 ))
             frame = self._databases[profile["id"]].read_table(p["table"], columns=p["columns"], filters=p["filters"],
                                               limit=int(p["limit"]))
             return json.loads(frame.to_json(orient="records", date_format="iso"))
+        elif action == "database.query":
+            from .database.query import QueryDatabase, describe
+
+            profile = self.connections.resolve(p.get("connection"), "database")
+            key = f"query:{profile['id']}"
+            if key not in self._databases:
+                self._databases[key] = self.resources.enter_context(
+                    QueryDatabase(profile["config"], timeout_seconds=max(30, self.settings.action_timeout)))
+            limit = int(p.get("max_rows") or 1000)
+            if not 1 <= limit <= 100_000:
+                raise WorkflowError("En fazla satır 1 ile 100.000 arasında olmalıdır.")
+            try:
+                rows, more = self._databases[key].query(
+                    p.get("query"), lambda name: resolve("${" + name + "}", self.variables), limit)
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise WorkflowError(describe(exc)) from exc
+            self.log(f"Veritabanından {len(rows)} satır okundu" + (f"; sınır {limit} olduğu için kalanlar alınmadı."
+                                                                   if more else "."),
+                     level="warning" if more else "info")
+            return rows
         elif action == "desktop.find_window":
             return self.windows().find(p["application"], p["title"], p["match"], p["timeout"], p["on_missing"])
         elif action == "desktop.window_click":

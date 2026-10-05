@@ -20,7 +20,8 @@ from .errors import WorkflowError
 
 TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı"}
 SHEETS_METHODS = {"apps_script": "Apps Script", "service_account": "Servis hesabı"}
-SECRET_FIELDS = {"script_token", "credentials_path", "url"}
+SECRET_FIELDS = {"script_token", "credentials_path", "url", "password"}
+DATABASE_FIELDS = ("host", "port", "database", "user", "path")
 NAME_LIMIT = 80
 
 
@@ -101,18 +102,43 @@ class Connections:
                     raise ValueError("Apps Script anahtarı geçersiz.")
             return {"method": method, "script_url": url, "script_token": token,
                     "credentials_path": secret("credentials_path", "Servis hesabı dosyası")}
+        from .database.query import ENGINES
+
         tables = config.get("allowed_tables", previous.get("allowed_tables", []))
         if isinstance(tables, str):
             tables = [part.strip() for part in tables.split(",")]
         if not isinstance(tables, list) or not all(isinstance(t, str) for t in tables):
             raise ValueError("İzin verilen tablolar virgülle ayrılmış tablo adları olmalıdır.")
-        return {"url": secret("url", "Bağlantı adresi"), "allowed_tables": [t.strip() for t in tables if t.strip()]}
+        # Profiles from before 0.9.4 hold only an address: they are "Bağlantı adresi (gelişmiş)".
+        engine = config.get("engine") or previous.get("engine") or "url"
+        if engine not in ENGINES:
+            raise ValueError("Veritabanı türü geçersiz.")
+        cleaned = {"engine": engine, "allowed_tables": [t.strip() for t in tables if t.strip()]}
+        for key in DATABASE_FIELDS:
+            value = config.get(key, previous.get(key, ""))
+            value = "" if value is None else str(value) if isinstance(value, int) and not isinstance(value, bool) \
+                else value
+            cleaned[key] = _text(value, {"host": "Sunucu", "port": "Port", "database": "Veritabanı adı",
+                                         "user": "Kullanıcı", "path": "Dosya"}[key], 1024)
+        if cleaned["port"] and not (cleaned["port"].isdigit() and 0 < int(cleaned["port"]) < 65536):
+            raise ValueError("Port 1 ile 65535 arasında bir sayı olmalıdır.")
+        if engine == "url":
+            cleaned["url"] = secret("url", "Bağlantı adresi")
+        else:
+            cleaned["password"] = secret("password", "Şifre") if previous.get("engine") == engine or \
+                config.get("password") else ""
+        return cleaned
 
     @staticmethod
     def ready(item: dict) -> bool:
         config = item["config"]
         if item["type"] == "database":
-            return bool(config.get("url") and config.get("allowed_tables"))
+            engine = config.get("engine") or "url"
+            if engine == "url":
+                return bool(config.get("url"))
+            if engine == "sqlite":
+                return bool(config.get("path"))
+            return bool(config.get("host") and config.get("user"))
         if config.get("method") == "apps_script":
             return bool(config.get("script_url") and config.get("script_token"))
         return bool(config.get("credentials_path"))
@@ -127,9 +153,14 @@ class Connections:
                         script_url=config.get("script_url", ""), has_token=bool(config.get("script_token")),
                         has_credentials=bool(config.get("credentials_path")))
         else:
+            from .database.query import engine_label
+
             url = config.get("url", "")
             data.update(allowed_tables=config.get("allowed_tables", []), has_url=bool(url),
-                        engine=re.split(r"[:+]", url, 1)[0] if url else "")
+                        engine=config.get("engine") or "url", engine_label=engine_label(config),
+                        has_password=bool(config.get("password")),
+                        url_kind=re.split(r"[:+]", url, 1)[0] if url else "",
+                        **{key: config.get(key, "") for key in DATABASE_FIELDS})
         return data
 
     # ----- API ----------------------------------------------------------------------

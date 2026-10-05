@@ -11,7 +11,7 @@ import pytest
 
 from rpa_orkestrai.actions import system
 from rpa_orkestrai.config import Settings
-from rpa_orkestrai.engine import Executor, WorkflowError
+from rpa_orkestrai.engine import Executor, WorkflowError, validate_workflow
 from rpa_orkestrai.errors import Cancelled
 from rpa_orkestrai.models import Run, Step, Workflow
 from rpa_orkestrai.storage import Store
@@ -204,3 +204,75 @@ def test_windows_batch_powershell_and_vbscript_run_for_real(runner, tmp_path):
     failing.write_text("exit 5\r\n", encoding="utf-8")
     with pytest.raises(WorkflowError, match=r"hata koduyla bitti \(5\)"):
         go(runner, path=str(failing))
+
+
+# ----- Komut / script çalıştır: the terminal step also runs a chosen script ------------------------
+def command(runner, **params):
+    workflow = Workflow(steps=[Step(action="system.command", params={"output": "command", **params})])
+    validate_workflow(workflow)
+    runner.execute(workflow)
+    return runner.variables["command"]
+
+
+def test_the_command_step_runs_a_script_file_and_waits_for_its_output(runner, tmp_path, python_found):
+    folder = tmp_path / "Masaüstü scriptleri"
+    folder.mkdir()
+    script = folder / "aktar.py"
+    script.write_text("import os, sys\nprint('Merhaba', sys.argv[1])\nprint(os.path.basename(os.getcwd()))\n",
+                      encoding="utf-8")
+    result = command(runner, run="file", path=str(script), arguments='"Ayşe Çelik"')
+    assert result["code"] == 0 and result["output"].splitlines() == ["Merhaba Ayşe Çelik", "Masaüstü scriptleri"]
+    script.write_text("import sys\nprint('kayıt yok', file=sys.stderr)\nsys.exit(4)\n", encoding="utf-8")
+    with pytest.raises(WorkflowError, match=r"aktar.py hata koduyla bitti \(4\). kayıt yok"):
+        command(runner, run="file", path=str(script))
+    assert command(runner, run="file", path=str(script), fail_on_error=False)["code"] == 4
+
+
+def test_the_command_step_sends_documents_to_the_open_step(runner, tmp_path):
+    book = tmp_path / "rapor.xlsx"
+    book.write_bytes(b"x")
+    with pytest.raises(WorkflowError, match="bir script değil.*Uygulama, dosya veya adres aç"):
+        command(runner, run="file", path=str(book))
+    with pytest.raises(WorkflowError, match="Script dosyası gereklidir"):
+        validate_workflow(Workflow(steps=[Step(action="system.command", params={"run": "file"})]))
+
+
+def test_a_powershell_command_keeps_quotes_pipes_and_turkish_text(runner):
+    if not WINDOWS and not system.find_program("pwsh"):
+        pytest.skip("PowerShell (pwsh) is not installed on this Mac")
+    line = "$ad = 'Çağrı Şule'; Write-Output \"Merhaba $ad\" | ForEach-Object { $_.ToUpper() }"
+    result = command(runner, shell="powershell", command=line)
+    assert result["code"] == 0 and result["output"] == "MERHABA ÇAĞRI ŞULE"
+    with pytest.raises(WorkflowError, match="hata koduyla"):
+        command(runner, shell="powershell", command="exit 3")
+
+
+def test_powershell_on_a_mac_without_it_says_so(runner, monkeypatch):
+    monkeypatch.setattr(system.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(system, "find_program", lambda *names: None)
+    with pytest.raises(WorkflowError, match=r"PowerShell \(pwsh\) bu Mac'te kurulu değil"):
+        command(runner, shell="powershell", command="Get-Date")
+
+
+def test_a_command_is_stopped_by_the_time_limit_and_by_durdur(runner):
+    slow = "ping -n 30 127.0.0.1 >nul" if WINDOWS else "sleep 30"
+    started = time.monotonic()
+    with pytest.raises(WorkflowError, match="1 saniyede bitmedi"):
+        command(runner, command=slow, timeout=1)
+    threading.Timer(0.6, runner.cancel.set).start()
+    with pytest.raises(Cancelled):
+        system.command(runner, {"command": slow})
+    assert time.monotonic() - started < 15
+
+
+def test_the_old_script_step_left_the_library_and_new_fields_are_written_only_when_used():
+    from rpa_orkestrai.catalog import BY_TYPE, library_catalog
+
+    offered = {item["type"]: item for item in library_catalog()}
+    assert "system.run_file" not in offered and BY_TYPE["system.run_file"]["retired"] == "system.command"
+    fields = {item["name"]: item for item in offered["system.command"]["fields"]}
+    assert all(fields[name].get("omit_default") for name in ("run", "shell", "path", "arguments"))
+    assert offered["system.command"]["label"] == "Komut / script çalıştır"
+    # A command saved by an older Studio (no run/shell) is still a terminal command.
+    validate_workflow(Workflow(steps=[Step(action="system.command", params={
+        "command": "echo x", "folder": "", "timeout": 60, "fail_on_error": True, "output": "command"})]))

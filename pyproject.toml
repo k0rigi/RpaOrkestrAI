@@ -46,6 +46,10 @@ automation = [
   "playwright>=1.49,<2",
   "psycopg[binary]>=3.2,<4",
   "pyodbc>=5.3,<6",
+  # SQL Server from a Mac without the Microsoft ODBC driver; Windows uses pyodbc and its own driver.
+  "pymssql>=2.3,<3; sys_platform == 'darwin'",
+  "oracledb>=3,<27",
+  "pymysql>=1.1,<2",
 ]
 native = [
   "pywebview>=6.2,<7",

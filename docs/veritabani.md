@@ -1,10 +1,12 @@
 # Salt okunur veritabanı erişimi
 
-Veritabanından okuma adımı (**Tablo oku**) adım kütüphanesinde yer almaz. Bu rehber, bu adımı içeren eski akışlar ve aşağıdaki Python servisi içindir. Veritabanı bağlantıları, ancak böyle bir akış açıkken veya daha önce oluşturulmuş bir veritabanı bağlantısı varken **Bağlantılar** penceresinde görünür.
+Akışlar veritabanından **Veritabanı sorgusu** adımıyla okur: SQL Server, PostgreSQL, MySQL / MariaDB, Oracle veya SQLite'ta tek bir `SELECT` sorgusu çalıştırılır. Adımın kullanımı, bağlantı formu ve `${değişken}` parametreleri [adım rehberindedir](adimlar.md#veritabanı). Bu sayfa, bağlantıda kullanılacak **salt okunur veritabanı hesabının** nasıl hazırlanacağını anlatır.
 
-Veritabanı adaptörü SQLAlchemy ile yapılandırılmış `SELECT` sorguları oluşturur ve sonucu pandas DataFrame olarak döndürür. Akışlar serbest SQL çalıştırmaz. Şema ve tablo listesi yerel yapılandırmada belirlenir; filtre değerleri sorguya parametre olarak bağlanır.
+Uygulama sorguyu çalıştırmadan önce tek bir `SELECT`/`WITH` ifadesi olduğunu ve değiştiren veya kilitleyen sözcük (`INSERT`, `UPDATE`, `DELETE`, `MERGE`, `INTO`, `EXEC`, `FOR UPDATE` …) içermediğini denetler, işlemi her zaman geri alır ve PostgreSQL, MySQL, Oracle oturumunu salt okunur başlatır. Bu denetim ek bir korumadır, yetki sınırı değildir: sunucudaki fonksiyonlar veya saklı yordamlar yan etki doğurabilir. Asıl sınır, aşağıdaki gibi yalnız `SELECT` yetkisi verilmiş bir veritabanı kullanıcısıdır. SQL Server'da salt okunur oturum bulunmadığından bu kullanıcı zorunludur.
 
-Uygulamadaki izin listesi ile sunucudaki kullanıcı yetkisi birbirini tamamlar. Bağlantıda `sa`, `postgres`, veritabanı sahibi veya yazma yetkili ERP hesabını kullanmayın. Aşağıdaki örnekler DBA'nın gerçek şema ve erişim modeline uyarlaması içindir; uygulama bu komutları çalıştırmaz.
+Eski akışlardaki **Tablo oku** adımı (kütüphanede yer almaz) yalnız bağlantıda izin verilen tablolardan, eşitlik filtreleriyle okur; bu izin listesi bağlantı formunda ancak o adım kullanılıyorsa görünür.
+
+Uygulamadaki denetim ile sunucudaki kullanıcı yetkisi birbirini tamamlar. Bağlantıda `sa`, `postgres`, veritabanı sahibi veya yazma yetkili ERP hesabını kullanmayın. Aşağıdaki örnekler DBA'nın gerçek şema ve erişim modeline uyarlaması içindir; uygulama bu komutları çalıştırmaz.
 
 ## PostgreSQL örneği
 
@@ -65,6 +67,8 @@ GO
 `db_owner`, `db_datawriter`, `sysadmin` gibi geniş roller vermeyin. Yalnız iki tablo gereken durumda `db_datareader` da tüm tabloları açacağından gerekli değildir. DBA mevcut rol üyeliklerini ve `public` izinlerini de denetlemelidir. [Microsoft nesne bazlı yetkilendirme](https://learn.microsoft.com/en-us/sql/t-sql/statements/grant-object-permissions-transact-sql?view=sql-server-ver16), [en az yetki ilkesi](https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/getting-started-with-database-engine-permissions?view=sql-server-ver17).
 
 ## Bağlantı yapılandırması
+
+Bağlantı Studio'da adımın **Bağlantı** alanından form ile kurulur (veritabanı türü, sunucu, port, veritabanı adı, kullanıcı, şifre). Şifre yalnız o bilgisayardaki çalışma alanında saklanır, dışa aktarılan akışa eklenmez ve çalışma günlüğünde gizlenir. Aşağıdaki `.env` ayarı yalnız ilk açılışta varsayılan bağlantı oluşturmak içindir.
 
 `.env.example` dosyasını `.env` olarak kopyalayın. Örnek SQLAlchemy bağlantı adresleri:
 

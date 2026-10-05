@@ -55,6 +55,30 @@ def _check_ocr_and_tables(folder: Path) -> None:
         raise RuntimeError("Paket içindeki Excel okuma/yazma doğrulanamadı.")
 
 
+def _check_databases(folder: Path) -> None:
+    """Veritabanı sorgusu inside the package: a real SQLite query and every bundled driver loads."""
+    import platform
+    import sqlite3
+
+    import sqlalchemy as sa
+
+    from .database.query import QueryDatabase
+
+    database = folder / "check.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE stok (kod TEXT, adet INTEGER)")
+        connection.execute("INSERT INTO stok VALUES ('Ç-1', 3)")
+    connection.close()
+    with QueryDatabase({"engine": "sqlite", "path": str(database)}) as reader:
+        rows, _ = reader.query("SELECT kod, adet FROM stok WHERE adet > ${n}", lambda name: 1, 10)
+    if rows != [{"kod": "Ç-1", "adet": 3}]:
+        raise RuntimeError("Paket içindeki veritabanı sorgusu doğrulanamadı.")
+    sql_server = "mssql+pyodbc" if platform.system() == "Windows" else "mssql+pymssql"
+    for scheme in ("postgresql+psycopg", sql_server, "mysql+pymysql", "oracle+oracledb"):
+        # Creating an engine loads the driver without connecting.
+        sa.create_engine(f"{scheme}://kullanici:sifre@localhost/veritabani").dispose()
+
+
 def _check_license_verification() -> None:
     """Sign with a throwaway key and verify with the packaged license code (no network)."""
     import base64
@@ -139,6 +163,7 @@ def run_check(report: Path) -> int:
             _check_license_verification()
             _check_accessibility()
             _check_ocr_and_tables(root)
+            _check_databases(root)
             _check_login_item()
             _check_password_store()
 

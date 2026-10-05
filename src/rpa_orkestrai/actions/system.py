@@ -21,6 +21,11 @@ def _no_window() -> dict:
     return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
 
 
+def _waited() -> dict:
+    # A process the step waits for leads its own group on macOS, so stop() can end its children too.
+    return _no_window() if os.name == "nt" else {"start_new_session": True}
+
+
 def _arguments(value) -> list[str]:
     raw = text(value, "Parametreler", required=False, limit=4000).strip()
     if not raw:
@@ -114,15 +119,19 @@ def _decode(raw: bytes) -> str:
 
 @handler("system.command")
 def command(ctx, p):
-    """Run a shell command (cmd.exe on Windows, /bin/sh on macOS) and capture its output."""
+    """Like typing into a terminal or PowerShell: a command line or a script file; waits and keeps the output."""
+    if p.get("run", "command") == "file":
+        return run_script(ctx, p)
     line = text(p.get("command"), "Komut", limit=8000)
-    timeout = number(p.get("timeout", 60), "Zaman aşımı", 1, 3600)
+    timeout = number(p.get("timeout", 300), "Zaman aşımı", 1, 86400)
     folder = p.get("folder")
     cwd = None
     if folder:
         cwd = Path(os.path.expandvars(os.path.expanduser(str(folder))))
         if not cwd.is_dir():
             raise WorkflowError("Çalışma klasörü bulunamadı.")
+    if p.get("shell", "system") == "powershell":
+        return powershell(ctx, line, cwd, timeout, p.get("fail_on_error", True) is True)
     if os.name == "nt":
         # /u: cmd's own commands (echo, dir, type) write Unicode, so Turkish text survives any code page.
         comspec = os.environ.get("COMSPEC", "cmd.exe")
@@ -130,17 +139,82 @@ def command(ctx, p):
     else:
         invocation, shell = line, True
     try:
-        result = subprocess.run(invocation, shell=shell, capture_output=True, timeout=timeout, cwd=cwd,  # noqa: S602
-                                **_no_window())
-    except subprocess.TimeoutExpired as exc:
-        raise WorkflowError(f"Komut {timeout:g} saniyede bitmedi ve durduruldu.") from exc
+        process = subprocess.Popen(invocation, shell=shell, cwd=cwd, stdin=subprocess.DEVNULL,  # noqa: S602
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_waited())
     except OSError as exc:
         raise WorkflowError("Komut başlatılamadı.") from exc
-    output = {"code": result.returncode, "output": _decode(result.stdout)[-OUTPUT_LIMIT:].strip(),
-              "error": _decode(result.stderr)[-OUTPUT_LIMIT:].strip()}
-    if result.returncode != 0 and p.get("fail_on_error", True) is True:
+    stdout, stderr = finish(ctx, process, timeout, "Komut")
+    return _result(process.returncode, stdout, stderr, p.get("fail_on_error", True) is True, "Komut")
+
+
+def powershell(ctx, line: str, cwd: Path | None, timeout: float, fail: bool) -> dict:
+    """A PowerShell command, written to a temporary .ps1 so quotes, pipes and Turkish text arrive unchanged."""
+    import tempfile
+
+    if platform.system() != "Windows" and not find_program("pwsh"):
+        raise WorkflowError("PowerShell (pwsh) bu Mac'te kurulu değil. Komut İstemi / Terminal seçeneğini kullanın "
+                            "veya PowerShell'i kurun.")
+    with tempfile.TemporaryDirectory(prefix="rpa-ps-") as folder:
+        script = Path(folder) / "komut.ps1"
+        # Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+        script.write_text("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n$OutputEncoding = "
+                          "[System.Text.Encoding]::UTF8\n$ProgressPreference = 'SilentlyContinue'\n" + line + "\n",
+                          encoding="utf-8-sig")
+        invocation, env = launch(script_command(script, []), script)
+        try:
+            process = subprocess.Popen(invocation, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, **_waited())
+        except OSError as exc:
+            raise WorkflowError("PowerShell başlatılamadı.") from exc
+        stdout, stderr = finish(ctx, process, timeout, "Komut")
+    return _result(process.returncode, stdout, stderr, fail, "Komut")
+
+
+def finish(ctx, process: subprocess.Popen, timeout: float, name: str) -> tuple[bytes, bytes]:
+    """Wait for the process; Durdur and the time limit end it."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return process.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            ctx.check_cancelled()
+        except BaseException:
+            stop(process)
+            raise
+        if time.monotonic() >= deadline:
+            stop(process)
+            raise WorkflowError(f"{name} {timeout:g} saniyede bitmedi ve durduruldu.")
+
+
+def stop(process: subprocess.Popen) -> None:
+    """End the process with everything it started (cmd's ping, a script's child program)."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, timeout=10,
+                           **_no_window())
+        else:
+            import signal
+
+            os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    process.kill()
+    try:
+        process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _result(code: int, stdout: bytes, stderr: bytes, fail: bool, name: str, **extra) -> dict:
+    output = {"code": code, "output": _decode(stdout)[-OUTPUT_LIMIT:].strip(),
+              "error": _decode(stderr)[-OUTPUT_LIMIT:].strip(), **extra}
+    if code != 0 and fail:
         detail = output["error"].splitlines()[-1] if output["error"] else ""
-        raise WorkflowError(f"Komut hata koduyla bitti ({result.returncode}). {detail}"[:500])
+        raise WorkflowError(f"{name} hata koduyla bitti ({code}). {detail}"[:500])
     return output
 
 
@@ -268,41 +342,44 @@ def run_file(ctx, p):
         mode = "wait" if mode else "no"
     # A program such as the ERP stays open; only a script is something to wait for.
     program = command[0] == str(file) and file.suffix.lower() not in {".bat", ".cmd"}
-    finish = mode == "wait" or (mode == "auto" and not program)
+    waits = mode == "wait" or (mode == "auto" and not program)
     command, env = launch(command, file)
     try:
-        if not finish:
+        if not waits:
             subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=os.name != "nt", **_no_window())
             ctx.log(f"{file.name} başlatıldı; akış bitmesini beklemeden devam ediyor.")
             return {"code": None, "output": "", "error": "", "file": str(file), "opened": False}
         process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, **_no_window())
+                                   stderr=subprocess.PIPE, **_waited())
     except OSError as exc:
         raise WorkflowError(f"{file.name} başlatılamadı: {exc.strerror or exc}") from exc
     timeout = number(p.get("timeout", 600), "Zaman aşımı", 1, 86400)
-    import time
+    stdout, stderr = finish(ctx, process, timeout, file.name)
+    return _result(process.returncode, stdout, stderr, p.get("fail_on_error", True) is True, file.name,
+                   file=str(file), opened=False)
 
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            stdout, stderr = process.communicate(timeout=0.5)
-            break
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            ctx.check_cancelled()
-        except BaseException:
-            process.kill()
-            process.communicate()
-            raise
-        if time.monotonic() >= deadline:
-            process.kill()
-            process.communicate()
-            raise WorkflowError(f"{file.name} {timeout:g} saniyede bitmedi ve durduruldu.")
-    output = {"code": process.returncode, "output": _decode(stdout)[-OUTPUT_LIMIT:].strip(),
-              "error": _decode(stderr)[-OUTPUT_LIMIT:].strip(), "file": str(file), "opened": False}
-    if process.returncode != 0 and p.get("fail_on_error", True) is True:
-        detail = output["error"].splitlines()[-1] if output["error"] else ""
-        raise WorkflowError(f"{file.name} hata koduyla bitti ({process.returncode}). {detail}"[:500])
-    return output
+
+def run_script(ctx, p):
+    """Komut / script çalıştır with a file: the script runs with its interpreter and is waited for."""
+    file = path(p.get("path"), "Script dosyası")
+    if not file.is_file():
+        raise WorkflowError(f"Dosya bulunamadı: {file}")
+    folder = p.get("folder")
+    cwd = path(folder, "Çalışma klasörü") if folder else file.parent
+    if not cwd.is_dir():
+        raise WorkflowError("Çalışma klasörü bulunamadı.")
+    command = script_command(file, _arguments(p.get("arguments")))
+    if command is None:
+        raise WorkflowError(f"“{file.name}” bir script değil. Programları ve belgeleri «Uygulama, dosya veya adres "
+                            "aç» adımıyla açın.")
+    command, env = launch(command, file)
+    try:
+        process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, **_waited())
+    except OSError as exc:
+        raise WorkflowError(f"{file.name} başlatılamadı: {exc.strerror or exc}") from exc
+    timeout = number(p.get("timeout", 300), "Zaman aşımı", 1, 86400)
+    stdout, stderr = finish(ctx, process, timeout, file.name)
+    return _result(process.returncode, stdout, stderr, p.get("fail_on_error", True) is True, file.name,
+                   file=str(file))

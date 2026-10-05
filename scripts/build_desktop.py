@@ -72,6 +72,9 @@ def main() -> None:
                "--collect-submodules", "openpyxl",
                "--hidden-import", "sqlalchemy.dialects.postgresql.psycopg",
                "--hidden-import", "sqlalchemy.dialects.mssql.pyodbc",
+               # Veritabanı sorgusu: SQLAlchemy imports these drivers by name, out of PyInstaller's sight.
+               "--hidden-import", "sqlalchemy.dialects.mysql.pymysql", "--hidden-import", "sqlalchemy.dialects.oracle.oracledb",
+               "--hidden-import", "pymysql", "--collect-submodules", "oracledb",
                "--exclude-module", "PyQt5", "--exclude-module", "PyQt6",
                "--exclude-module", "PySide2", "--exclude-module", "PySide6"]
     if args.without_odbc:
@@ -80,7 +83,8 @@ def main() -> None:
         command += ["--osx-bundle-identifier", "com.rpaorkestrai.studio",
                     "--hidden-import", "webview.platforms.cocoa", "--hidden-import", "ApplicationServices",
                     "--hidden-import", "Vision", "--hidden-import", "pynput.keyboard._darwin",
-                    "--hidden-import", "pynput.mouse._darwin"]
+                    "--hidden-import", "pynput.mouse._darwin",
+                    "--hidden-import", "sqlalchemy.dialects.mssql.pymssql", "--collect-submodules", "pymssql"]
     else:
         # comtypes generates the UI Automation wrapper at run time; bundle its code generator.
         command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",

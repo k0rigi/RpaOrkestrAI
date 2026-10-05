@@ -240,7 +240,8 @@ CATALOG: list[dict[str, Any]] = [
            "Listedeki her satır için içine eklediğiniz adımları sırayla çalıştırır; liste bitince sona erer.",
            [field("items", "Satır listesi", "json", "${sheet_rows}", required=True),
             field("item_name", "Geçerli satır değişkeni", default="row", required=True,
-                  help="Tablo satırında ${row.form_id} ve ${row.status}; ${row.row_number} gerçek satır numarasıdır.")], container="loop"),
+                  help="Tablo satırında ${row.form_id} ve ${row.status}; ${row.row_number} gerçek satır numarasıdır."),
+            field("start", "Kaçıncı satırdan başlasın?", "number", None, min=1, max=100000)], container="loop"),
     action("control.while", "Koşul sürdükçe tekrarla", "Akış",
            "Koşulu her turda yeniden değerlendirir. Koşul yanlışsa çıkar; sınıra ulaşırsa hata ile durur.",
            [field("left", "Sol değer", "json", "${status}"),
@@ -415,9 +416,11 @@ LIBRARY = [
             output("screenshot_path")], region=True),
     # ----- Uygulama ve sistem ----------------------------------------------------------
     action("system.open", "Uygulama, dosya veya adres aç", "Uygulama ve sistem",
-           "Programı, belgeyi, klasörü veya web adresini varsayılan uygulamayla açar.",
+           "Masaüstünde çift tıklamak gibi: programı (ERP), belgeyi, klasörü veya web adresini açar; akış "
+           "programın kapanmasını beklemez.",
            [field("target", "Ne açılsın?", "path", "", required=True,
-                  help="Windows: notepad.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, ~/Desktop/rapor.xlsx · https://…"),
+                  help="Windows: C:\\Program Files\\ERP\\erp.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, "
+                       "~/Desktop/rapor.xlsx · https://…"),
             field("arguments", "Parametreler", help="İsteğe bağlı komut satırı parametreleri."),
             field("wait", "Açıldıktan sonra bekle (saniye)", "number", 2, min=0, max=120)]),
     action("system.run_file", "Dosya / script çalıştır", "Uygulama ve sistem",
@@ -443,10 +446,23 @@ LIBRARY = [
            "Çalışan bir uygulamayı kapatır; zorla kapatma kaydedilmemiş verileri kaybettirir.",
            [field("application", "Uygulama adı", required=True, help="Windows: EXCEL.EXE · Mac: Microsoft Excel"),
             field("force", "Zorla kapat", "boolean", False)]),
-    action("system.command", "Komut çalıştır", "Uygulama ve sistem",
-           "Windows'ta cmd, Mac'te terminal komutu çalıştırır; çıktıyı ${command.output} olarak verir.",
-           [field("command", "Komut", required=True), field("folder", "Çalışma klasörü", "path", ""),
-            field("timeout", "Zaman aşımı (saniye)", "number", 60, min=1, max=3600),
+    action("system.command", "Komut / script çalıştır", "Uygulama ve sistem",
+           "Terminale veya PowerShell'e komut yazmak gibi: komutu ya da seçtiğiniz script dosyasını (.py, .ps1, "
+           ".bat, .vbs, .sh…) çalıştırır, bitmesini bekler ve çıktısını ${command.output} olarak verir.",
+           [field("run", "Ne çalıştırılsın?", "select", "command", required=True, omit_default=True,
+                  options=[{"value": "command", "label": "Komut yaz"},
+                           {"value": "file", "label": "Script dosyası seç (.py, .ps1, .bat, .vbs, .sh…)"}]),
+            field("shell", "Komut nerede çalışsın?", "select", "system", required=True, omit_default=True,
+                  options=[{"value": "system", "label": "Komut İstemi (Windows) / Terminal (Mac)"},
+                           {"value": "powershell", "label": "PowerShell"}],
+                  visible_when={"run": "command"}),
+            field("command", "Komut", required=True, visible_when={"run": "command"}),
+            field("path", "Script dosyası", "path", "", required=True, omit_default=True, visible_when={"run": "file"},
+                  help="Windows: C:\\Scriptler\\aktar.py · Mac: ~/Desktop/rapor.sh"),
+            field("arguments", "Parametreler", omit_default=True, visible_when={"run": "file"},
+                  help="Script'e verilecek değerler, boşlukla ayrılır; ${değişken} kullanılabilir."),
+            field("folder", "Çalışma klasörü", "path", ""),
+            field("timeout", "Zaman aşımı (saniye)", "number", 300, min=1, max=86400),
             field("fail_on_error", "Hata koduyla biterse akışı durdur", "boolean", True), output("command")]),
     action("clipboard.set", "Panoya kopyala", "Uygulama ve sistem", "Bir metni panoya koyar; ardından mod+v ile yapıştırın.",
            [field("value", "Değer", default="", required=True)]),
@@ -575,6 +591,15 @@ LIBRARY = [
            "Bir değeri veya kaydı listeye ekler; liste yoksa oluşturur. Sonuçları toplayıp rapora yazmak için.",
            [field("name", "Liste değişkeni", default="results", required=True),
             field("value", "Eklenecek değer", "json", "${row}")]),
+    # ----- Veritabanı ------------------------------------------------------------------
+    action("database.query", "Veritabanı sorgusu", "Veritabanı",
+           "SQL Server, PostgreSQL, MySQL, Oracle veya SQLite veritabanında SELECT sorgusu çalıştırır; sonuç "
+           "satır listesi olur ve Her satır için döngüsüne verilebilir. Yalnız okuma yapılır.",
+           [DATABASE_CONNECTION,
+            field("query", "SQL sorgusu", "code", "SELECT * FROM tablo WHERE durum = ${durum}", required=True,
+                  raw=True),
+            field("max_rows", "En fazla satır", "number", 1000, min=1, max=100000, required=True),
+            output("rows")]),
     # ----- Akış ------------------------------------------------------------------------
     action("control.repeat", "Tekrarla (N kez)", "Akış",
            "İç adımları belirtilen sayıda çalıştırır; ${loop_index} 0'dan başlar.",
@@ -627,7 +652,7 @@ LIBRARY = [
             field("fail_on_error", "4xx/5xx yanıtında akışı durdur", "boolean", True), output("response")]),
 ]
 CATEGORY_ORDER = ["Pencere", "Fare ve klavye", "Ekran ve görsel", "Uygulama ve sistem", "Dosya ve Excel",
-                  "Veri ve metin", "Google Sheets", "Akış", "Kullanıcı etkileşimi", "Web ve API"]
+                  "Veri ve metin", "Google Sheets", "Veritabanı", "Akış", "Kullanıcı etkileşimi", "Web ve API"]
 BRANCHES = {"control.for_each": {"children": "HER SATIR İÇİN · İÇ ADIMLAR"},
             "control.while": {"children": "KOŞUL SÜRDÜKÇE · İÇ ADIMLAR"},
             "control.if": {"children": "KOŞUL DOĞRUYSA", "otherwise": "DEĞİLSE"}}
@@ -659,7 +684,7 @@ for entry in ACTION_DEFINITIONS + CATALOG:
 apply_guides(ACTION_DEFINITIONS + CATALOG)
 BY_TYPE = {entry["type"]: entry for entry in ACTION_DEFINITIONS + CATALOG}
 # No longer offered in the library, still run in saved flows: retired step → the step that replaces it.
-RETIRED = {"screen.find_image": "desktop.window_wait_image"}
+RETIRED = {"screen.find_image": "desktop.window_wait_image", "system.run_file": "system.command"}
 for entry in CATALOG:
     if entry["type"] in RETIRED:
         entry["retired"] = RETIRED[entry["type"]]
@@ -679,7 +704,7 @@ TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "
                 "desktop.find_window", "desktop.window_wait_image", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
                 "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
-                "database.read"}
+                "database.read", "database.query"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
 LOCATABLE = {"desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
              "input.mouse_click",

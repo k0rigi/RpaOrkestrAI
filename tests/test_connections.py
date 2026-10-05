@@ -27,7 +27,8 @@ def test_old_settings_become_default_profiles(tmp_path):
     connections = Connections(tmp_path, settings)
     listed = {item["type"]: item for item in connections.list()}
     assert listed["google_sheets"]["method"] == "apps_script" and listed["google_sheets"]["default"]
-    assert listed["database"]["allowed_tables"] and listed["database"]["engine"] == "postgresql"
+    assert listed["database"]["allowed_tables"] and listed["database"]["engine"] == "url"
+    assert listed["database"]["url_kind"] == "postgresql"
     assert "GIZLI" not in json.dumps(connections.list()) and TOKEN_A not in json.dumps(connections.list())
     # Migration runs once; later settings changes do not recreate profiles.
     settings.update({"database_url": ""})

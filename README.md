@@ -50,7 +50,8 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 - fare ve klavye: tıkla, sürükle, kaydır, yaz, kısayol, tuşu basılı tut
 - pencere: öne getir, büyüt/küçült, taşı, kapat, kapanmasını bekle, alanın değerini oku
 - ekran: görsel ara/tıkla, kurulum gerektirmeyen OCR ile metin oku/bekle, piksel rengi, ekran görüntüsü
-- uygulama ve sistem: uygulama/dosya/adres aç, uygulamayı kapat, komut çalıştır, pano
+- uygulama ve sistem: uygulama/dosya/adres aç (çift tıklama gibi), komut / script çalıştır (terminal veya PowerShell gibi), uygulamayı kapat, pano
+- veritabanı: SQL Server, PostgreSQL, MySQL, Oracle ve SQLite'ta salt okunur SQL sorgusu
 - dosya ve Excel: .xlsx/CSV oku-yaz, dosya listele, kopyala/taşı/sil, indirmeyi bekle
 - veri: hesapla, metin, tarih, liste
 - akış: tekrarla, döngüden çık, hata olursa, başka akışı çalıştır, akışı bitir
@@ -60,7 +61,7 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 
 **Görünüm.** Arayüz teknik çizim görünümündedir: kareli kâğıt zemin, mürekkep çizgili kutular ve tek bir vurgu rengi. Sağ üstteki ay/güneş düğmesi **açık** (çizim kâğıdı) ve **koyu** (blueprint) tema arasında geçer; **Ayarlar → Görünüm** altında bilgisayarın ayarını izleyen **Sistem** seçeneği de vardır. Diyagramda kutuları sürükleyerek istediğiniz yere taşıyabilirsiniz; bir **+** üzerine bırakılan kutu akışta o noktaya geçer.
 
-**Bağlantılar adımın içindedir.** Google Sheets adımlarının (ve eski akışlardaki veritabanı adımının) ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
+**Bağlantılar adımın içindedir.** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
 
 **Adlar.** Bir adımın sonucuna verdiğiniz ad alanına yalnız ad yazılır (ör. `erp_window`); `${erp_window}` yazılırsa uygulama düzeltir. Pencere adımlarında pencere, önceki **Pencereyi tanı** adımlarında verilen adlardan oluşan listeden seçilir. Geçersiz bir ad, hangi adımda ve hangi alanda olduğu belirtilerek bildirilir.
 
@@ -96,9 +97,9 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Akış yönetimi | Kaydetme, açma, JSON içe/dışa aktarma ve departman bilgisi |
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
-| Veritabanı | Eski akışlardaki **Tablo oku** adımı PostgreSQL / SQL Server tablolarını izin listesi ve parametreli filtrelerle okur; bu adım kütüphanede yer almaz |
+| Veritabanı | **Veritabanı sorgusu** ile SQL Server, PostgreSQL, MySQL / MariaDB, Oracle veya SQLite'ta tek bir `SELECT` sorgusu çalıştırma; `${değişken}` değerleri parametre olarak gönderilir, sonuç **Her satır için** döngüsüne verilir. Yalnız okuma yapılır; değiştiren sorgular reddedilir. Bağlantı sunucu, kullanıcı ve şifreyle formdan kurulur. [Adım rehberi](docs/adimlar.md#veritabanı) |
 | Kayıtlı şifreler | ERP girişi gibi işler için şifreyi işletim sisteminin kasasında (Windows Kimlik Bilgisi Yöneticisi, macOS Anahtar Zinciri) tutma; adımda `${sifre.ad}` ile kullanma, günlükte gizleme |
-| Script ve programlar | **Dosya / script çalıştır** ile klasördeki `.py`, `.ps1`, `.bat`, `.vbs`, `.exe`, `.sh` gibi dosyaları türüne göre çalıştırma, çıktısını akışta kullanma |
+| Script ve programlar | **Uygulama, dosya veya adres aç** programı, belgeyi veya klasörü çift tıklar gibi açar. **Komut / script çalıştır** terminal (cmd / Terminal) veya PowerShell komutunu ya da seçilen `.py`, `.ps1`, `.bat`, `.vbs`, `.sh` script'ini çalıştırır, bitmesini bekler ve çıktısını akışta kullanır |
 | Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
 | ERP listeleri | **Tablodan değer oku** ile ERP listesindeki hücreyi sütun adıyla okuma ve satır sayma; bilinen değerler üzerinde döngü |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
