@@ -108,11 +108,15 @@ def test_real_windows_shortcut_preserves_arguments_and_working_directory(tmp_pat
                       "Path('result.json').write_text(json.dumps([sys.argv[1:], os.getcwd()]), encoding='utf-8')\n")
     shortcut = folder / "Canias test.lnk"
     shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
-    link = shell.CreateShortcut(str(shortcut))
+    # WSH's Save uses the system code page for the link filename. Create the fixture
+    # outside the Turkish folder, then move it with Python's Unicode filesystem API.
+    staging_shortcut = tmp_path / "fixture.lnk"
+    link = shell.CreateShortcut(str(staging_shortcut))
     link.TargetPath = sys.executable
     link.Arguments = subprocess.list2cmdline([str(script), "Ayşe Çelik", "https://erp.example/app.jnlp"])
     link.WorkingDirectory = str(folder)
     link.Save()
+    staging_shortcut.replace(shortcut)
     system.open_target(Mock(), {"target": str(shortcut), "wait": 0})
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
