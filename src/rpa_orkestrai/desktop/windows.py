@@ -365,7 +365,11 @@ class WindowService:
             if cell.read() != value:
                 raise WindowError("Hücreye yazıldı ancak değer doğrulanamadı. ERP'yi kontrol edin; akış durduruldu.")
             return {"row": row + 1, "column": column + 1, "value": value}
-        except OSError as exc:
+        except (WindowError, InterruptedError):
+            raise
+        except Exception as exc:
+            # Includes native COM/AX provider errors; never retry a write whose
+            # outcome is unknown, and never fall back to blind keyboard input.
             raise WindowError("Tablo hücresine erişilemedi. ERP'yi kontrol edin; akış durduruldu.") from exc
 
     def locate_target(self, target: dict, desktop: Any, **targeting: Any) -> tuple[int, int]:

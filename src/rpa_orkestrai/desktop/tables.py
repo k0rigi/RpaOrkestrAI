@@ -80,10 +80,12 @@ def native_backend():
 
 
 def _pattern(element, pattern_id, interface):
+    from comtypes import COMError
+
     try:
         unknown = element.GetCurrentPattern(pattern_id)
         return unknown.QueryInterface(interface) if unknown else None
-    except OSError:
+    except (OSError, COMError):
         return None
 
 

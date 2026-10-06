@@ -199,3 +199,12 @@ def test_resorting_between_resolution_and_write_stops_input(setup):
         write_table(ctx, dict(window=window.result(), column="Tutar", value="99", row_mode="match",
                               match_column="Fatura No", match_value="INV-1"))
     assert cell.writes == []
+
+
+def test_native_provider_error_is_reported_without_retry(setup):
+    window, grid, _, _, _, ctx = setup
+    cell = grid.cells[0][1]
+    cell.write = Mock(side_effect=RuntimeError("provider unavailable"))
+    with pytest.raises(WindowError, match="hücresine erişilemedi"):
+        write_table(ctx, dict(window=window.result(), column="Tutar", value="99"))
+    assert cell.write.call_count == 1
