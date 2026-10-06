@@ -99,6 +99,8 @@ def test_real_windows_dialog_preserves_shortcuts():
 @pytest.mark.skipif(platform.system() != "Windows", reason="Windows ShellExecute shortcut integration")
 def test_real_windows_shortcut_preserves_arguments_and_working_directory(tmp_path):
     import comtypes.client
+    from comtypes.persist import IPersistFile
+    from comtypes.shelllink import IShellLinkW, ShellLink
 
     folder = tmp_path / "Canias test alanı"
     folder.mkdir()
@@ -107,16 +109,13 @@ def test_real_windows_shortcut_preserves_arguments_and_working_directory(tmp_pat
     script.write_text("import json, os, sys\nfrom pathlib import Path\n"
                       "Path('result.json').write_text(json.dumps([sys.argv[1:], os.getcwd()]), encoding='utf-8')\n")
     shortcut = folder / "Canias test.lnk"
-    shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
-    # WSH's Save uses the system code page for the link filename. Create the fixture
-    # outside the Turkish folder, then move it with Python's Unicode filesystem API.
-    staging_shortcut = tmp_path / "fixture.lnk"
-    link = shell.CreateShortcut(str(staging_shortcut))
-    link.TargetPath = sys.executable
-    link.Arguments = subprocess.list2cmdline([str(script), "Ayşe Çelik", "https://erp.example/app.jnlp"])
-    link.WorkingDirectory = str(folder)
-    link.Save()
-    staging_shortcut.replace(shortcut)
+    # WScript.Shell uses ANSI paths/arguments; the fixture must preserve Turkish
+    # text independently of the runner's Windows locale, just like Explorer does.
+    link = comtypes.client.CreateObject(ShellLink, interface=IShellLinkW)
+    link.SetPath(sys.executable)
+    link.SetArguments(subprocess.list2cmdline([str(script), "Ayşe Çelik", "https://erp.example/app.jnlp"]))
+    link.SetWorkingDirectory(str(folder))
+    link.QueryInterface(IPersistFile).Save(str(shortcut), True)
     system.open_target(Mock(), {"target": str(shortcut), "wait": 0})
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
