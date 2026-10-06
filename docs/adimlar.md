@@ -106,7 +106,7 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Alanı doldur | Alanı bulur, tıklar, temizler ve değeri yazar. | — |
 | Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
 | Tablodan değer oku | ERP listesindeki bir hücreyi sütun başlığıyla (ör. Form Id) okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
-| Tabloya değer yaz (0.9.6+) | Erişilebilir tablonun hücresini satır/sütun veya benzersiz değerle bulup yazar ve doğrular. Belirsiz veya desteklenmeyen tabloda durur. ERP kaydetmesi ayrıca yapılır. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
+| Tabloya değer yaz (0.9.6+) | Seçilen tablonun hücresini satır/sütun veya benzersiz değerle bulup yazar ve doğrular. Geliştirme sürümünde Ekranda seç ile referans verilebilir. Belirsiz veya desteklenmeyen tabloda durur. ERP kaydetmesi ayrıca yapılır. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
 | Pencerede görseli bekle / ara | Pencerede bir işaretin (düğme, başlık, hata kutusu) görünmesini veya kaybolmasını bekler. **Süre dolarsa:** akışı durdurur ya da "bulunamadı" sonucuyla devam eder; böylece bir hata kutusu çıkıp çıkmadığına Koşul ile karar verilir. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
@@ -158,7 +158,7 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 | Uygulamayı kapat | Windows: `EXCEL.EXE` · Mac: `Microsoft Excel`. Zorla kapatma kaydedilmemiş işi kaybettirir. | Kapatıldı mı |
 | Panoya kopyala / Panodaki metni oku | Pano üzerinden veri aktarır. | `${clipboard}` |
 
-**Canias / Java Web Start:** **Ne açılsın? → Seç…** ile normalde çift tıklayarak açtığınız masaüstü kısayolunu (`.lnk`) seçin ve **Parametreler** alanını boş bırakın. Windows'ta kısayolun kayıtlı parametreleri ve çalışma klasörü kullanılır. Alternatif olarak `.jnlp` dosyasını seçebilirsiniz. `javaws.exe` dosyasını doğrudan seçerseniz **Parametreler** alanına kısayolun başlatma parametrelerini, JNLP dosyası veya adresi dahil, yazmanız gerekir; boşluk içeren yolları çift tırnak içine alın.
+**Java Web Start ile açılan uygulamalar:** **Ne açılsın? → Seç…** ile normalde çift tıklayarak açtığınız masaüstü kısayolunu (`.lnk`) seçin ve **Parametreler** alanını boş bırakın. Windows'ta kısayolun kayıtlı parametreleri ve çalışma klasörü kullanılır. Alternatif olarak `.jnlp` dosyasını seçebilirsiniz. `javaws.exe` dosyasını doğrudan seçerseniz **Parametreler** alanına kısayolun başlatma parametrelerini, JNLP dosyası veya adresi dahil, yazmanız gerekir; boşluk içeren yolları çift tırnak içine alın.
 
 Eski sürümde kısayol seçerken yalnız `javaws.exe` yolu kaydedilmişse güncellemeden sonra kısayolu yeniden seçip akışı kaydedin. Kaybolmuş parametreler eski kayıttan geri getirilemez. Güncelleme öncesinde kısayolun tam `.lnk` yolunu **Ne açılsın?** alanına elle yazabilirsiniz.
 

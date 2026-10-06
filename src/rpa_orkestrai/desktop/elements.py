@@ -309,11 +309,11 @@ class UiaElements:
             items = (self._info(found.GetElement(index)) for index in range(count))
             return [item for item in items if item is not None and (role is None or item.role == role)]
         except OSError as exc:
-            raise WindowError("ERP penceresinin alanları okunamadı. Pencere kapanmış veya yanıt vermiyor olabilir.") from exc
+            raise WindowError("uygulama penceresinin alanları okunamadı. Pencere kapanmış veya yanıt vermiyor olabilir.") from exc
 
     def element_at(self, window: WindowInfo, x: int, y: int) -> ElementInfo | None:
         # Hit-test the window's own tree: another window above the point (Studio,
-        # the picker HUD) can never be mistaken for the ERP field.
+        # the picker HUD) can never be mistaken for the uygulama field.
         candidates = [(item.width * item.height, -index, item)
                       for index, item in enumerate(self.elements(window))
                       if item.width > 0 and item.height > 0 and not item.offscreen and item.contains(x, y)]
@@ -335,7 +335,7 @@ class AxElements:
             raise WindowError("Alan kimliğini okumak için Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik "
                               "bölümünden RpaOrkestrAI'ye izin verin.")
         application = self.ax.AXUIElementCreateApplication(window.pid)
-        # A hung ERP must not freeze the picker or a run for the 6-second default.
+        # A hung uygulama must not freeze the picker or a run for the 6-second default.
         self.ax.AXUIElementSetMessagingTimeout(application, 1.0)
         return application
 
@@ -382,7 +382,7 @@ class AxElements:
         if len(candidates) > 1:
             candidates = [item for item in candidates if (self._bounds(item) or (None, None))[:2] == (window.x, window.y)]
         if len(candidates) != 1:
-            raise WindowError("ERP penceresi erişilebilirlik ağacında bulunamadı. Pencereyi yeniden tanıtın.")
+            raise WindowError("uygulama penceresi erişilebilirlik ağacında bulunamadı. Pencereyi yeniden tanıtın.")
         return candidates[0]
 
     def elements(self, window: WindowInfo, role: str | None = None) -> list[ElementInfo]:

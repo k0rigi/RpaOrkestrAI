@@ -114,7 +114,7 @@ class WindowService:
             if remaining <= 0:
                 if on_missing == "continue":
                     return {"found": False}
-                raise WindowError("Tanıtılan pencere bulunamadı. ERP ekranını açıp yeniden deneyin.")
+                raise WindowError("Tanıtılan pencere bulunamadı. uygulama ekranını açıp yeniden deneyin.")
             if self.cancel.wait(min(0.2, remaining)):
                 self._check()
 
@@ -193,24 +193,24 @@ class WindowService:
         screen_x, screen_y = window.x + x, window.y + y
         width, height = self._screen_size(desktop)
         if not 0 <= screen_x < width or not 0 <= screen_y < height:
-            raise WindowError("Hedef ana ekranın dışında. ERP penceresini ana ekrana taşıyın.")
+            raise WindowError("Hedef ana ekranın dışında. uygulama penceresini ana ekrana taşıyın.")
         return screen_x, screen_y
 
     def _capture_window(self, target: dict, desktop: Any) -> tuple[WindowInfo, Any]:
         window = self._guard(target)
         width, height = self._screen_size(desktop)
         if window.width <= 0 or window.height <= 0:
-            raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+            raise WindowError("Uygulama penceresinin tamamını ana ekranın içine taşıyın.")
         clipped = (window.x < 0 or window.y < 0 or window.x + window.width > width
                    or window.y + window.height > height)
         if clipped:
             allows_clipping = getattr(self.backend, "allows_frame_clipping", None)
             if allows_clipping is None or allows_clipping(window, width, height) is not True:
-                raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+                raise WindowError("Uygulama penceresinin tamamını ana ekranın içine taşıyın.")
         left, top = max(0, window.x), max(0, window.y)
         right, bottom = min(width, window.x + window.width), min(height, window.y + window.height)
         if right <= left or bottom <= top:
-            raise WindowError("ERP penceresinin tamamını ana ekranın içine taşıyın.")
+            raise WindowError("Uygulama penceresinin tamamını ana ekranın içine taşıyın.")
         image = desktop.screenshot((left, top, right - left, bottom - top))
         self._guard(target, window)
         if image.size != (right - left, bottom - top):
@@ -332,11 +332,16 @@ class WindowService:
         self._guard(target, window)
         desktop.click(*point, clicks=clicks, button=button)
 
-    def table_cell(self, target: dict, desktop: Any, *, value: str | None = None, **selection: Any):
+    def table_cell(self, target: dict, desktop: Any, *, value: str | None = None,
+                   targeting: dict | None = None, **selection: Any):
         """Locate/show a native cell, or write and verify it without keyboard input."""
         from .tables import native_backend, resolve_cell
 
-        window = self.focus(target)
+        if targeting is not None:
+            window, point = self._resolve_target(target, desktop, **targeting)
+            selection = {**selection, "point": point, "table": ""}
+        else:
+            window = self.focus(target)
         backend = native_backend()
         try:
             cell, row, column = resolve_cell(backend, window, check=self._check, **selection)
@@ -363,14 +368,14 @@ class WindowService:
             cell.write(value, guard)
             self._guard(target, window)
             if cell.read() != value:
-                raise WindowError("Hücreye yazıldı ancak değer doğrulanamadı. ERP'yi kontrol edin; akış durduruldu.")
+                raise WindowError("Hücreye yazıldı ancak değer doğrulanamadı. uygulamayı kontrol edin; akış durduruldu.")
             return {"row": row + 1, "column": column + 1, "value": value}
         except (WindowError, InterruptedError):
             raise
         except Exception as exc:
             # Includes native COM/AX provider errors; never retry a write whose
             # outcome is unknown, and never fall back to blind keyboard input.
-            raise WindowError("Tablo hücresine erişilemedi. ERP'yi kontrol edin; akış durduruldu.") from exc
+            raise WindowError("Tablo hücresine erişilemedi. uygulamayı kontrol edin; akış durduruldu.") from exc
 
     def locate_target(self, target: dict, desktop: Any, **targeting: Any) -> tuple[int, int]:
         """The screen point a click or fill would use; nothing is clicked."""
@@ -598,7 +603,7 @@ end run'''
         if front is None or front.processIdentifier() != window.pid:
             return False
         # Quartz returns front-to-back order. A dialog from this app must not be
-        # mistaken for the previously identified ERP window.
+        # mistaken for the previously identified uygulama window.
         q = self.quartz
         records = q.CGWindowListCopyWindowInfo(q.kCGWindowListOptionOnScreenOnly | q.kCGWindowListExcludeDesktopElements,
                                              q.kCGNullWindowID) or []

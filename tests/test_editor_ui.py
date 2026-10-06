@@ -1769,3 +1769,101 @@ def test_ocr_rectangle_draw_scaled_reverse_drag_and_cancel(tmp_path, relative_to
             assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"]["region"] == [400, 200, 400, 200]
             assert not errors
             browser.close()
+
+
+@pytest.mark.parametrize("viewport", [{"width": 980, "height": 720}, {"width": 1400, "height": 1000}])
+@pytest.mark.parametrize("source", ["snapshot", "native"])
+def test_table_write_reference_picker_simple_form_and_legacy_compatibility(tmp_path, viewport, source):
+    from fastapi.testclient import TestClient
+    playwright = pytest.importorskip("playwright.sync_api")
+    Image = pytest.importorskip("PIL.Image")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    png = io.BytesIO()
+    Image.new("RGB", (1000, 600), "white").save(png, format="PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(png.getvalue()).decode()
+    crops, errors = [], []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Genel tablo akışı", "steps": [
+            {"id": "window", "action": "desktop.find_window", "params": {
+                "application": "Test Application", "title": "Records", "output": "records_window"}},
+            {"id": "old", "action": "window.write_table", "params": {
+                "window": "${records_window}", "table": "old-grid", "row": 2, "column": "2", "value": "old"}},
+        ]})
+        assert response.status_code == 201
+        workflow_id = response.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport=viewport)
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/pick/capabilities":
+                    route.fulfill(json={"native": source == "native"})
+                elif path == "/api/desktop/pick":
+                    assert json.loads(request.post_data)["mode"] == "image_only"
+                    route.fulfill(status=202, json={"id": "pick-table", "status": "completed", "result": {
+                        "capture": {"id": "table-capture", "image": data_url, "width": 1000, "height": 600,
+                                    "window": {"width": 1000, "height": 600}},
+                        "rectangle": {"x": 100, "y": 60, "width": 200, "height": 60}, "point": None}})
+                elif path == "/api/desktop/pick/pick-table" and request.method == "DELETE":
+                    route.fulfill(status=204)
+                elif path == "/api/desktop/capture-window":
+                    assert json.loads(request.post_data) == {"application": "Test Application", "title": "Records", "match": "exact"}
+                    route.fulfill(json={"id": "table-capture", "image": data_url, "width": 1000, "height": 600,
+                                        "window": {"width": 1000, "height": 600}})
+                elif path == "/api/desktop/templates":
+                    crops.append(json.loads(request.post_data))
+                    route.fulfill(status=201, json={"template": "table-reference.png"})
+                else:
+                    result = client.request(request.method, path, content=request.post_data_buffer,
+                                            headers={"content-type": "application/json"})
+                    route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Genel tablo akışı", exact=True).click()
+            page.locator('[data-step-id="old"]').click()
+            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_value("auto")
+            playwright.expect(page.get_by_label("Tablo adı veya kimliği", exact=False)).to_have_value("old-grid")
+            page.get_by_label("Adım ara").fill("Tabloya değer yaz")
+            page.locator(".library-action").filter(has_text="Tabloya değer yaz").click()
+            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_value("image")
+            playwright.expect(page.locator(".table-options")).not_to_have_attribute("open", "")
+            playwright.expect(page.get_by_label("Eşleşme eşiği", exact=False)).not_to_be_visible()
+            playwright.expect(page.get_by_label("Yazılacak sütun", exact=False)).to_be_visible()
+            page.get_by_role("button", name="Ekranda seç" if source == "native" else "Görüntü üzerinde seç", exact=True).click()
+            if source == "native":
+                page.get_by_role("button", name="Tamam, geri sayımı başlat", exact=True).click()
+            canvas = page.locator(".target-picker-canvas")
+            playwright.expect(canvas).to_be_visible()
+            if source == "snapshot":
+                bounds = canvas.bounding_box()
+                page.mouse.move(bounds["x"] + .1 * bounds["width"], bounds["y"] + .1 * bounds["height"])
+                page.mouse.down()
+                page.mouse.move(bounds["x"] + .3 * bounds["width"], bounds["y"] + .2 * bounds["height"], steps=4)
+                page.mouse.up()
+            page.get_by_role("button", name="Hedefi kaydet", exact=True).click()
+            playwright.expect(page.get_by_label("Referans görsel", exact=False)).to_have_value("table-reference.png")
+            page.get_by_label("Yazılacak sütun", exact=False).fill("Değer")
+            page.get_by_label("Yazılacak değer", exact=False).fill("${kayit.deger}")
+            page.locator(".table-options > summary").click()
+            page.get_by_label("Satır seçimi", exact=False).select_option("match")
+            playwright.expect(page.get_by_label("Aranacak sütun", exact=False)).to_be_visible()
+            page.get_by_label("Aranacak sütun", exact=False).fill("Kod")
+            page.get_by_label("Aranacak değer", exact=False).fill("${kayit.kod}")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            steps = client.get(f"/api/workflows/{workflow_id}").json()["steps"]
+            old = next(s for s in steps if s["id"] == "old")["params"]
+            assert "target_mode" not in old and old["table"] == "old-grid"
+            new = next(s for s in steps if s["action"] == "window.write_table" and s["id"] != "old")["params"]
+            assert new["window"] == "${records_window}" and new["target_mode"] == "image"
+            assert new["offset_x"] == 0 and new["offset_y"] == 0
+            assert new["template"] == "table-reference.png" and new["value"] == "${kayit.deger}"
+            assert new["row_mode"] == "match" and new["match_value"] == "${kayit.kod}"
+            assert len(crops) == 1 and not errors
+            browser.close()

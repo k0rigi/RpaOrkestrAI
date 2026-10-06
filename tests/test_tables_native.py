@@ -57,7 +57,7 @@ $window.Content = $grid
         assert len(grids) == 1 and grids[0].shape() == (2, 2)
         assert grids[0].headers(2) == ["Invoice", "Amount"]
         cell, row, column = resolve_cell(backend, window, table="invoiceGrid", row_mode="match", row=1,
-                                         column="Amount", match_column="Invoice", match_value="INV-1", check=lambda: None)
+                                         column="Amount", match_column="Invoice", match_value="INV-1", check=lambda: None, point=grids[0].info().center)
         assert (row, column) == (1, 1) and cell.read() == "20"
         assert cell.info().usable_in(window)
         cell.write("42.50", lambda: None)

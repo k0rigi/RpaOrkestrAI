@@ -111,13 +111,17 @@ Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne t
 
 ## Tabloya değer yaz (0.9.6+)
 
-Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. Pencerede tek erişilebilir tablo varsa **Tablo adı veya kimliği** boş kalabilir; birden fazlaysa uygulamanın erişilebilir adını/kimliğini belirtin. Satır ve sütun numaraları 1'den başlar; başlık satırı sayılmaz. Sütun başlığı da kullanılabilir; yinelenen başlıklarda numara gerekir.
+Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. Geliştirme sürümünde **Ekranda seç** ile tablonun içindeki bir noktayı veya sabit bir başlığı gösterin. Referans görsel, konum ve alan kimliği yöntemleri tablo okuma adımıyla aynıdır. Bir görselin dışındaki tabloyu hedefliyorsanız hedef noktayı tablonun içinde seçin; fark otomatik kaydedilir.
 
-Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin. Örneğin **Aranacak sütun: Fatura No**, **Aranacak değer: ${row.fatura_no}**, **Yazılacak sütun: Tutar**, **Yazılacak değer: ${row.tutar}**. Aranan değer tam eşleşmelidir. Hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
+Ana formda **Satır**, **Yazılacak sütun** ve **Yazılacak değer** bulunur. Satır ve sütun numaraları 1'den başlar, başlık satırı sayılmaz; sütun adı da kullanılabilir. Her akış kendi sabit değerlerini veya değişkenlerini kullanır; belirli bir kayıt türü varsayılmaz.
 
-**Yeri göster** yalnız hücreyi gösterir. Gerçek çalıştırma değeri doğrudan hücreye yazar ve geri okuyarak doğrular. Salt okunur/görünmeyen hücre, değişen pencere veya kaybolan odakta akış durur. Doğrulama başarısızsa ERP'yi kontrol edin: yazma denenmiş olabilir. ERP'nin kaydetme veya onay işlemi ayrıca tanımlanır. Bu adım tek adım testinin hazırlığında kendiliğinden çalıştırılmaz.
+**Diğer seçenekler** altında değere göre satır bulma, eşleştirme ayarları ve sonuç değişkeni bulunur. Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin; aranacak sütunu ve o kaydı ayırt eden değeri belirtin. Tam eşleşme aranır. Hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
 
-Windows'ta UI Automation Grid/Table ve Value, macOS'ta Erişilebilirlik tablo ve düzenlenebilir hücre desteği gerekir. Kopyalanabilen her tablo yazılabilir değildir. Canias/Java özel çizim tabloları bu yapıyı sunmayabilir; bu durumda adım konum tahmin etmez, açıklamayla durur. Mevcut **Alanı doldur** yöntemleri kullanılabilir. Yeni adımı içeren akışlar 0.9.6 veya sonrasını gerektirir.
+**Penceredeki tek tablo** yöntemi, hedef seçmeden tek tabloyu kullanır. Gerekirse **Diğer seçenekler** altında tablo adı/kimliği girilebilir. 0.9.6 ile kaydedilen adımlar bu yöntemle aynen çalışır; otomatik olarak görsel istemeye başlamaz. Referanslı tablo yazma geliştirme sürümündedir; yayımlanmış 0.9.6 bu seçeneği içermez.
+
+**Yeri göster** yalnız hücreyi gösterir. Gerçek çalıştırma değeri doğrudan hücreye yazar ve geri okuyarak doğrular. Salt okunur/görünmeyen hücre, değişen pencere veya kaybolan odakta akış durur. Doğrulama başarısızsa uygulamayı kontrol edin: yazma denenmiş olabilir. Kaydetme veya onay gerekiyorsa ilgili adımı akışınıza göre ekleyin. Bu adım tek adım testinin hazırlığında kendiliğinden çalıştırılmaz.
+
+Windows'ta UI Automation Grid/Table ve Value, macOS'ta Erişilebilirlik tablo ve düzenlenebilir hücre desteği gerekir. Referans, hangi tablonun kullanılacağını belirler; uygulamanın sunmadığı hücre erişimini sağlamaz. Kopyalanabilen her tablo doğrudan yazmayı desteklemeyebilir. Destek yoksa adım açıklamayla durur; **Alanı doldur** gibi diğer yöntemler kullanılabilir.
 
 ## Metin okunacak bölgeyi çizme
 

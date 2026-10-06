@@ -5164,3 +5164,6 @@ body.dragging-step .edge-remove {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.table-options { margin-top: 16px; }
+.table-options > summary { cursor: pointer; margin-bottom: 12px; font-weight: 600; }

@@ -63,6 +63,7 @@ def setup(monkeypatch):
                                                    activate=Mock(), is_active=Mock(return_value=True)))
     desktop = Mock()
     desktop.size.return_value = (1920, 1080)
+    desktop.screenshot.return_value.size = (800, 600)
     ctx = SimpleNamespace(windows=Mock(return_value=windows), desktop=Mock(return_value=desktop))
     return window, grid, backend, windows, desktop, ctx
 
@@ -208,3 +209,74 @@ def test_native_provider_error_is_reported_without_retry(setup):
     with pytest.raises(WindowError, match="hücresine erişilemedi"):
         write_table(ctx, dict(window=window.result(), column="Tutar", value="99"))
     assert cell.write.call_count == 1
+
+
+def set_grid_bounds(grid, x=120, y=120, width=250, height=150):
+    grid.info = Mock(return_value=ElementInfo("DataGrid", "", "", "", x, y, width, height))
+
+
+@pytest.mark.parametrize("mode", ["coordinates", "image", "element"])
+def test_reference_selects_only_the_table_containing_the_point(setup, tmp_path, monkeypatch, mode):
+    from rpa_orkestrai.desktop.vision import Match, Vision
+
+    window, grid, backend, windows, desktop, ctx = setup
+    other = Grid()
+    set_grid_bounds(grid)
+    set_grid_bounds(other, x=500)
+    backend.tables.return_value = [other, grid]  # Wrong table deliberately first.
+    targeting = {"target_mode": "coordinates", "x": 70, "y": 70}
+    if mode == "image":
+        template = tmp_path / "table.png"
+        template.write_bytes(b"mock image decoder")
+        targeting = {"target_mode": "image", "template": template, "offset_x": 0, "offset_y": 0}
+        monkeypatch.setattr(Vision, "match_template", Mock(return_value=Match(60, 60, 20, 20, .99)))
+    elif mode == "element":
+        import platform
+        windows._elements = SimpleNamespace(find=Mock(return_value=ElementInfo(
+            "DataGrid", "table1", "", "", 160, 140, 20, 20)))
+        targeting = {"target_mode": "element", "element": {"platform": platform.system(), "automation_id": "table1"}}
+    ctx.window_target = Mock(return_value=targeting)
+    result = write_table(ctx, dict(window=window.result(), target_mode=mode, table="obsolete-id", column="2", value="7"))
+    assert result["value"] == "7" and grid.cells[0][1].writes == ["7"]
+    assert not any(cell.writes for row in other.cells for cell in row)
+    desktop.click.assert_not_called()
+    desktop.write.assert_not_called()
+
+
+@pytest.mark.parametrize("problem", ["outside", "ambiguous", "hidden", "moved", "missing_image"])
+def test_bad_reference_never_falls_back_to_another_table(setup, tmp_path, monkeypatch, problem):
+    from rpa_orkestrai.desktop.vision import Vision
+
+    window, grid, backend, windows, desktop, _ = setup
+    set_grid_bounds(grid)
+    targeting = {"target_mode": "coordinates", "x": 70, "y": 70}
+    if problem == "outside":
+        set_grid_bounds(grid, x=500)
+    elif problem == "ambiguous":
+        other = Grid()
+        set_grid_bounds(other)
+        backend.tables.return_value.append(other)
+    elif problem == "hidden":
+        grid.info.return_value = replace(grid.info.return_value, offscreen=True)
+    elif problem == "moved":
+        grid.info.side_effect = [grid.info.return_value, replace(grid.info.return_value, x=500)]
+    else:
+        path = tmp_path / "table.png"
+        path.write_bytes(b"mock image decoder")
+        targeting = {"target_mode": "image", "template": path, "timeout": 0}
+        monkeypatch.setattr(Vision, "match_template", Mock(return_value=None))
+    with pytest.raises((WindowError, TimeoutError)):
+        windows.table_cell(window.result(), desktop, value="7", targeting=targeting, **SELECTION)
+    assert not any(cell.writes for row in grid.cells for cell in row)
+    desktop.click.assert_not_called()
+    desktop.write.assert_not_called()
+
+
+def test_legacy_table_steps_keep_automatic_lookup(setup):
+    from rpa_orkestrai.catalog import defaults
+    window, grid, _, _, _, ctx = setup
+    ctx.window_target = Mock(side_effect=AssertionError("Legacy step must not require a reference"))
+    params = {**defaults("window.write_table"), "window": window.result(), "column": "2", "value": "8"}
+    assert write_table(ctx, params)["value"] == "8"
+    ctx.window_target.assert_not_called()
+    assert grid.cells[0][1].writes == ["8"]

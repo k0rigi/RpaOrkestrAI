@@ -83,7 +83,7 @@ def _png_data(image: Any) -> str:
     output = io.BytesIO()
     image.save(output, format="PNG")
     if output.tell() > 12 * 1024 * 1024:
-        raise WindowError("ERP görüntüsü çok büyük. Pencereyi küçültüp yeniden deneyin.")
+        raise WindowError("Uygulama görüntüsü çok büyük. Pencereyi küçültüp yeniden deneyin.")
     return "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii")
 
 
@@ -235,7 +235,7 @@ class NativePickerView:
 
     def countdown(self, remaining: int, mode: str) -> None:
         instruction = ("Fareyi hedef alanın üzerine götürün; tıklamayın."
-                       if mode == "coordinates" else "ERP ekranını hazırlayın; ardından alanı sürükleyerek seçin.")
+                       if mode == "coordinates" else "Uygulama ekranını hazırlayın; ardından alanı sürükleyerek seçin.")
         self.hud.evaluate_js(f"updateCountdown({remaining}, {json.dumps(instruction)})")
 
     def close_countdown(self) -> None:
@@ -313,7 +313,7 @@ class LivePicker:
         x, y = point["x"], point["y"]
         if not (0 <= x < window.width and 0 <= y < window.height
                 and 0 <= x + window.x < size[0] and 0 <= y + window.y < size[1]):
-            raise WindowError("Fare hedef ERP penceresinin dışında. Hedefi yeniden seçin.")
+            raise WindowError("Fare hedef Uygulama penceresinin dışında. Hedefi yeniden seçin.")
         return {"x": x, "y": y}
 
     @classmethod
@@ -340,7 +340,7 @@ class LivePicker:
     def pick(self, selector: dict, mode: str, delay: int, *, cancel: threading.Event,
              on_state: Callable[[dict], None] | None = None) -> dict:
         if not isinstance(selector, dict):
-            raise WindowError("Önce hedef ERP penceresini tanıtın.")
+            raise WindowError("Önce hedef Uygulama penceresini tanıtın.")
         application, title, match = (selector.get(key, default) for key, default in
                                      (("application", ""), ("title", ""), ("match", "exact")))
         validate_selector(application, title, match)
@@ -373,9 +373,9 @@ class LivePicker:
         # maximize frames are validated by screenshot_window at capture time.
         if not (window.x < width and window.y < height
                 and window.x + window.width > 0 and window.y + window.height > 0):
-            raise WindowError("ERP penceresini ana ekrana taşıyıp yeniden deneyin.")
+            raise WindowError("Uygulama penceresini ana ekrana taşıyıp yeniden deneyin.")
         try:
-            state("preparing", message="ERP penceresi hazırlanıyor.")
+            state("preparing", message="Uygulama penceresi hazırlanıyor.")
             view.hide_studio()
             view.open_countdown(width, height, cancel, check)
             window = windows.focus(target)
@@ -409,7 +409,7 @@ class LivePicker:
                 if bounds is not None:
                     left, top, hud_width, hud_height = bounds
                     if left <= screen_x < left + hud_width and top <= screen_y < top + hud_height:
-                        raise WindowError("Fare geri sayım kutusunun üzerinde. ERP alanını yeniden seçin.")
+                        raise WindowError("Fare geri sayım kutusunun üzerinde. hedef alanı yeniden seçin.")
                 # ERP is still in front: identify the field under the pointer by structure.
                 element = self._describe(window, screen_x, screen_y, cancel)
                 check()
@@ -419,9 +419,9 @@ class LivePicker:
             # for a coordinate result or the frozen canvas used for image selection.
             captured_window, image = windows._capture_window(target, desktop)
             if captured_window != window:
-                raise WindowError("ERP penceresinin konumu değişti. Hedefi yeniden seçin.")
+                raise WindowError("Uygulama penceresinin konumu değişti. Hedefi yeniden seçin.")
             if width * height > 16_000_000 or image.width * image.height > 16_000_000:
-                raise WindowError("Ekran görüntüsü çok büyük. ERP penceresini küçültün.")
+                raise WindowError("Ekran görüntüsü çok büyük. Uygulama penceresini küçültün.")
             if mode == "coordinates":
                 return PickerResult(window, image, **point, element=element).as_dict()
             state("selecting", message="Görsel alanını sürükleyerek seçin; Esc ile iptal edin.")
@@ -430,7 +430,7 @@ class LivePicker:
             # Overlay owns focus now; identity and geometry must still match,
             # but ERP is intentionally not the foreground application.
             if windows.current(target) != window:
-                raise WindowError("ERP penceresi değişti. Hedefi yeniden seçin.")
+                raise WindowError("Uygulama penceresi değişti. Hedefi yeniden seçin.")
             return self._selection(window, image, selection, mode, (width, height)).as_dict()
         finally:
             try:
@@ -506,9 +506,9 @@ ctx.drawImage(picture,cfg.window.x,cfg.window.y,cfg.window.width,cfg.window.heig
 ctx.strokeRect(x+.5,y+.5,selected.width-1,selected.height-1);}
 if(point){const x=point.x+cfg.window.x,y=point.y+cfg.window.y;ctx.strokeStyle='#ffdd74';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);
 ctx.moveTo(x-17,y);ctx.lineTo(x+17,y);ctx.moveTo(x,y-17);ctx.lineTo(x,y+17);ctx.stroke();}}
-picture.onload=update;picture.onerror=()=>{error.textContent='ERP görüntüsü yüklenemedi. İptal edip yeniden deneyin.'};picture.src=cfg.image;
+picture.onload=update;picture.onerror=()=>{error.textContent='Uygulama görüntüsü yüklenemedi. İptal edip yeniden deneyin.'};picture.src=cfg.image;
 canvas.addEventListener('pointerdown',e=>{if(e.button!==0||submitting||!picture.complete||!picture.naturalWidth)return;const p=localPoint(e);error.textContent='';
-if(!inside(p)){error.textContent='Seçimi tanıtılan ERP penceresinin içinde yapın.';return;}
+if(!inside(p)){error.textContent='Seçimi tanıtılan Uygulama penceresinin içinde yapın.';return;}
 if(phase==='crop'){start=p;drag=null;canvas.setPointerCapture(e.pointerId);}
 else if(phase==='point'||(phase==='review'&&cfg.mode==='image')){point={x:p.x-cfg.window.x,y:p.y-cfg.window.y};phase='review';update();}});
 canvas.addEventListener('pointermove',e=>{if(!start)return;drag=rect(start,clamp(localPoint(e)));draw();});

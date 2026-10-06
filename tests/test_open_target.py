@@ -35,10 +35,10 @@ def test_windows_launch_preserves_target_and_raw_arguments(monkeypatch, target, 
 
 
 @pytest.mark.parametrize("target", [r"C:\Program Files (x86)\Java\bin\javaws.exe", "JAVAWS.EXE", "javaws"])
-def test_bare_javaws_explains_how_to_launch_canias(monkeypatch, target):
+def test_bare_javaws_explains_how_to_launch_an_application(monkeypatch, target):
     start = Mock()
     monkeypatch.setattr(system.os, "startfile", start, raising=False)
-    with pytest.raises(WorkflowError, match="Canias kısayolunu"):
+    with pytest.raises(WorkflowError, match="uygulamanın kısayolunu"):
         system.open_target(Mock(), {"target": target, "arguments": "  "})
     start.assert_not_called()
 

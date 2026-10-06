@@ -1525,6 +1525,7 @@
       // A step that does not wait carries no wait_after, so older Studio versions still open the file.
       if (f.name === "wait_after" && !f.default) return;
       // Fields added later are written only once used, for the same reason.
+      if (f.new_default !== undefined) { params[f.name] = clone(f.new_default); return; }
       if (f.omit_default) return;
       if (f.default !== undefined && f.default !== null)
         params[f.name] = clone(f.default);
@@ -3194,7 +3195,7 @@
       node("div", "pane-heading", "Akış notu"),
       node("p", "pane-caption", "Akışın bir bölümünü açıklar; akışın çalışmasını etkilemez."),
     );
-    const title = textInput(item.title, "Örn. Faturaları ERP'ye gir");
+    const title = textInput(item.title, "Örn. Faturaları uygulamaya gir");
     title.id = "note-title";
     title.maxLength = 120;
     title.addEventListener("input", () => {
@@ -3842,7 +3843,7 @@
         if (unchanged()) result.replaceChildren(note(
           found.found
             ? `Pencere bulundu: ${found.title} (${found.width} × ${found.height}).`
-            : "Pencere bulunamadı. ERP ekranını açın veya başlık eşleşmesini düzenleyin.",
+            : "Pencere bulunamadı. uygulama ekranını açın veya başlık eşleşmesini düzenleyin.",
           found.found ? "info" : "", found.found ? "check" : "info",
         ));
       } catch (error) {
@@ -3854,15 +3855,15 @@
     tools.append(
       button("Açık pencerelerden seç", "desktop", () => pickWindow(step)),
       check,
-      node("p", "pane-caption", "Kontrol pencere başlığını arar; içeriğini incelemez. ERP penceresini görünür tutun."),
+      node("p", "pane-caption", "Kontrol pencere başlığını arar; içeriğini incelemez. uygulama penceresini görünür tutun."),
       result,
     );
     return tools;
   }
   function pickWindow(step) {
     const workflow = state.workflow;
-    dialog("ERP penceresini tanıt", (body, d) => {
-      body.append(node("p", "pane-caption", "ERP penceresini açık tutun ve listeden seçin. Başlık ve uygulama adı adıma aktarılacak."));
+    dialog("uygulama penceresini tanıt", (body, d) => {
+      body.append(node("p", "pane-caption", "uygulama penceresini açık tutun ve listeden seçin. Başlık ve uygulama adı adıma aktarılacak."));
       const search = textInput("", "Uygulama veya pencere başlığı ara…", "search");
       search.setAttribute("aria-label", "Açık pencerelerde ara");
       const list = node("div", "window-picker-list");
@@ -3873,7 +3874,7 @@
         list.replaceChildren();
         const query = search.value.toLocaleLowerCase("tr");
         const filtered = windows.filter((w) => `${w.application} ${w.title}`.toLocaleLowerCase("tr").includes(query));
-        if (!filtered.length) list.append(node("p", "help", "Eşleşen pencere yok. ERP ekranını görünür hale getirip listeyi yenileyin."));
+        if (!filtered.length) list.append(node("p", "help", "Eşleşen pencere yok. uygulama ekranını görünür hale getirip listeyi yenileyin."));
         filtered.forEach((w) => {
           const choose = button(w.title, "desktop", () => {
             if (state.workflow !== workflow || findStep(step.id)?.step !== step) {
@@ -4093,6 +4094,8 @@
     } else {
       tools.append(node("p", "help", "Hedefi ekrandan seçmek için önce aşağıdaki Pencere alanından pencereyi seçin. Listede, önceki Pencereyi tanı adımlarında ad verdiğiniz pencereler görünür."));
     }
+    if (step.action === "window.write_table") tools.append(node("p", "help",
+      "Tablodaki sabit bir başlığı veya işareti referans alın; seçtiğiniz hedef nokta tablonun içinde olsun."));
     tools.append(availability);
     if (busy) availability.textContent = "Hedef seçmeden önce çalışan akışın bitmesini bekleyin veya akışı durdurun.";
     else if (recognized) {
@@ -4120,11 +4123,12 @@
       match: parameterValue(recognized, "match") || "exact",
     };
     if (!selector.title.trim() || /\$\{/.test(selector.title + selector.application)) {
-      toast("Görüntü almak için Pencereyi tanıt adımında açık ERP penceresini seçin.", true);
+      toast("Görüntü almak için Pencereyi tanıt adımında açık uygulama penceresini seçin.", true);
       return;
     }
     const referenceOnly = step.action === "desktop.window_wait_image";
-    dialog("ERP ekranında hedef seç", (body, d) => {
+    const tableTarget = step.action === "window.write_table";
+    dialog("Uygulama ekranında hedef seç", (body, d) => {
       d.classList.add("target-picker-dialog");
       // A saved field identity is re-picked through the pointer (Konum) selection.
       let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") === "image" ? "image" : "coordinates";
@@ -4137,9 +4141,9 @@
       };
       const current = () => d.isConnected && state.workflow === workflow && findStep(step.id)?.step === step;
       const intro = node("p", "pane-caption", source === "native"
-        ? "Önce süreyi seçip geri sayımı başlatın. ERP penceresi öne gelir; seçiminiz bitince burada kontrol edip kaydedebilirsiniz. Seçim sırasında ERP’ye tıklama veya metin gönderilmez."
-        : "ERP penceresinin görüntüsü alınır. Konum için görüntüye tıklayın; görsel referans için fareyle bir dikdörtgen çizin. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün.");
-      intro.append(" Bu sürümde ERP penceresini ana ekranda, tamamı görünür olacak şekilde tutun.");
+        ? "Önce süreyi seçip geri sayımı başlatın. Uygulama penceresi öne gelir; seçiminiz bitince burada kontrol edip kaydedebilirsiniz. Seçim sırasında uygulamaya tıklama veya metin gönderilmez."
+        : "Uygulama penceresinin görüntüsü alınır. Konum için görüntüye tıklayın; görsel referans için fareyle bir dikdörtgen çizin. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün.");
+      intro.append(" Bu sürümde uygulama penceresini ana ekranda, tamamı görünür olacak şekilde tutun.");
       const toolbar = node("div", "target-picker-toolbar");
       const modeLabel = node("span", "field-label", "Hedef yöntemi");
       const coordinates = button("Konum", "desktop", () => changeMode("coordinates"), "small");
@@ -4165,7 +4169,7 @@
       const structure = node("div", "target-picker-structure");
       const frame = node("div", "target-picker-frame");
       const canvas = node("canvas", "target-picker-canvas");
-      canvas.setAttribute("aria-label", "ERP pencere görüntüsü. Konum için tıklayın; görsel referans için dikdörtgen çizin.");
+      canvas.setAttribute("aria-label", "uygulama pencere görüntüsü. Konum için tıklayın; görsel referans için dikdörtgen çizin.");
       canvas.setAttribute("role", "img");
       canvas.hidden = true;
       frame.append(canvas);
@@ -4227,19 +4231,20 @@
         actions.hidden = !capture;
         reset.disabled = busy || (!point && !rectangle);
         save.disabled = busy || !capture ||
-          (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !point));
+          (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !tableTarget && !point));
         preparationHelp.textContent = mode === "coordinates"
-          ? "Süre dolmadan fareyi ERP’deki hedef alanın üzerine getirin ve orada tutun. Süre bittiğindeki konum alınır; tıklamanız gerekmez. Uygulama alana bir kimlik veriyorsa ekran boyutundan bağımsız alan kimliği de önerilir. Esc ile iptal edebilirsiniz."
-          : `Süre bitince ERP görüntüsünde sabit bir etiketi (ör. FormID) fareyle sürükleyerek seçin.${referenceOnly ? "" : " Ardından işlem yapılacak alanın ortasına tıklayın."} Seçimi kullan ile önizlemeye dönün. Esc ile iptal edebilirsiniz.`;
+          ? "Süre dolmadan fareyi uygulamadaki hedef alanın üzerine getirin ve orada tutun. Süre bittiğindeki konum alınır; tıklamanız gerekmez. Uygulama alana bir kimlik veriyorsa ekran boyutundan bağımsız alan kimliği de önerilir. Esc ile iptal edebilirsiniz."
+          : `Süre bitince uygulama görüntüsünde sabit bir etiketi fareyle sürükleyerek seçin.${referenceOnly || tableTarget ? "" : " Ardından işlem yapılacak alanın ortasına tıklayın."} Seçimi kullan ile önizlemeye dönün. Esc ile iptal edebilirsiniz.`;
         if (nativeBusy) {
           const countdown = nativeStatus?.countdown;
           instruction.textContent = nativeStatus?.status === "countdown"
             ? `Hazırlanın${Number.isFinite(countdown) ? ` · ${Math.max(0, Math.ceil(countdown))} saniye` : ""}. ${mode === "coordinates" ? "Fareyi hedef alanın üzerinde tutun." : "Görsel alanını seçmek için bekleyin."}`
             : nativeStatus?.message || "Ekranda seçim hazırlanıyor…";
-        } else if (loading) instruction.textContent = "ERP penceresinin görüntüsü alınıyor…";
+        } else if (loading) instruction.textContent = "Uygulama penceresinin görüntüsü alınıyor…";
         else if (source === "native" && !capture) instruction.textContent = "Hedef yöntemini ve hazırlık süresini seçin. Hazır olduğunuzda geri sayımı başlatın.";
         else if (mode === "coordinates") instruction.textContent = "Yazılacak veya tıklanacak alanın ortasına tıklayın.";
-        else if (!rectangle) instruction.textContent = "Sabit ve ayırt edici bir etiketi (ör. Form ID) çevreleyen dikdörtgen çizin. Değişen alan değerlerini referansa dahil etmeyin.";
+        else if (!rectangle) instruction.textContent = "Sabit ve ayırt edici bir etiketi çevreleyen dikdörtgen çizin. Değişen alan değerlerini referansa dahil etmeyin.";
+        else if (tableTarget) instruction.textContent = "Tablo referansı hazır. Kaydedebilir veya tablonun içinde farklı bir hedef noktaya tıklayabilirsiniz.";
         else if (!referenceOnly && !point) instruction.textContent = "Şimdi işlem yapılacak alanın ortasına tıklayın. Alan, seçtiğiniz referansın dışında olabilir.";
         else instruction.textContent = referenceOnly ? "Beklenecek görsel referans hazır. Kaydedebilirsiniz." : "Görsel referans ve işlem yapılacak alan hazır. Kaydedebilirsiniz.";
       }
@@ -4386,7 +4391,7 @@
         if (typeof found?.id !== "string" || !/^data:image\/png;base64,/.test(found.image || "") ||
             !(found.width > 0 && found.height > 0 && found.window?.width > 0 && found.window?.height > 0)) {
           discard(found?.id);
-          throw new Error("ERP pencere görüntüsü okunamadı. Yeniden deneyin.");
+          throw new Error("uygulama pencere görüntüsü okunamadı. Yeniden deneyin.");
         }
         capture = found;
         const loadedImage = new Image();
@@ -4407,7 +4412,7 @@
         if (rect && (!within(rect) || !Number.isInteger(rect.width) || !Number.isInteger(rect.height) ||
             rect.width < 8 || rect.height < 8 || rect.x + rect.width > found.width || rect.y + rect.height > found.height))
           throw new Error("Görsel alanı doğrulanamadı. Yeniden seçin.");
-        if (source === "native" && (mode === "coordinates" ? !selection.point : !rect || (!referenceOnly && !selection.point)))
+        if (source === "native" && (mode === "coordinates" ? !selection.point : !rect || (!referenceOnly && !tableTarget && !selection.point)))
           throw new Error("Hedef seçimi tamamlanmadı. Yeniden seçin.");
         rectangle = rect || null;
         point = selection.point || null;
@@ -4486,7 +4491,7 @@
         try {
           const job = await api("/api/desktop/pick", {
             method: "POST", body: JSON.stringify({ ...selector,
-              mode: referenceOnly ? "image_only" : mode, delay: Number(delay.value) }),
+              mode: referenceOnly || (tableTarget && mode === "image") ? "image_only" : mode, delay: Number(delay.value) }),
           });
           if (!current() || epoch !== request) {
             discardSession(job.id);
@@ -4541,7 +4546,7 @@
             values = { template: saved.template };
             if (!referenceOnly) {
               const center = toWindow({ x: rectangle.x + Math.floor(rectangle.width / 2), y: rectangle.y + Math.floor(rectangle.height / 2) });
-              const position = toWindow(point);
+              const position = point ? toWindow(point) : center;
               Object.assign(values, { target_mode: "image", offset_x: position.x - center.x, offset_y: position.y - center.y });
             }
           }
@@ -4865,6 +4870,8 @@
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
+    const previousTableOptions = pane.querySelector(".table-options");
+    const tableOptionsOpen = previousTableOptions?.dataset.stepId === state.selected && previousTableOptions.open;
     pane.replaceChildren();
     const located = findStep(state.selected);
     const openNote = !located && findNote(state.selectedNote);
@@ -4912,7 +4919,7 @@
       markDirty();
       renderCanvas();
     });
-    pane.append(field("Adım adı", title, "Akışta ve çalışma günlüğünde görünen ad. İşi anlatan bir ad verin (ör. Form ID yaz)."));
+    pane.append(field("Adım adı", title, "Akışta ve çalışma günlüğünde görünen ad. Bu adımın akışınızdaki görevini anlatan bir ad verin."));
     pane.append(pathEndField(step, located));
     if (!["control.break", "control.continue"].includes(step.action)) {
       const tester = button("Bu adımı test et", "play", () => openStepTest(step), "small step-test-button");
@@ -4960,7 +4967,7 @@
           markDirty();
           renderInspector();
           renderCanvas();
-          toast("Yazılacak değer korundu. ERP ekranından hedef alanı seçin.");
+          toast("Yazılacak değer korundu. uygulama ekranından hedef alanı seçin.");
         }, "small"),
       );
       pane.append(conversion);
@@ -4975,31 +4982,40 @@
       pane.append(help);
     }
     if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
-    if (step.action === "sheets.read_rows") pane.append(note("FormID ve durum birlikte okunur. Durum boş olsa da FormID doluysa kayıt korunur. Döngünün içindeki Koşul adımında ${row.status} değerini kontrol edin."));
+    if (step.action === "sheets.read_rows") pane.append(note("Seçtiğiniz sütunlar birlikte okunur. Ana alanı dolu satırlar korunur; diğer sütunlar boş olabilir. Sonraki adımlarda seçtiğiniz değişken adlarını kullanın."));
+    let tableOptions = null;
+    const tableAdvanced = new Set(["table", "row_mode", "match_column", "match_value", "confidence", "timeout", "offset_x", "offset_y", "output"]);
+    if (step.action === "window.write_table") {
+      tableOptions = node("details", "table-options");
+      tableOptions.dataset.stepId = step.id;
+      tableOptions.open = Boolean(tableOptionsOpen || parameterValue(step, "row_mode") === "match" || parameterValue(step, "table"));
+      tableOptions.append(node("summary", "", "Diğer seçenekler"));
+    }
     (spec.fields || []).forEach((f) => {
+      const fieldPane = tableOptions && tableAdvanced.has(f.name) ? tableOptions : pane;
       const key = `${step.id}:${f.name}`;
       if (!fieldVisible(step, f)) {
         state.fieldErrors.delete(key);
         return;
       }
       if (f.type === "columns") {
-        pane.append(columnMappingField(step, f));
+        fieldPane.append(columnMappingField(step, f));
         return;
       }
       if (f.type === "element") {
-        pane.append(elementLocatorField(step, f));
+        fieldPane.append(elementLocatorField(step, f));
         return;
       }
       if (f.type === "connection") {
-        pane.append(connectionField(step, f));
+        fieldPane.append(connectionField(step, f));
         return;
       }
       if (f.type === "step") {
-        pane.append(stepTargetField(step, f));
+        fieldPane.append(stepTargetField(step, f));
         return;
       }
       if (f.reference === "window") {
-        pane.append(windowReferenceField(step, f, () => {
+        fieldPane.append(windowReferenceField(step, f, () => {
           if (!targetTools) return;
           const updated = windowTargetTools(step);
           targetTools.replaceWith(updated);
@@ -5261,8 +5277,9 @@
         ["select", "boolean", "workflow"].includes(f.type) ? "change" : "input",
         change,
       );
-      pane.append(wrap);
+      fieldPane.append(wrap);
     });
+    if (tableOptions) pane.append(tableOptions);
     if (!spec.fields?.length)
       pane.append(note("Bu adım için ek parametre bulunmuyor."));
     pane.append(node("div", "inspector-divider"));
@@ -6334,7 +6351,7 @@
   // ----- Named connections: chosen per step, like n8n credentials -------------------
   const connectionKinds = {
     google_sheets: { label: "Google Sheets", glyph: "sheet", example: "Ör. Satış tablosu" },
-    database: { label: "Veritabanı", glyph: "database", example: "Ör. ERP canlı veritabanı" },
+    database: { label: "Veritabanı", glyph: "database", example: "Ör. uygulama canlı veritabanı" },
   };
   async function refreshConnections() {
     state.connections = await api("/api/connections");
@@ -6573,7 +6590,7 @@
       };
       inputs.host = plainInput(profile?.host, "Ör. 192.168.1.10 veya SUNUCU\\SQLEXPRESS");
       inputs.port = plainInput(profile?.port, "");
-      inputs.database = plainInput(profile?.database, "Ör. ERP");
+      inputs.database = plainInput(profile?.database, "Ör. uygulama");
       inputs.user = plainInput(profile?.user, "Ör. rpa_okuma");
       inputs.password = textInput("", profile?.has_password
         ? "Kayıtlı şifre kullanılıyor · değiştirmek için yazın" : "", "password");
@@ -6615,7 +6632,7 @@
         address.hidden = engine !== "url";
         inputs.port.placeholder = chosen[2] ? `Varsayılan: ${chosen[2]}` : "";
         databaseField.querySelector("label").textContent = engine === "oracle" ? "Servis adı" : "Veritabanı adı";
-        inputs.database.placeholder = engine === "oracle" ? "Ör. ORCLPDB1" : "Ör. ERP";
+        inputs.database.placeholder = engine === "oracle" ? "Ör. ORCLPDB1" : "Ör. uygulama";
       };
       inputs.engine.addEventListener("change", paint);
       body.append(field("Veritabanı türü", inputs.engine, "", true), server, sqlite, address);
@@ -6915,7 +6932,7 @@
   function secretsPanel(panel) {
     // Passwords a flow uses as ${sifre.ad}; the value goes to the system password store, never back here.
     const el = panel("Kayıtlı şifreler", "key",
-      "Akışlarda ${sifre.ad} olarak kullanılır (ör. ERP girişinde Alanı doldur). Şifre bu bilgisayarın şifre "
+      "Akışlarda ${sifre.ad} olarak kullanılır (ör. uygulama girişinde Alanı doldur). Şifre bu bilgisayarın şifre "
         + "kasasında saklanır: Windows'ta Kimlik Bilgisi Yöneticisi, Mac'te Anahtar Zinciri. Akış dosyasına, dışa "
         + "aktarıma, çalışma günlüğüne ve test sonuçlarına girmez; Studio şifreyi bir daha göstermez.");
     el.classList.add("secrets-panel");

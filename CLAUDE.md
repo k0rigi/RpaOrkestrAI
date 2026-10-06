@@ -16,6 +16,8 @@ RpaOrkestrAI, orkestrai.net'in bir modülü olarak satılan, yerelde çalışan 
 8. **Akış dosyası eski sürümlerle uyumlu kalır:** Akış modeline yeni bir alan (ör. `notes`, adımda `wait_after`) eklenirken alan kullanılmadığında dosyaya yazılmaz (varsayılan değer düzenleyicide atlanır, dışa aktarımda boş alan silinir). Gerekçe: modeller `extra="forbid"` olduğundan eski sürümler tanımadıkları alanı reddeder; kullanmayan akışlar eski kurulumlara aktarılabilmelidir. Yeni alanı kullanan akışın eski sürümde açılmayacağı belgelere yazılır.
 9. **Kural önerileri:** Çalışırken bu projede tekrar edecek, faydalı bir kural fark edersen önce kullanıcıya sor. Kullanıcı onaylarsa bu listeye kısa ve gerekçeli olarak ekle. Onay almadan kural ekleme.
 
+10. **Adım tanımları geneldir.** Kullanıcının belirttiği üzere her firma ve her akışın kullanımı farklıdır. Katalog, arayüz, yardım ve hata açıklamaları belirli bir firma, ticari uygulama veya iş sürecini varsaymaz. Uygulama adını yalnız o uygulamaya özgü bir sorun açıklanırken kullan; genel adımlarda kullanıcının seçtiği pencereyi, hedefi ve değişkenleri esas al.
+
 ## Komutlar
 
 Proje iCloud ile eşitlenen Masaüstü'nde olduğundan içindeki `.venv` çok yavaştır. Testler ve araçlar için iCloud dışındaki çalışma ortamını kullan:

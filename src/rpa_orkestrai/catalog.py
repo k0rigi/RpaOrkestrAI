@@ -68,10 +68,19 @@ def target_fields() -> list[dict]:
         *[{**f, "visible_when": searched if f["name"] == "timeout" else {"target_mode": "image"}}
           for f in image_fields()],
         field("offset_x", "Görsel merkezinden sağa / sola", "number", 0,
-              visible_when={"target_mode": "image"}, help="FormID etiketi ile yazı alanı arasındaki yatay fark."),
+              visible_when={"target_mode": "image"}, help="Referans görselin merkezi ile hedef nokta arasındaki yatay fark."),
         field("offset_y", "Görsel merkezinden aşağı / yukarı", "number", 0,
               visible_when={"target_mode": "image"}),
     ]
+
+def table_target_fields() -> list[dict]:
+    fields = target_fields()
+    fields[0] = {**fields[0], "default": "auto", "new_default": "image", "omit_default": True,
+                 "label": "Tabloyu bulma yöntemi", "help": "Ekranda seç ile tablonun içindeki bir noktayı gösterin. "
+                 "Referans görsel, tablo taşındığında da bulunmasını sağlar.",
+                 "options": [*fields[0]["options"], {"value": "auto", "label": "Penceredeki tek tablo"}]}
+    return fields
+
 
 # Existing workflows still need these definitions for editing and execution.
 # New library actions are introduced in CATALOG as requirements are agreed.
@@ -218,12 +227,12 @@ CATALOG: list[dict[str, Any]] = [
                   help="Açıkken boş hücre boş metin olur; sonraki Koşul adımında kontrol edebilirsiniz."),
             field("output", "Değer değişkeni", default="cell_value", required=True)]),
     action("sheets.read_rows", "Sheets satırlarını oku", "Google Sheets",
-           "FormID ve durum gibi sütunları aynı kayıtta okur. Durum boş olsa da satırı korur.",
+           "Seçtiğiniz sütunları aynı kayıtta okur. Ana alanı dolu olan satırları korur.",
            [SHEETS_CONNECTION, SHEET_ID, field("worksheet", "Sayfa adı", default="Sayfa1", required=True),
             field("start_row", "Başlangıç satırı", "number", 2, min=1, max=1000000, required=True),
             field("max_rows", "En fazla kaç satır okunsun?", "number", 100, min=1, max=1000, required=True),
             field("columns", "Okunacak sütunlar", "columns", {"form_id": "B", "status": "C"}, required=True,
-                  help="B → form_id, C → status. Döngüde ${row.form_id} ve ${row.status} kullanın."),
+                  help="Her sütuna akışınıza uygun bir ad verin. Döngüde ${row.alan_adi} biçiminde kullanın."),
             field("key", "Kaydın ana alanı", default="form_id", required=True,
                   help="Satırın varlığını bu alan belirler; durum alanının boş olması kaydı elemez."),
             field("empty_policy", "Ana alan boşsa", "select", "stop", required=True,
@@ -240,7 +249,7 @@ CATALOG: list[dict[str, Any]] = [
            "Listedeki her satır için içine eklediğiniz adımları sırayla çalıştırır; liste bitince sona erer.",
            [field("items", "Satır listesi", "json", "${sheet_rows}", required=True),
             field("item_name", "Geçerli satır değişkeni", default="row", required=True,
-                  help="Tablo satırında ${row.form_id} ve ${row.status}; ${row.row_number} gerçek satır numarasıdır."),
+                  help="Satırın alanına ${row.alan_adi} ile erişin. Sheets satırlarında ${row.row_number} gerçek satır numarasıdır."),
             field("start", "Kaçıncı satırdan başlasın?", "number", None, min=1, max=100000)], container="loop"),
     action("control.while", "Koşul sürdükçe tekrarla", "Akış",
            "Koşulu her turda yeniden değerlendirir. Koşul yanlışsa çıkar; sınıra ulaşırsa hata ile durur.",
@@ -303,7 +312,7 @@ LIBRARY = [
            "Bir yazı alanındaki değeri okur. Alan kimliğinde doğrudan okunur; konum/görselde alan seçilip kopyalanır "
            "(pano eski haline döner).", [WINDOW, *target_fields(), output("field_value")]),
     action("window.read_table", "Tablodan değer oku", "Pencere",
-           "ERP listesindeki (tablodaki) bir hücreyi sütun adıyla okur; kaç satır bulunduğunu da verir. "
+           "Uygulamadaki tabloda bir hücreyi sütun adıyla okur; kaç satır bulunduğunu da verir. "
            "Tabloya tıklayıp tamamını kopyalar ve ayrıştırır; pano eski haline döner.",
            [WINDOW, *target_fields(),
             field("mode", "Ne okunacak", "select", "value", required=True,
@@ -314,10 +323,9 @@ LIBRARY = [
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
             output("table_value")]),
     action("window.write_table", "Tabloya değer yaz", "Pencere",
-           "Tablo hücresini satır ve sütunla bulur, değerini değiştirip doğrular. Uygulamanın erişilebilir "
-           "ve düzenlenebilir tablo yapısı sunması gerekir; sabit ekran konumu kullanmaz.",
-           [WINDOW,
-            field("table", "Tablo adı veya kimliği", default="",
+           "Ekrandan seçtiğiniz tablonun bir hücresine değer yazar ve sonucu kontrol eder.",
+           [WINDOW, *table_target_fields(),
+            field("table", "Tablo adı veya kimliği", default="", visible_when={"target_mode": "auto"},
                   help="Pencerede tek tablo varsa boş bırakın. Birden fazlaysa uygulamanın erişilebilir tablo adı veya kimliğini yazın."),
             field("row_mode", "Satır seçimi", "select", "index", options=[
                 {"value": "index", "label": "Satır numarası"}, {"value": "match", "label": "Benzersiz değeri bul"}],
@@ -325,13 +333,13 @@ LIBRARY = [
             field("row", "Satır", "number", 1, min=1, max=10000, required=True, visible_when={"row_mode": "index"},
                   help="1: ilk veri satırı. Başlık sayılmaz; sıralama değişiyorsa benzersiz değerle arayın."),
             field("match_column", "Aranacak sütun", required=True, visible_when={"row_mode": "match"},
-                  help="Fatura numarası gibi benzersiz değerin sütun başlığı veya 1'den başlayan sütun numarası."),
+                  help="Kaydı ayırt eden benzersiz değerin sütun başlığı veya 1'den başlayan sütun numarası."),
             field("match_value", "Aranacak değer", required=True, visible_when={"row_mode": "match"},
-                  help="Tam eşleşme aranır; birden fazla satır eşleşirse yazılmaz. Değişken kullanılabilir: ${row.fatura_no}."),
+                  help="Tam eşleşme aranır; birden fazla satır eşleşirse yazılmaz. Değişken kullanılabilir: ${row.kod}."),
             field("column", "Yazılacak sütun", required=True,
                   help="Sütun başlığı veya 1'den başlayan sütun numarası. Yinelenen başlıklarda numara kullanın."),
             field("value", "Yazılacak değer", required=True,
-                  help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.tutar}. Boş değer, Tab ve satır sonu kabul edilmez."),
+                  help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.deger}. Boş değer, Tab ve satır sonu kabul edilmez."),
             output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),
     action("window.state", "Pencereyi büyüt / küçült", "Pencere",
            "Pencereyi tam ekran yapar, simge durumuna küçültür veya geri yükler.",
@@ -436,11 +444,11 @@ LIBRARY = [
             output("screenshot_path")], region=True),
     # ----- Uygulama ve sistem ----------------------------------------------------------
     action("system.open", "Uygulama, dosya veya adres aç", "Uygulama ve sistem",
-           "Masaüstünde çift tıklamak gibi: programı (ERP), belgeyi, klasörü veya web adresini açar; akış "
+           "Masaüstünde çift tıklamak gibi: programı, belgeyi, klasörü veya web adresini açar; akış "
            "programın kapanmasını beklemez.",
            [field("target", "Ne açılsın?", "path", "", required=True,
-                  help="Canias / Java: masaüstündeki kısayolu (.lnk) veya .jnlp dosyasını seçin. "
-                       "Windows: C:\\Program Files\\ERP\\erp.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, "
+                  help="Programın çalışan kısayolunu, dosyasını veya adresini seçin. "
+                       "Windows: C:\\Program Files\\Uygulama\\app.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, "
                        "~/Desktop/rapor.xlsx · https://…"),
             field("arguments", "Parametreler", help="Kısayol seçtiyseniz genellikle boş bırakın; kısayolun kendi "
                   "parametreleri kullanılır. javaws.exe için JNLP dosyası veya adresi gerekir."),
@@ -457,7 +465,7 @@ LIBRARY = [
                   options=[{"value": "auto", "label": "Otomatik: script'i bekle, programı (.exe) bekleme"},
                            {"value": "wait", "label": "Bitmesini bekle"},
                            {"value": "no", "label": "Bekleme, akış devam etsin"}],
-                  help="Script bitene kadar beklenir ve çıktısı alınır. ERP gibi açık kalan programlar "
+                  help="Script bitene kadar beklenir ve çıktısı alınır. Açık kalan programlar "
                        "beklenmez; açılınca akış devam eder."),
             field("timeout", "Zaman aşımı (saniye)", "number", 600, min=1, max=86400,
                   visible_when={"wait_finish": ["auto", "wait"]}),

@@ -1,7 +1,7 @@
 """Address native grid cells by row and column, never by guessed screen offsets.
 
 Windows uses UIA Grid/Table and Value patterns; macOS uses AX table attributes.
-An application must expose a writable cell. Unsupported/custom Java grids fail
+An application must expose a writable cell. Unsupported/custom grids fail
 closed. Native imports and COM initialization remain on the calling worker.
 """
 from __future__ import annotations
@@ -13,9 +13,8 @@ from .elements import MAC_DEPTH_LIMIT, MAC_ELEMENT_LIMIT, WINDOWS_ELEMENT_LIMIT,
 from .windows import WindowError
 
 LIMIT = 10_000
-UNSUPPORTED = ("Uygulama düzenlenebilir tablo hücrelerini sunmuyor. Windows'ta UI Automation, "
-               "Mac'te Erişilebilirlik desteği gerekir. Canias/Java tabloları bu desteği sunmayabilir; "
-               "Alanı doldur adımının alan kimliği veya görsel yöntemini kullanın.")
+UNSUPPORTED = ("Bu uygulama tablonun hücrelerine doğrudan yazmayı desteklemiyor. "
+               "Alanı doldur adımıyla yazılacak alanı ekrandan seçebilirsiniz.")
 
 
 def column_index(names, wanted):
@@ -33,12 +32,18 @@ def column_index(names, wanted):
     raise WindowError(f"“{wanted}” sütunu bulunamadı. Başlığı kontrol edin veya 1'den başlayan sütun numarası kullanın.")
 
 
-def resolve_cell(backend, window, *, table, row_mode, row, column, match_column, match_value, check):
+def resolve_cell(backend, window, *, table, row_mode, row, column, match_column, match_value, check, point=None):
     candidates = backend.tables(window, check)
+    if point is not None:
+        candidates = [item for item in candidates if (info := item.info()) is not None
+                      and info.usable_in(window) and info.contains(*point)]
+        if not candidates:
+            raise WindowError("Seçilen noktada yazılabilir tablo bulunamadı. Ekranda seç ile tablonun içindeki "
+                              "bir noktayı gösterin. Uygulamanın tablo hücrelerine erişim sunması gerekir.")
     if table:
         candidates = [item for item in candidates if table in {item.name, item.identifier}]
     if len(candidates) != 1:
-        raise WindowError("Birden fazla tablo bulundu. Tablo adı veya kimliğini belirtin." if candidates else UNSUPPORTED)
+        raise WindowError("Birden fazla tablo bulundu. Ekranda seç ile hedef tabloyu belirtin." if candidates else UNSUPPORTED)
     grid = candidates[0]
     rows, columns = grid.shape()
     if not 0 < rows <= LIMIT or not 0 < columns <= 1000:
@@ -117,6 +122,10 @@ class UiaGrid:
         self.backend, self.element, self.grid = backend, element, grid
         self.name, self.identifier = info.name, info.automation_id
 
+    def info(self):
+        _, request, _ = self.backend._context()
+        return self.backend._info(self.element.BuildUpdatedCache(request))
+
     def shape(self):
         return int(self.grid.CurrentRowCount), int(self.grid.CurrentColumnCount)
 
@@ -186,6 +195,9 @@ class AxGrid:
     def __init__(self, backend, element, info):
         self.backend, self.element = backend, element
         self.name, self.identifier = info.name, info.automation_id
+
+    def info(self):
+        return self.backend._info(self.element)
 
     def shape(self):
         return (len(self.backend._attribute(self.element, "AXRows") or []),

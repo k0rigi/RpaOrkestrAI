@@ -119,10 +119,18 @@ def table_selection(p):
     }
 
 
+def table_target(ctx, p):
+    # Missing means the 0.9.6 automatic/name-based selector, not a missing image.
+    mode = choice(p.get("target_mode", "auto"), "Tabloyu bulma yöntemi",
+                  {"auto", "coordinates", "image", "element"})
+    return {} if mode == "auto" else {"targeting": ctx.window_target(p)}
+
+
 @handler("window.write_table")
 def write_table(ctx, p):
     selection = table_selection(p)
     value = text(p.get("value"), "Yazılacak değer", limit=10_000)
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise WorkflowError("Tablo hücresine yazılacak değer satır sonu, Tab veya kontrol karakteri içeremez.")
-    return ctx.windows().table_cell(_window(p), ctx.desktop(), value=value, **selection)
+    targeting = table_target(ctx, p)
+    return ctx.windows().table_cell(_window(p), ctx.desktop(), value=value, **selection, **targeting)

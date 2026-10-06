@@ -49,9 +49,9 @@ def open_target(ctx, p):
         expanded = "https://" + target
     if not is_url and expanded.replace("\\", "/").rsplit("/", 1)[-1].lower() in {"javaws", "javaws.exe"} \
             and not raw_arguments:
-        raise WorkflowError("Java Web Start tek başına Canias'ı açamaz. «Ne açılsın?» alanında Canias kısayolunu "
+        raise WorkflowError("Java Web Start için açılacak uygulama belirtilmeli. «Ne açılsın?» alanında uygulamanın kısayolunu "
                             "(.lnk) veya .jnlp dosyasını seçin. javaws.exe kullanacaksanız «Parametreler» alanına "
-                            "Canias kısayolunun parametrelerini (JNLP dosyası veya adresi dahil) girin.")
+                            "kısayolun başlatma parametrelerini (JNLP dosyası veya adresi dahil) girin.")
     try:
         if platform.system() == "Windows":
             if raw_arguments:

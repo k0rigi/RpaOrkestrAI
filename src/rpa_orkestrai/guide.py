@@ -64,7 +64,7 @@ STEP_FIELD_HELP = {
     ("window.read_table", "column"): "Tablodaki sütun başlığı (ör. Form Id) veya sütun numarası. Büyük/küçük harf "
                                       "farkı önemsizdir.",
     ("window.read_table", "row"): "1: tablodaki ilk veri satırı. Başlık satırı sayılmaz.",
-    ("window.read_table", "header"): "Çoğu ERP tablosu kopyalanırken ilk satıra sütun adlarını koyar. Kopyalanan "
+    ("window.read_table", "header"): "Çoğu uygulama tablosu kopyalanırken ilk satıra sütun adlarını koyar. Kopyalanan "
                                      "metinde başlık yoksa kapatın; sütunlar sutun_1, sutun_2… olur.",
     ("window.read_table", "mode"): "Hücre değeri okumak için Bir hücrenin değeri; aramanın sonuç verip vermediğini "
                                    "anlamak için Kaç satır var?.",
@@ -255,12 +255,12 @@ GUIDES = {
         "Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir; tek bir hücre için "
         "Tablodan değer oku adımını kullanın."),
     "window.write_table": guide(
-        ["Önce Pencereyi tanı ile ERP penceresini seçin.",
-         "Tablo tekse adını boş bırakın; satırı numarayla veya benzersiz değerle belirleyin.",
-         "Yazılacak sütunu ve değeri girin. Yeri göster ile hücreyi kontrol edin."],
-        "Hücrenin yeni değeri doğrulanır; satır, sütun ve değer sonuç değişkenine yazılır.",
-        "UI Automation / Erişilebilirlik tablo desteği gerekir. Salt okunur, görünmeyen veya belirsiz hücrede durur. "
-        "Canias/Java özel tablolarında destek olmayabilir. ERP'de kaydetme/onay ayrı bir adımdır."),
+        ["Pencereyi seçin; Ekranda seç ile yazılacak tabloyu gösterin.",
+         "Satır, sütun ve yazılacak değeri girin. Her alanda akışınızın değişkenlerini kullanabilirsiniz.",
+         "Yeri göster ile hücreyi kontrol edin; Bu adımı test et ile yazmayı deneyin."],
+        "Seçilen hücreye yazılan değer kontrol edilir.",
+        "Sırası değişen kayıtlarda Diğer seçenekler → Satır seçimi → Benzersiz değeri bul kullanın. "
+        "Tablo doğrudan yazmayı desteklemiyorsa adım durur. Gerekli kaydetme/onay adımlarını akışınıza göre ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",
@@ -300,7 +300,7 @@ GUIDES = {
          "Yazılacak yeri göstermek için Fare konumunu al'a basın ve 3 saniye içinde fareyi o alanın üzerine götürün. "
          "Adım önce oraya tıklar, sonra yazar.",
          "X ve Y boş kalırsa metin imlecin o an bulunduğu yere yazılır (ör. Tab ile geçilen alan)."],
-        "", "ERP alanları için Alanı doldur daha güvenlidir: pencereyi izler, pencere kayınca da alanı bulur, "
+        "", "uygulama alanları için Alanı doldur daha güvenlidir: pencereyi izler, pencere kayınca da alanı bulur, "
             "eski değeri temizler ve odak değişirse yazmaz. Metin yaz ekran koordinatı kullanır."),
     "input.hotkey": guide(
         ["Kısayolu + ile yazın: mod+s, alt+f4, ctrl+shift+n.",
@@ -344,7 +344,7 @@ GUIDES = {
     # ----- Uygulama ve sistem --------------------------------------------------------
     "system.open": guide(
         ["Seç… ile programı, masaüstü kısayolunu (.lnk) veya belgeyi gösterin; klasör yolunu ya da web adresini yazın.",
-         "Canias / Java için çalışan masaüstü kısayolunu veya .jnlp dosyasını seçin; javaws.exe tek başına yeterli değildir.",
+         "Programı normalde açtığınız kısayolu seçebilirsiniz; kısayolun başlatma ayarları korunur.",
          "Açılması uzun sürüyorsa bekleme süresini artırın."],
         "", "Masaüstünde çift tıklamak gibidir; akış programın kapanmasını beklemez. Ardından Pencereyi tanı "
             "ekleyip açılan pencereyi akışa tanıtın. Script çalıştırıp çıktısını almak için Komut / script "
@@ -431,10 +431,10 @@ GUIDES = {
         "Hücrenin değeri metin olarak."),
     "sheets.read_rows": guide(
         ["Bağlantıyı seçin (yoksa oluşturun) ve tablo adresini yapıştırın.",
-         "Sütunlar bölümünde her sütuna bir ad verin: form_id → B, durum → D.",
-         "Ana alan olarak her satırda dolu olan sütunu seçin (ör. form_id).",
+         "Sütunlar bölümünde okunacak sütunları ve akışta kullanacağınız adlarını belirleyin.",
+         "Ana alan olarak bir kaydın varlığını belirleyen, dolu olmasını beklediğiniz sütunu seçin.",
          "Ardından Her satır için ekleyin."],
-        "${sheet_rows}: satır listesi. Döngüde ${row.form_id}, ${row.durum}; ${row.row_number} gerçek satır numarasıdır.",
+        "${sheet_rows}: satır listesi. Döngüde ${row.alan_adi}; ${row.row_number} gerçek satır numarasıdır.",
         "Sütun adlarında Türkçe harf ve boşluk kullanmayın (fatura_no gibi)."),
     "sheets.read_column": guide(
         ["Bağlantıyı seçin, tablo adresini ve başlangıç hücresini yazın (ör. B2).", "Ardından Her satır için ekleyin."],
