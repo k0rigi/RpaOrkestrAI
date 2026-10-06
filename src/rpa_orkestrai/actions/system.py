@@ -42,18 +42,25 @@ def _arguments(value) -> list[str]:
 def open_target(ctx, p):
     """Open an application, a document/folder or a web address with the default program."""
     target = text(p.get("target"), "Açılacak uygulama, dosya veya adres", limit=4096).strip().strip('"')
-    arguments = _arguments(p.get("arguments"))
+    raw_arguments = text(p.get("arguments"), "Parametreler", required=False, limit=4000).strip()
     expanded = os.path.expandvars(os.path.expanduser(target))
     is_url = "://" in target or target.startswith(("mailto:", "www."))
     if target.startswith("www."):
         expanded = "https://" + target
+    if not is_url and expanded.replace("\\", "/").rsplit("/", 1)[-1].lower() in {"javaws", "javaws.exe"} \
+            and not raw_arguments:
+        raise WorkflowError("Java Web Start tek başına Canias'ı açamaz. «Ne açılsın?» alanında Canias kısayolunu "
+                            "(.lnk) veya .jnlp dosyasını seçin. javaws.exe kullanacaksanız «Parametreler» alanına "
+                            "Canias kısayolunun parametrelerini (JNLP dosyası veya adresi dahil) girin.")
     try:
         if platform.system() == "Windows":
-            if arguments:
-                subprocess.Popen([expanded, *arguments], **_no_window())
+            if raw_arguments:
+                # ShellExecute keeps Windows quoting and supports shortcuts/file associations as well as EXEs.
+                os.startfile(expanded, "open", raw_arguments)
             else:
                 os.startfile(expanded)  # noqa: S606 - opens documents, folders, apps and URLs like Explorer
         elif platform.system() == "Darwin":
+            arguments = _arguments(raw_arguments)
             if is_url or Path(expanded).exists() and not expanded.endswith(".app"):
                 command = ["/usr/bin/open", expanded]
             else:

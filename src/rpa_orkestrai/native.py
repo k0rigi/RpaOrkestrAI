@@ -11,6 +11,7 @@ import time
 from contextlib import ExitStack
 
 from .config import Settings, atomic_json
+from .errors import Cancelled, WorkflowError
 from .instance import StartupError, existing_instance, identity
 
 # Shown when the window is closed while a schedule is on (pywebview reads confirm_close at that moment).
@@ -22,6 +23,29 @@ CLOSE_TEXTS = {
 
 
 GUARD_INTERVAL = 3.0
+MINIMIZE_TIMEOUT = 5.0
+
+
+def minimize_for_run(window, minimized: threading.Event, cancel: threading.Event) -> None:
+    """Wait for the native minimize event before the worker can touch the screen."""
+    if cancel.is_set():
+        raise Cancelled()
+    try:
+        window.on_top = False
+        window.minimize()
+    except Exception as exc:
+        raise WorkflowError("Studio küçültülemedi; ekran adımlarına başlanmadı. "
+                            "Masaüstü uygulamasını yeniden açıp deneyin.") from exc
+    deadline = time.monotonic() + MINIMIZE_TIMEOUT
+    while not minimized.is_set():
+        if cancel.wait(0.05):
+            raise Cancelled()
+        if time.monotonic() >= deadline:
+            raise WorkflowError("Studio'nun küçülmesi beklenirken süre doldu; ekran adımlarına başlanmadı. "
+                                "Açık Studio pencerelerini kontrol edip yeniden deneyin.")
+    # Let the compositor finish exposing the window below, including macOS's Dock animation.
+    if cancel.wait(0.25):
+        raise Cancelled()
 
 
 def watch_schedules(window, settings: Settings) -> None:
@@ -64,12 +88,15 @@ def open_window(webview, url: str, *, minimized: bool = False, settings: Setting
     )
     if settings is not None:
         watch_schedules(window, settings)
-        shown = {"minimized": minimized}
-        window.events.minimized += lambda: shown.update(minimized=True)
-        window.events.restored += lambda: shown.update(minimized=False)
-        window.events.maximized += lambda: shown.update(minimized=False)
+        minimized_state = threading.Event()
+        if minimized:
+            minimized_state.set()
+        window.events.minimized += minimized_state.set
+        window.events.restored += minimized_state.clear
+        window.events.maximized += minimized_state.clear
         # The scheduler in this process calls it when a countdown starts.
-        settings.bring_to_front = lambda: bring_to_front(window, shown["minimized"])
+        settings.bring_to_front = lambda: bring_to_front(window, minimized_state.is_set())
+        settings.prepare_run = lambda cancel: minimize_for_run(window, minimized_state, cancel)
 
     def on_loaded():
         print("Masaüstü penceresi hazır.", flush=True)

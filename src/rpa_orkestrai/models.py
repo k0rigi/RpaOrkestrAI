@@ -262,6 +262,7 @@ class RecordRequest(Model):
 
 class PathRequest(Model):
     kind: Literal["open", "folder", "save"] = "open"
+    preserve_shortcuts: bool = False
 
 
 class StepTestRequest(Model):

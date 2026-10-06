@@ -1365,6 +1365,12 @@ class RunManager:
                 runner.log("Adım testi: yalnız seçilen adım çalıştırılıyor.")
             runner.log("Önizleme başladı; ekran, dosya ve bağlantı adımları atlanacak." if run.dry_run
                        else "Akış çalıştırılıyor.")
+            runner.check_cancelled()
+            prepare_run = getattr(self.settings, "prepare_run", None)
+            if not run.dry_run and prepare_run is not None:
+                runner.log("Ekranın önünü açmak için Studio küçültülüyor.")
+                prepare_run(cancel)
+                runner.check_cancelled()
             if plan:
                 with runner.resources:
                     runner.prepare(plan["prepare"])

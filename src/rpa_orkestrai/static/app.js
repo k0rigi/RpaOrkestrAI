@@ -5113,7 +5113,10 @@
           const kind = f.name === "folder" ? "folder"
             : ["file.write_text", "file.write_table"].includes(step.action) ? "save" : "open";
           try {
-            const chosen = await api("/api/desktop/choose-path", { method: "POST", body: JSON.stringify({ kind }) });
+            const preserve_shortcuts = step.action === "system.open" && f.name === "target";
+            const chosen = await api("/api/desktop/choose-path", {
+              method: "POST", body: JSON.stringify({ kind, preserve_shortcuts }),
+            });
             if (chosen.path) {
               control.value = chosen.path;
               control.dispatchEvent(new Event("input"));

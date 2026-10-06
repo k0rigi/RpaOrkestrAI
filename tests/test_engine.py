@@ -113,6 +113,55 @@ def test_single_run_lock_and_cancel_wait(tmp_path):
         manager.close()
 
 
+@pytest.mark.parametrize("mode", ["manual", "schedule", "test", "preview"])
+def test_studio_minimizes_before_any_run_or_step_preparation(tmp_path, monkeypatch, mode):
+    settings, store = Settings(tmp_path, dotenv=False), Store(tmp_path)
+    manager = RunManager(settings, store)
+    calls = []
+    settings.prepare_run = lambda cancel: calls.append("minimize")
+    monkeypatch.setattr(Executor, "execute", lambda self, workflow: calls.append("execute"))
+    monkeypatch.setattr(Executor, "prepare", lambda self, entries: calls.append("prepare"))
+    step = Step(action="core.log", params={"message": "ok"})
+    workflow = Workflow(steps=[step])
+    try:
+        if mode == "test":
+            run = manager.start_step(workflow, step.id, {})
+        else:
+            run = manager.start(workflow, dry_run=mode == "preview",
+                                trigger="schedule" if mode == "schedule" else "manual")
+        assert wait_done(manager, store, run.id).status == "succeeded"
+        assert calls == {"test": ["minimize", "prepare", "execute"], "preview": ["execute"]}.get(
+            mode, ["minimize", "execute"])
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_no_steps_run_when_minimize_fails_or_is_cancelled(tmp_path, monkeypatch, cancelled):
+    settings, store = Settings(tmp_path, dotenv=False), Store(tmp_path)
+    manager = RunManager(settings, store)
+    executed = []
+    monkeypatch.setattr(Executor, "execute", lambda self, workflow: executed.append(True))
+
+    def prepare(cancel):
+        if cancelled:
+            cancel.set()
+        else:
+            raise WorkflowError("Studio küçültülemedi.")
+
+    settings.prepare_run = prepare
+    try:
+        run = manager.start(Workflow(steps=[Step(action="core.log", params={"message": "ok"})]))
+        finished = wait_done(manager, store, run.id)
+        assert finished.status == ("cancelled" if cancelled else "failed")
+        assert executed == []
+        assert not manager.busy()
+        if not cancelled:
+            assert "Studio küçültülemedi" in finished.error
+    finally:
+        manager.close()
+
+
 def test_report_blocks_path_traversal_and_escapes_formulas(tmp_path):
     _, executor, run = setup_run(tmp_path)
     with pytest.raises(WorkflowError):

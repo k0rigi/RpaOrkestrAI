@@ -419,9 +419,11 @@ LIBRARY = [
            "Masaüstünde çift tıklamak gibi: programı (ERP), belgeyi, klasörü veya web adresini açar; akış "
            "programın kapanmasını beklemez.",
            [field("target", "Ne açılsın?", "path", "", required=True,
-                  help="Windows: C:\\Program Files\\ERP\\erp.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, "
+                  help="Canias / Java: masaüstündeki kısayolu (.lnk) veya .jnlp dosyasını seçin. "
+                       "Windows: C:\\Program Files\\ERP\\erp.exe, C:\\Raporlar\\rapor.xlsx · Mac: TextEdit, "
                        "~/Desktop/rapor.xlsx · https://…"),
-            field("arguments", "Parametreler", help="İsteğe bağlı komut satırı parametreleri."),
+            field("arguments", "Parametreler", help="Kısayol seçtiyseniz genellikle boş bırakın; kısayolun kendi "
+                  "parametreleri kullanılır. javaws.exe için JNLP dosyası veya adresi gerekir."),
             field("wait", "Açıldıktan sonra bekle (saniye)", "number", 2, min=0, max=120)]),
     action("system.run_file", "Dosya / script çalıştır", "Uygulama ve sistem",
            "Klasördeki bir script'i veya programı türüne göre çalıştırır (.py, .ps1, .bat, .cmd, .vbs, .exe, .sh, "

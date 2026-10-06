@@ -431,6 +431,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     @app.post("/api/desktop/choose-path")
     def choose_path(body: PathRequest):
+        from .desktop.path_picker import choose_path as pick_path
         from .desktop.picker import _host, _host_lock
 
         with _host_lock:
@@ -439,13 +440,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             raise HTTPException(status_code=409, detail="Dosya seçme penceresi masaüstü uygulamasında kullanılabilir; "
                                                         "tarayıcıda yolu elle yazın.")
         webview, window = host
-        kinds = getattr(webview, "FileDialog", None)
-        dialog = {"open": getattr(kinds, "OPEN", 10), "folder": getattr(kinds, "FOLDER", 20),
-                  "save": getattr(kinds, "SAVE", 30)}[body.kind]
-        chosen = window.create_file_dialog(dialog)
-        if not chosen:
-            return {"path": None}
-        return {"path": chosen if isinstance(chosen, str) else chosen[0]}
+        return {"path": pick_path(webview, window, body.kind, preserve_shortcuts=body.preserve_shortcuts)}
 
     def template_folder() -> Path:
         return Path(settings.get("template_dir")).expanduser().resolve()

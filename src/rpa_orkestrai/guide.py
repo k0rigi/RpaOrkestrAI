@@ -336,7 +336,8 @@ GUIDES = {
         "Hata olursa dalına ekleyin: hata anında ekranın nasıl göründüğünü sonradan görürsünüz."),
     # ----- Uygulama ve sistem --------------------------------------------------------
     "system.open": guide(
-        ["Seç… ile programı (ör. ERP'nin .exe dosyası), belgeyi veya klasörü gösterin ya da web adresini yazın.",
+        ["Seç… ile programı, masaüstü kısayolunu (.lnk) veya belgeyi gösterin; klasör yolunu ya da web adresini yazın.",
+         "Canias / Java için çalışan masaüstü kısayolunu veya .jnlp dosyasını seçin; javaws.exe tek başına yeterli değildir.",
          "Açılması uzun sürüyorsa bekleme süresini artırın."],
         "", "Masaüstünde çift tıklamak gibidir; akış programın kapanmasını beklemez. Ardından Pencereyi tanı "
             "ekleyip açılan pencereyi akışa tanıtın. Script çalıştırıp çıktısını almak için Komut / script "

@@ -171,6 +171,68 @@ def test_window_asks_before_closing_only_while_a_schedule_is_on(monkeypatch, tmp
     settings.bring_to_front()
     assert window.restore.call_count == 1 and window.show.call_count == 2
 
+    window.minimize.side_effect = window.events.minimized.fire
+    settings.prepare_run(threading.Event())
+    window.minimize.assert_called_once()
+    assert window.on_top is False
+    assert window.restore.call_count == 1 and window.show.call_count == 2
+
+
+def test_run_minimizing_waits_for_native_event(monkeypatch):
+    from rpa_orkestrai import native
+
+    minimized, cancel = threading.Event(), threading.Event()
+    calls = []
+    window = Mock()
+    window.minimize.side_effect = lambda: calls.append("minimize")
+
+    def wait(seconds):
+        if seconds == 0.05:
+            calls.append("native event")
+            minimized.set()
+        else:
+            calls.append("settled")
+        return False
+
+    monkeypatch.setattr(cancel, "wait", wait)
+    native.minimize_for_run(window, minimized, cancel)
+    assert calls == ["minimize", "native event", "settled"]
+    assert window.on_top is False
+    window.restore.assert_not_called()
+    window.show.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "error", "cancel", "already_cancelled"])
+def test_minimize_failure_or_cancellation_never_continues(monkeypatch, failure):
+    from rpa_orkestrai import native
+    from rpa_orkestrai.errors import Cancelled, WorkflowError
+
+    minimized, cancel = threading.Event(), threading.Event()
+    window = Mock()
+    monkeypatch.setattr(native, "MINIMIZE_TIMEOUT", 0)
+    if failure == "error":
+        window.minimize.side_effect = RuntimeError("native failure")
+    elif failure == "cancel":
+        window.minimize.side_effect = cancel.set
+    elif failure == "already_cancelled":
+        cancel.set()
+    with pytest.raises(Cancelled if "cancel" in failure else WorkflowError):
+        native.minimize_for_run(window, minimized, cancel)
+    if failure == "already_cancelled":
+        window.minimize.assert_not_called()
+    window.restore.assert_not_called()
+
+
+def test_already_minimized_studio_can_start_without_another_native_event(monkeypatch):
+    from rpa_orkestrai import native
+
+    minimized, cancel = threading.Event(), threading.Event()
+    minimized.set()
+    monkeypatch.setattr(cancel, "wait", lambda seconds: False)
+    window = Mock()
+    native.minimize_for_run(window, minimized, cancel)
+    window.minimize.assert_called_once()
+
 
 def test_gui_uses_free_port_and_rediscovers_it_without_touching_other_server(monkeypatch, tmp_path):
     import socket

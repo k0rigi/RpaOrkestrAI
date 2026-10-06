@@ -52,6 +52,21 @@ def test_native_instance_metadata_identifies_workspace_without_exposing_path(cli
     assert str(client.app.state.settings.data_dir) not in response.text
 
 
+def test_choose_launch_target_preserves_shortcut(client, monkeypatch):
+    from unittest.mock import Mock
+
+    from rpa_orkestrai.desktop import path_picker, picker
+
+    webview, window = Mock(), Mock()
+    monkeypatch.setattr(picker, "_host", (webview, window))
+    choose = Mock(return_value=r"C:\Desktop\Canias.lnk")
+    monkeypatch.setattr(path_picker, "choose_path", choose)
+    response = client.post("/api/desktop/choose-path", json={"kind": "open", "preserve_shortcuts": True})
+    assert response.status_code == 200
+    assert response.json() == {"path": r"C:\Desktop\Canias.lnk"}
+    choose.assert_called_once_with(webview, window, "open", preserve_shortcuts=True)
+
+
 def test_opening_studio_from_a_link_is_allowed_but_cross_site_api_is_not(client):
     headers = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate"}
     assert client.get("/", headers=headers).status_code == 200
