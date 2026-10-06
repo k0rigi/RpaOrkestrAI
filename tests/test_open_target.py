@@ -1,7 +1,6 @@
 """Launch shortcuts without dropping their arguments or working directory."""
 
 import json
-import os
 import platform
 import subprocess
 import sys
@@ -99,6 +98,8 @@ def test_real_windows_dialog_preserves_shortcuts():
 
 @pytest.mark.skipif(platform.system() != "Windows", reason="Windows ShellExecute shortcut integration")
 def test_real_windows_shortcut_preserves_arguments_and_working_directory(tmp_path):
+    import comtypes.client
+
     folder = tmp_path / "Canias test alanı"
     folder.mkdir()
     output = folder / "result.json"
@@ -106,14 +107,12 @@ def test_real_windows_shortcut_preserves_arguments_and_working_directory(tmp_pat
     script.write_text("import json, os, sys\nfrom pathlib import Path\n"
                       "Path('result.json').write_text(json.dumps([sys.argv[1:], os.getcwd()]), encoding='utf-8')\n")
     shortcut = folder / "Canias test.lnk"
-    env = dict(os.environ, RPA_TEST_LINK=str(shortcut), RPA_TEST_EXE=sys.executable,
-               RPA_TEST_ARGS=subprocess.list2cmdline([str(script), "Ayşe Çelik", "https://erp.example/app.jnlp"]),
-               RPA_TEST_CWD=str(folder))
-    subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                    "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:RPA_TEST_LINK);"
-                    "$s.TargetPath=$env:RPA_TEST_EXE;$s.Arguments=$env:RPA_TEST_ARGS;"
-                    "$s.WorkingDirectory=$env:RPA_TEST_CWD;$s.Save()"],
-                   env=env, check=True, capture_output=True, timeout=30)
+    shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
+    link = shell.CreateShortcut(str(shortcut))
+    link.TargetPath = sys.executable
+    link.Arguments = subprocess.list2cmdline([str(script), "Ayşe Çelik", "https://erp.example/app.jnlp"])
+    link.WorkingDirectory = str(folder)
+    link.Save()
     system.open_target(Mock(), {"target": str(shortcut), "wait": 0})
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
