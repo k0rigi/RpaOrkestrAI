@@ -111,13 +111,13 @@ Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne t
 
 ## Tabloya değer yaz (0.9.6+)
 
-Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. Geliştirme sürümünde **Ekranda seç** ile tablonun içindeki bir noktayı veya sabit bir başlığı gösterin. Referans görsel, konum ve alan kimliği yöntemleri tablo okuma adımıyla aynıdır. Bir görselin dışındaki tabloyu hedefliyorsanız hedef noktayı tablonun içinde seçin; fark otomatik kaydedilir.
+Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. 0.9.7 sürümünden itibaren **Ekranda seç** ile tablonun içindeki bir noktayı veya sabit bir başlığı gösterin. Referans görsel, konum ve alan kimliği yöntemleri tablo okuma adımıyla aynıdır. Bir görselin dışındaki tabloyu hedefliyorsanız hedef noktayı tablonun içinde seçin; fark otomatik kaydedilir.
 
 Ana formda **Satır**, **Yazılacak sütun** ve **Yazılacak değer** bulunur. Satır ve sütun numaraları 1'den başlar, başlık satırı sayılmaz; sütun adı da kullanılabilir. Her akış kendi sabit değerlerini veya değişkenlerini kullanır; belirli bir kayıt türü varsayılmaz.
 
 **Diğer seçenekler** altında değere göre satır bulma, eşleştirme ayarları ve sonuç değişkeni bulunur. Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin; aranacak sütunu ve o kaydı ayırt eden değeri belirtin. Tam eşleşme aranır. Hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
 
-**Penceredeki tek tablo** yöntemi, hedef seçmeden tek tabloyu kullanır. Gerekirse **Diğer seçenekler** altında tablo adı/kimliği girilebilir. 0.9.6 ile kaydedilen adımlar bu yöntemle aynen çalışır; otomatik olarak görsel istemeye başlamaz. Referanslı tablo yazma geliştirme sürümündedir; yayımlanmış 0.9.6 bu seçeneği içermez.
+**Penceredeki tek tablo** yöntemi, hedef seçmeden tek tabloyu kullanır. Gerekirse **Diğer seçenekler** altında tablo adı/kimliği girilebilir. 0.9.6 ile kaydedilen adımlar bu yöntemle aynen çalışır; otomatik olarak görsel istemeye başlamaz. Referanslı tablo yazma için 0.9.7 veya üzeri gerekir.
 
 **Yeri göster** yalnız hücreyi gösterir. Gerçek çalıştırma değeri doğrudan hücreye yazar ve geri okuyarak doğrular. Salt okunur/görünmeyen hücre, değişen pencere veya kaybolan odakta akış durur. Doğrulama başarısızsa uygulamayı kontrol edin: yazma denenmiş olabilir. Kaydetme veya onay gerekiyorsa ilgili adımı akışınıza göre ekleyin. Bu adım tek adım testinin hazırlığında kendiliğinden çalıştırılmaz.
 

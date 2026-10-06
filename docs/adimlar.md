@@ -105,8 +105,8 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Pencerede tıkla | Alanı konumu, görseli veya alan kimliğiyle bulup tıklar. | — |
 | Alanı doldur | Alanı bulur, tıklar, temizler ve değeri yazar. | — |
 | Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
-| Tablodan değer oku | ERP listesindeki bir hücreyi sütun başlığıyla (ör. Form Id) okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
-| Tabloya değer yaz (0.9.6+) | Seçilen tablonun hücresini satır/sütun veya benzersiz değerle bulup yazar ve doğrular. Geliştirme sürümünde Ekranda seç ile referans verilebilir. Belirsiz veya desteklenmeyen tabloda durur. ERP kaydetmesi ayrıca yapılır. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
+| Tablodan değer oku | Uygulama tablosundaki bir hücreyi sütun başlığıyla okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
+| Tabloya değer yaz (0.9.6+) | Seçilen tablonun hücresini satır/sütun veya benzersiz değerle bulup yazar ve doğrular. 0.9.7 sürümünden itibaren **Ekranda seç** ile referans verilebilir. Belirsiz veya desteklenmeyen tabloda durur. Gerekli kaydetme/onay işlemi ayrıca tanımlanır. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
 | Pencerede görseli bekle / ara | Pencerede bir işaretin (düğme, başlık, hata kutusu) görünmesini veya kaybolmasını bekler. **Süre dolarsa:** akışı durdurur ya da "bulunamadı" sonucuyla devam eder; böylece bir hata kutusu çıkıp çıkmadığına Koşul ile karar verilir. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
