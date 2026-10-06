@@ -1690,3 +1690,82 @@ def test_scheduler_page_plans_runs_and_the_countdown_can_be_cancelled(tmp_path):
             playwright.expect(page.locator(".toast").last).to_contain_text("iptal edildi")
             browser.close()
     assert errors == []
+
+
+@pytest.mark.parametrize("relative_to", ["screen", "window"])
+def test_ocr_rectangle_draw_scaled_reverse_drag_and_cancel(tmp_path, relative_to):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    Image = pytest.importorskip("PIL.Image")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (1600, 1000), "white").save(image_bytes, format="PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(image_bytes.getvalue()).decode()
+    captures, discarded, errors = [], [], []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        workflow = client.post("/api/workflows", json={"name": "Dikdörtgen denemesi", "steps": [
+            {"id": "recognize", "action": "desktop.find_window", "params": {
+                "application": "ERP", "title": "Fatura", "output": "erp_window"}},
+            {"id": "ocr", "action": "screen.read_text", "params": {
+                "relative_to": relative_to, "window": "${erp_window}", "region": [10, 20, 30, 40]}},
+        ]})
+        assert workflow.status_code == 201, workflow.text
+        workflow_id = workflow.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 980, "height": 720})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def route_request(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path in {"/api/desktop/capture-screen", "/api/desktop/capture-window"}:
+                    captures.append((path, json.loads(request.post_data)))
+                    route.fulfill(json={"id": f"region-{len(captures)}", "image": data_url,
+                                        "width": 1600, "height": 1000,
+                                        "window": {"x": 100, "y": 80, "width": 1600, "height": 1000}})
+                elif path.startswith("/api/desktop/captures/") and request.method == "DELETE":
+                    discarded.append(path.rsplit("/", 1)[-1])
+                    route.fulfill(status=204)
+                else:
+                    assert path not in {"/api/desktop/pointer", "/api/desktop/templates"}
+                    result = client.request(request.method, path, content=request.post_data_buffer,
+                                            headers={"content-type": "application/json"})
+                    route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", route_request)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Dikdörtgen denemesi", exact=True).click()
+            page.locator('[data-step-id="ocr"]').click()
+            page.get_by_role("button", name="Bölge çiz", exact=True).click()
+            save = page.get_by_role("button", name="Bölgeyi kaydet", exact=True)
+            playwright.expect(save).to_be_disabled()
+            page.get_by_role("button", name="Pencereyi yakala" if relative_to == "window"
+                             else "Geri sayımı başlat ve ekranı yakala", exact=True).click()
+            canvas = page.locator(".target-picker-canvas")
+            playwright.expect(canvas).to_be_visible()
+            bounds = canvas.bounding_box()
+            # Deliberately draw backwards on a downscaled screenshot.
+            page.mouse.move(bounds["x"] + bounds["width"] * .5, bounds["y"] + bounds["height"] * .4)
+            page.mouse.down()
+            page.mouse.move(bounds["x"] + bounds["width"] * .25, bounds["y"] + bounds["height"] * .2, steps=5)
+            page.mouse.up()
+            save.click()
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            page.wait_for_timeout(350)
+            stored = client.get(f"/api/workflows/{workflow_id}").json()
+            assert stored["steps"][1]["params"]["region"] == [400, 200, 400, 200]
+            assert stored["steps"][1]["params"]["relative_to"] == relative_to
+            assert captures == [(f"/api/desktop/capture-{relative_to}",
+                                 {"application": "ERP", "title": "Fatura", "match": "exact"}
+                                 if relative_to == "window" else {"delay": 3})]
+            assert "region-1" in discarded
+            page.get_by_role("button", name="Bölge çiz", exact=True).click()
+            page.keyboard.press("Escape")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"]["region"] == [400, 200, 400, 200]
+            assert not errors
+            browser.close()

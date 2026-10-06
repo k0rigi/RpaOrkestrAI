@@ -4,8 +4,9 @@ The Studio opens only after orkestrai.net has confirmed the license during this 
 At every start, and every few minutes after that, it asks for a fresh license: an
 Ed25519-signed answer that carries a random value the Studio chose for that request,
 so an earlier answer never stands in for a new one. Nothing kept on disk opens the
-Studio. The workspace stores only a device-bound session, never the password, and the
-session advances with every check, so one account runs on one computer at a time.
+Studio. The workspace stores only an installation identifier. Username, password and
+refresh session are never saved. The in-memory session advances with every check,
+so one account runs on one computer at a time. Each launch requires a new login.
 
 While the Studio is running and orkestrai.net cannot be reached, work continues for a
 limited time. That time is measured by a clock that does not follow the computer's
@@ -225,10 +226,10 @@ class LicenseService:
         self.device = hashlib.sha256(f"{PRODUCT}:{machine_id()}:{install}".encode()).hexdigest()[:32]
         # Names this running Studio, so a request repeated after a lost answer is not taken for a copy.
         self._instance = secrets.token_hex(16)
-        token = stored.get("refresh")
-        self._refresh_token = token if isinstance(token, str) and len(token) <= 4096 else None
-        user = stored.get("user")
-        self._user = user if isinstance(user, str) and len(user) <= 200 else None
+        # Credentials and refresh sessions live only in this process. Each launch
+        # requires an explicit login, including installations upgraded from 0.9.5.
+        self._refresh_token: str | None = None
+        self._user: str | None = None
         # Only what orkestrai.net confirmed in this run counts; the file never holds a usable license.
         self._license: License | None = None
         self._verified: float | None = None
@@ -239,7 +240,7 @@ class LicenseService:
         self._denial: dict | None = None
         self._notice = ""
         self._interval, self._tolerance = REFRESH_SECONDS, TOLERANCE_SECONDS
-        if install != stored.get("install") or set(stored) - {"install", "refresh", "user"}:
+        if install != stored.get("install") or set(stored) - {"install"}:
             self._save()  # also drops what earlier versions kept here
 
     # ----- persistence -------------------------------------------------------------
@@ -252,9 +253,9 @@ class LicenseService:
 
     def _save(self) -> None:
         try:
-            atomic_json(self._path, {"install": self._install, "refresh": self._refresh_token, "user": self._user})
+            atomic_json(self._path, {"install": self._install})
         except OSError:
-            pass  # The session then asks for the password again at the next start.
+            pass  # Persistence is never used to authenticate a session.
 
     # ----- evaluation --------------------------------------------------------------
     def _evaluate(self) -> tuple[str, str]:

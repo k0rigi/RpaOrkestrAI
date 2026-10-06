@@ -254,6 +254,13 @@ GUIDES = {
         "Alan kimliği dışındaki yöntemlerde alana tıklanıp içerik kopyalanır; pano sonra eski haline döner. "
         "Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir; tek bir hücre için "
         "Tablodan değer oku adımını kullanın."),
+    "window.write_table": guide(
+        ["Önce Pencereyi tanı ile ERP penceresini seçin.",
+         "Tablo tekse adını boş bırakın; satırı numarayla veya benzersiz değerle belirleyin.",
+         "Yazılacak sütunu ve değeri girin. Yeri göster ile hücreyi kontrol edin."],
+        "Hücrenin yeni değeri doğrulanır; satır, sütun ve değer sonuç değişkenine yazılır.",
+        "UI Automation / Erişilebilirlik tablo desteği gerekir. Salt okunur, görünmeyen veya belirsiz hücrede durur. "
+        "Canias/Java özel tablolarında destek olmayabilir. ERP'de kaydetme/onay ayrı bir adımdır."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",
@@ -320,18 +327,18 @@ GUIDES = {
         "", "Görsel bulunamazsa tıklama yapılmaz, adım durur. " + TEST_HINT),
     "screen.read_text": guide(
         ["Bölge neye göre? alanında Tanıtılan pencere seçin.",
-         "Bölgeyi fareyle al'a basın: önce okunacak alanın sol üst, sonra sağ alt köşesini gösterin.",
+         "Bölge çiz ile görüntüyü alın; fareyi basılı tutup okunacak alanı dikdörtgen çizerek seçin ve kaydedin.",
          "Çıktı değişkenine ad verin (ör. mesaj)."],
         "Okunan metin. Koşul adımında İçerir ile kontrol edin veya Sheets'e yazın.",
         "Bölgeyi dar tutun: yalnız okunacak yazı kalsın. Sayı okurken Metin işlemi ile gereksiz karakterleri temizleyin."),
     "screen.wait_text": guide(
-        ["Beklenen kelimeyi yazın (ör. kaydedildi).", "Bölgeyi fareyle al ile yazının çıkacağı alanı seçin."],
+        ["Beklenen kelimeyi yazın (ör. kaydedildi).", "Bölge çiz ile yazının çıkacağı alanı seçin."],
         "${text_found}: metin göründü mü?"),
     "screen.pixel": guide(
         ["Fare konumunu al ile noktayı alın."],
         "${pixel}: #RRGGBB rengi. Durum lambası veya seçili satır kontrolü için Koşul'da kullanın."),
     "screen.screenshot": guide(
-        ["Tüm ekran için bölgeyi boş bırakın veya Bölgeyi fareyle al ile seçin.", "Dosya adını yazın."],
+        ["Tüm ekran için bölgeyi boş bırakın veya Bölge çiz ile seçin.", "Dosya adını yazın."],
         "Görüntü çalışma ayrıntısındaki çıktılara eklenir.",
         "Hata olursa dalına ekleyin: hata anında ekranın nasıl göründüğünü sonradan görürsünüz."),
     # ----- Uygulama ve sistem --------------------------------------------------------

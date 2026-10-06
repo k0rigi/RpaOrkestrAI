@@ -332,6 +332,42 @@ class WindowService:
         self._guard(target, window)
         desktop.click(*point, clicks=clicks, button=button)
 
+    def table_cell(self, target: dict, desktop: Any, *, value: str | None = None, **selection: Any):
+        """Locate/show a native cell, or write and verify it without keyboard input."""
+        from .tables import native_backend, resolve_cell
+
+        window = self.focus(target)
+        backend = native_backend()
+        try:
+            cell, row, column = resolve_cell(backend, window, check=self._check, **selection)
+            original_info = cell.info()
+
+            def guard():
+                self._guard(target, window)
+                # Re-resolve immediately before writing: a sorted/virtualized row
+                # may have changed while the provider was answering the query.
+                current_cell, current_row, current_column = resolve_cell(
+                    backend, window, check=self._check, **selection)
+                info = current_cell.info()
+                if (current_row, current_column) != (row, column) or info != original_info or cell.info() != info:
+                    raise WindowError("Tablo hücresi değişti; işlem durduruldu.")
+                self._guard(target, window)
+                if info is None or not info.usable_in(window):
+                    raise WindowError("Tablo hücresi görünür değil. Hücreyi ekrana getirip yeniden deneyin.")
+                return self._point_in_window(window, info.center[0] - window.x,
+                                             info.center[1] - window.y, desktop)
+
+            point = guard()
+            if value is None:
+                return point
+            cell.write(value, guard)
+            self._guard(target, window)
+            if cell.read() != value:
+                raise WindowError("Hücreye yazıldı ancak değer doğrulanamadı. ERP'yi kontrol edin; akış durduruldu.")
+            return {"row": row + 1, "column": column + 1, "value": value}
+        except OSError as exc:
+            raise WindowError("Tablo hücresine erişilemedi. ERP'yi kontrol edin; akış durduruldu.") from exc
+
     def locate_target(self, target: dict, desktop: Any, **targeting: Any) -> tuple[int, int]:
         """The screen point a click or fill would use; nothing is clicked."""
         window, point = self._resolve_target(target, desktop, **targeting)

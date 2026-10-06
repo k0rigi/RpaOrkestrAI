@@ -305,7 +305,7 @@
     const type = String(action).toLowerCase();
     if (/^input\.(mouse|drag|scroll)/.test(type)) return "mouse";
     if (/^input\./.test(type)) return "keyboard";
-    if (type === "window.read_table") return "sheet";
+    if (type === "window.read_table" || type === "window.write_table") return "sheet";
     if (/^window\.|find_window/.test(type)) return "window";
     if (/^ui\./.test(type)) return "message";
     if (/control\.try/.test(type)) return "shield2";
@@ -3324,10 +3324,10 @@
       const label = all.length > 1 ? (index === 0 ? "Başlangıç konumunu al" : "Bitiş konumunu al") : "Fare konumunu al";
       tools.append(button(`${label} (3 sn)`, "target", () => capturePointer(step, xName, yName), "small"));
     });
-    if (spec.region) tools.append(button("Bölgeyi fareyle al (2 × 3 sn)", "target", () => captureRegion(step), "small"));
+    if (spec.region) tools.append(button("Bölge çiz", "target", () => captureRegion(step), "small"));
     if (spec.template) tools.append(button("Ekrandan görsel seç", "eye", () => pickScreenTemplate(step), "small"));
     if (!tools.children.length) return null;
-    tools.append(node("p", "help", "Düğmeye bastıktan sonra 3 saniye içinde fareyi hedefin üzerine götürün; tıklamanız gerekmez. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef pencereye geçin."));
+    tools.append(node("p", "help", spec.region ? "Bölge çiz ile ekran görüntüsü alın, fareyi basılı tutarak dikdörtgen çizin ve bölgeyi kaydedin." : "Düğmeye bastıktan sonra 3 saniye içinde fareyi hedefin üzerine götürün; tıklamanız gerekmez. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef pencereye geçin."));
     return tools;
   }
   function readPointer(message) {
@@ -3343,37 +3343,12 @@
     });
   }
   function captureRegion(step) {
-    return attempt(async () => {
-      const first = await readPointer("3 saniye içinde fareyi bölgenin SOL ÜST köşesine götürün.");
-      const second = await readPointer("Şimdi 3 saniye içinde SAĞ ALT köşeye götürün.");
-      let x = Math.min(first.x, second.x);
-      let y = Math.min(first.y, second.y);
-      const width = Math.abs(second.x - first.x);
-      const height = Math.abs(second.y - first.y);
-      if (width < 5 || height < 5) throw new Error("Bölge çok küçük; iki farklı köşe seçin.");
-      if (parameterValue(step, "relative_to") === "window") {
-        const recognized = recognizedWindowFor(step);
-        if (!recognized) throw new Error("Pencereye göre bölge için bu adımdan önce Pencereyi tanı ekleyin.");
-        const found = await api("/api/desktop/windows/check", {
-          method: "POST",
-          body: JSON.stringify({
-            application: parameterValue(recognized, "application") || "",
-            title: parameterValue(recognized, "title") || "",
-            match: parameterValue(recognized, "match") || "exact",
-          }),
-        });
-        if (!found.found) throw new Error("Tanıtılan pencere şu anda açık değil.");
-        x -= found.x;
-        y -= found.y;
-      }
-      if (!stepExists(step)) return;
-      applyStepParams(step, { region: [x, y, width, height] });
-      toast(`Bölge alındı: ${width} × ${height}`);
-    });
+    pickScreenTemplate(step, true);
   }
-  function pickScreenTemplate(step) {
-    const clickable = step.action === "screen.click_image";
-    dialog("Ekrandan görsel seç", (body, d) => {
+  function pickScreenTemplate(step, regionOnly = false) {
+    const clickable = !regionOnly && step.action === "screen.click_image";
+    const windowRegion = regionOnly && parameterValue(step, "relative_to") === "window";
+    dialog(regionOnly ? "Okunacak bölgeyi çiz" : "Ekrandan görsel seç", (body, d) => {
       d.classList.add("target-picker-dialog");
       let capture = null, image = null, rect = null, point = null, drag = null, saved = false;
       const delay = node("select");
@@ -3382,23 +3357,23 @@
         option.value = seconds;
         delay.append(option);
       }
-      const start = button("Geri sayımı başlat ve ekranı yakala", "clock", grab, "primary");
+      const start = button(windowRegion ? "Pencereyi yakala" : "Geri sayımı başlat ve ekranı yakala", "clock", grab, "primary");
       const status = node("div", "target-picker-status");
       status.setAttribute("role", "status");
       const frame = node("div", "target-picker-frame");
       const canvas = node("canvas", "target-picker-canvas");
       canvas.hidden = true;
       frame.append(canvas);
-      const info = node("p", "help", clickable
+      const info = node("p", "help", regionOnly ? "Görüntü üzerinde fareyi basılı tutarak okunacak alanı dikdörtgen şeklinde çizin." : clickable
         ? "Tıklanacak ikon veya düğmeyi çevreleyen küçük bir dikdörtgen sürükleyin. İsterseniz ardından tıklanacak noktaya tıklayın; boşsa görselin ortasına tıklanır."
         : "Aranacak işareti çevreleyen küçük bir dikdörtgen sürükleyin. Değişen yazıları (tarih, sayı) dahil etmeyin.");
       const reset = button("Seçimi temizle", "cross", () => { rect = point = null; draw(); }, "small");
-      const save = button("Görseli kaydet", "check", commit, "primary");
+      const save = button(regionOnly ? "Bölgeyi kaydet" : "Görseli kaydet", "check", commit, "primary");
       const actions = node("div", "target-picker-actions");
       actions.append(reset, save);
       body.append(
-        node("p", "pane-caption", "Süre dolunca ana ekranın görüntüsü alınır. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef uygulamaya geçin."),
-        field("Hazırlık süresi", delay), start, status, frame, info, actions,
+        node("p", "pane-caption", windowRegion ? "Tanıtılan pencerenin görüntüsünde alanı çizin. Bölge pencereye göre kaydedilir." : "Süre dolunca ana ekranın görüntüsü alınır. Masaüstü uygulamasında Studio bu sırada gizlenir; tarayıcıda hedef uygulamaya geçin."),
+        ...(windowRegion ? [] : [field("Hazırlık süresi", delay)]), start, status, frame, info, actions,
       );
       d.addEventListener("close", () => {
         if (capture && !saved) api(`/api/desktop/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" }).catch(() => {});
@@ -3463,7 +3438,25 @@
         status.replaceChildren(node("p", "help", `${delay.value} saniye içinde hedef ekranı hazırlayın…`));
         try {
           if (capture && !saved) api(`/api/desktop/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" }).catch(() => {});
-          capture = await api("/api/desktop/capture-screen", { method: "POST", body: JSON.stringify({ delay: Number(delay.value) }) });
+          capture = null;
+          rect = point = drag = null;
+          canvas.hidden = true;
+          draw();
+          if (windowRegion) {
+            const recognized = recognizedWindowFor(step);
+            if (!recognized) throw new Error("Pencereye göre bölge için bu adımdan önce Pencereyi tanı ekleyin.");
+            capture = await api("/api/desktop/capture-window", { method: "POST", body: JSON.stringify({
+              application: parameterValue(recognized, "application") || "",
+              title: parameterValue(recognized, "title") || "",
+              match: parameterValue(recognized, "match") || "exact",
+            }) });
+          } else {
+            capture = await api("/api/desktop/capture-screen", { method: "POST", body: JSON.stringify({ delay: Number(delay.value) }) });
+          }
+          if (!d.open) {
+            api(`/api/desktop/captures/${encodeURIComponent(capture.id)}`, { method: "DELETE" }).catch(() => {});
+            return;
+          }
           const loaded = new Image();
           await new Promise((resolve, reject) => {
             loaded.onload = resolve;
@@ -3475,7 +3468,7 @@
           canvas.height = capture.height;
           canvas.hidden = false;
           rect = point = null;
-          status.replaceChildren(note("Şimdi görüntü üzerinde görseli seçin.", "info", "check"));
+          status.replaceChildren(note(regionOnly ? "Okunacak alanı fareyle sürükleyerek çizin." : "Şimdi görüntü üzerinde görseli seçin.", "info", "check"));
           draw();
         } catch (error) {
           status.replaceChildren(note(error.message));
@@ -3487,6 +3480,12 @@
         if (!capture || !rect || !stepExists(step)) return;
         save.disabled = true;
         try {
+          if (regionOnly) {
+            applyStepParams(step, { region: [rect.x, rect.y, rect.width, rect.height] });
+            d.close();
+            toast(`Bölge kaydedildi: ${rect.width} × ${rect.height}`);
+            return;
+          }
           const stored = await api("/api/desktop/templates", {
             method: "POST", body: JSON.stringify({ capture_id: capture.id, ...rect }),
           });

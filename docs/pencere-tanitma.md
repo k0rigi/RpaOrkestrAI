@@ -107,3 +107,20 @@ Her giriş adımı hedef pencereyi öne getirip odağı doğrular. Pencere kapan
 **Önizleme (ekranı kullanmadan)** seçeneği akış parametrelerini kontrol eder; hedefi henüz seçilmemiş bir alan için yapılandırma ister. Pencere aramaz, Sheets'e bağlanmaz ve fare/klavye kullanmaz. Harici veri gerçek olmadığı için satır döngüsünün gerçek sonuçlarını göstermez. **Ekranda seç**, **Görüntü üzerinde seç** ve **Şimdi kontrol et** tasarım araçlarıdır; bunları ayrıca kullanarak hedefi belirleyin. Gerçek çalışmayı önce tek satır ve onay/kayıt işlemi içermeyen bir örnekle doğrulayın. Tek bir pencere adımını, örneğin **Alanı doldur**, sağ paneldeki **Bu adımı test et** ile `${row.form_id}` için örnek değer girerek deneyebilirsiniz. Adım gerçekten tıklar ve yazar, akışın geri kalanı çalışmaz.
 
 Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne taşıyabilirsiniz.
+
+
+## Tabloya değer yaz (0.9.6+)
+
+Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. Pencerede tek erişilebilir tablo varsa **Tablo adı veya kimliği** boş kalabilir; birden fazlaysa uygulamanın erişilebilir adını/kimliğini belirtin. Satır ve sütun numaraları 1'den başlar; başlık satırı sayılmaz. Sütun başlığı da kullanılabilir; yinelenen başlıklarda numara gerekir.
+
+Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin. Örneğin **Aranacak sütun: Fatura No**, **Aranacak değer: ${row.fatura_no}**, **Yazılacak sütun: Tutar**, **Yazılacak değer: ${row.tutar}**. Aranan değer tam eşleşmelidir. Hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
+
+**Yeri göster** yalnız hücreyi gösterir. Gerçek çalıştırma değeri doğrudan hücreye yazar ve geri okuyarak doğrular. Salt okunur/görünmeyen hücre, değişen pencere veya kaybolan odakta akış durur. Doğrulama başarısızsa ERP'yi kontrol edin: yazma denenmiş olabilir. ERP'nin kaydetme veya onay işlemi ayrıca tanımlanır. Bu adım tek adım testinin hazırlığında kendiliğinden çalıştırılmaz.
+
+Windows'ta UI Automation Grid/Table ve Value, macOS'ta Erişilebilirlik tablo ve düzenlenebilir hücre desteği gerekir. Kopyalanabilen her tablo yazılabilir değildir. Canias/Java özel çizim tabloları bu yapıyı sunmayabilir; bu durumda adım konum tahmin etmez, açıklamayla durur. Mevcut **Alanı doldur** yöntemleri kullanılabilir. Yeni adımı içeren akışlar 0.9.6 veya sonrasını gerektirir.
+
+## Metin okunacak bölgeyi çizme
+
+**Ekrandan metin oku (OCR)** ve bölge destekleyen ekran adımlarında **Bölge çiz** seçin. Ekran görüntüsünü alın, fareyi basılı tutarak bir dikdörtgen çizin, **Bölgeyi kaydet** deyin. **Seçimi temizle** ile yeniden çizebilir, Escape ile değişikliği iptal edebilirsiniz. Görüntü küçültülmüş gösterilse bile gerçek piksel koordinatları kaydedilir.
+
+**Pencereye göre** seçiliyse önceki **Pencereyi tanı** adımındaki pencerenin görüntüsü kullanılır ve bölge pencere içinde kaydedilir. **Ekrana göre** seçim ana ekran koordinatlarını kullanır. Köşeleri ayrı ayrı üç saniye bekleyerek seçmeye gerek yoktur.

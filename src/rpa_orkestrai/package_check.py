@@ -22,14 +22,14 @@ def _check_accessibility() -> None:
     # The recorder's platform backend is imported dynamically by pynput.
     from pynput import keyboard, mouse
 
-    from .desktop.elements import AxElements, UiaElements
+    from .desktop.tables import AxTables, UiaTables
 
     if not (keyboard.Listener and mouse.Listener):
         raise RuntimeError("Paket içindeki hareket kaydedici yüklenemedi.")
     if platform.system() == "Windows":
-        UiaElements()._context()
+        UiaTables()._context()
     elif platform.system() == "Darwin":
-        AxElements().ax.AXIsProcessTrusted()
+        AxTables().ax.AXIsProcessTrusted()
 
 
 def _check_ocr_and_tables(folder: Path) -> None:

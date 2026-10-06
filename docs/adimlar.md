@@ -106,6 +106,7 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Alanı doldur | Alanı bulur, tıklar, temizler ve değeri yazar. | — |
 | Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
 | Tablodan değer oku | ERP listesindeki bir hücreyi sütun başlığıyla (ör. Form Id) okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
+| Tabloya değer yaz (0.9.6+) | Erişilebilir tablonun hücresini satır/sütun veya benzersiz değerle bulup yazar ve doğrular. Belirsiz veya desteklenmeyen tabloda durur. ERP kaydetmesi ayrıca yapılır. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
 | Pencerede görseli bekle / ara | Pencerede bir işaretin (düğme, başlık, hata kutusu) görünmesini veya kaybolmasını bekler. **Süre dolarsa:** akışı durdurur ya da "bulunamadı" sonucuyla devam eder; böylece bir hata kutusu çıkıp çıkmadığına Koşul ile karar verilir. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
@@ -138,14 +139,14 @@ Bu adımlar ana ekranın koordinatlarını kullanır. **Fare konumunu al (3 sn)*
 
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
-| Ekranda görsele tıkla | Görseli bulup tıklar; merkezden fark verilebilir. Aramayı bir bölgeyle sınırlamak için **Bölgeyi fareyle al**. | Bulunan konum |
+| Ekranda görsele tıkla | Görseli bulup tıklar; merkezden fark verilebilir. Aramayı bir bölgeyle sınırlamak için **Bölge çiz**. | Bulunan konum |
 | Ekrandan metin oku (OCR) | Bölgedeki yazıyı okur. | `${screen_text}` |
 | Ekranda metni bekle | "Kaydedildi" gibi bir yazı görünene kadar bekler. i/İ/ı/I ve büyük/küçük harf farkı gözetilmez. | `${text_found}` |
 | Piksel rengini oku | Bir noktanın rengini `#RRGGBB` olarak okur. | `${pixel}` |
 | Ekran görüntüsü al | Ekranı veya bölgeyi PNG olarak çalışma çıktılarına ve isterseniz bir klasöre kaydeder. | Dosya yolu |
 
 - **Görsel:** **Ekrandan görsel seç** düğmesine basın. Geri sayımdan sonra ekran yakalanır; aranacak ikon veya düğmeyi fareyle çevreleyin. **Ekranda görsele tıkla** adımında ardından tıklanacak noktayı da seçebilirsiniz.
-- **Bölge:** **Bölgeyi fareyle al** ile önce sol üst, sonra sağ alt köşeyi gösterin. **Bölge neye göre? = Tanıtılan pencere** seçerseniz bölge pencereye göre saklanır; ERP penceresi taşınsa da doğru yer okunur.
+- **Bölge:** **Bölge çiz** ile görüntüyü alın, fareyi basılı tutarak okunacak alanı dikdörtgen şeklinde çizin ve kaydedin. **Bölge neye göre? = Tanıtılan pencere** seçerseniz bölge pencereye göre saklanır; ERP penceresi taşınsa da doğru yer okunur.
 - **OCR:** Ek kurulum gerekmez. macOS'ta Apple Vision, Windows'ta Windows OCR kullanılır ve Türkçe desteklenir. Windows'ta Türkçe veya İngilizce dil paketinin yüklü olması gerekir; çoğu kurulumda zaten vardır. Tesseract kuruluysa yedek olarak kullanılır.
 
 ## Uygulama ve sistem

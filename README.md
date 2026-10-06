@@ -8,14 +8,16 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.5-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.5-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.6-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.6-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
-**0.5.0 ve sonrası orkestrai.net hesabıyla açılır.** Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
+**0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemelerin paketleri **Actions → Build desktop apps → Artifacts** bölümünde bir gün durur; yayınlanan güncel sürüm orkestrai.net/rpa adresindedir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
 **0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. Güncelleme indirilemezse mevcut sürüm kullanılmaya devam eder; akışlar ve bağlantı ayarları korunur. Studio'nun açılması için lisans doğrulaması nedeniyle internet bağlantısı gerekir. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+
+**0.9.6:** Metin okuma adımlarında **Bölge çiz** ile ekran görüntüsü üzerinde dikdörtgen seçebilirsiniz. Pencereye göre bölgeler pencere taşındığında da pencereye bağlı kalır. Yeni **Tabloya değer yaz** adımı uygulamanın UI Automation / macOS Erişilebilirlik tablosu sunmasını gerektirir; desteklemeyen Canias/Java tablolarında işlem anlaşılır bir hatayla durur.
 
 Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.
 
@@ -101,7 +103,7 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Kayıtlı şifreler | ERP girişi gibi işler için şifreyi işletim sisteminin kasasında (Windows Kimlik Bilgisi Yöneticisi, macOS Anahtar Zinciri) tutma; adımda `${sifre.ad}` ile kullanma, günlükte gizleme |
 | Script ve programlar | **Uygulama, dosya veya adres aç** programı, belgeyi veya klasörü çift tıklar gibi açar. Windows'ta Canias gibi Java uygulamaları için masaüstü kısayolunu (`.lnk`) seçin; kısayolun parametreleri ve çalışma klasörü korunur. **Komut / script çalıştır** terminal (cmd / Terminal) veya PowerShell komutunu ya da seçilen `.py`, `.ps1`, `.bat`, `.vbs`, `.sh` script'ini çalıştırır, bitmesini bekler ve çıktısını akışta kullanır |
 | Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
-| ERP listeleri | **Tablodan değer oku** ile ERP listesindeki hücreyi sütun adıyla okuma ve satır sayma; bilinen değerler üzerinde döngü |
+| ERP listeleri | **Tablodan değer oku** ile ERP listesindeki hücreyi sütun adıyla okuma ve satır sayma; **Tabloya değer yaz** ile erişilebilir tablo hücresini satır/sütun veya benzersiz kayıt değeriyle bulup yazma ve doğrulama (0.9.6+) |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
 | Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
 | Web | **HTTP isteği gönder** ile web servisleri (API); eski akışlardaki tarayıcı (Playwright) adımları çalışmaya devam eder |

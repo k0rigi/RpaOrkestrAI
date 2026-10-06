@@ -290,7 +290,7 @@ def area_fields(required: bool = False) -> list[dict]:
         field("window", "Pencere", default="${erp_window}", required=True,
               visible_when={"relative_to": "window"}),
         field("region", "Bölge [x, y, genişlik, yükseklik]", "json", None, required=required,
-              help="Boş bırakılırsa tüm ekran/pencere kullanılır. Bölgeyi fareyle al düğmesiyle seçebilirsiniz."),
+              help="Boş bırakılırsa tüm ekran/pencere kullanılır. Bölge çiz düğmesiyle seçebilirsiniz."),
     ]
 
 
@@ -313,6 +313,26 @@ LIBRARY = [
             field("row", "Satır", "number", 1, min=1, max=10000, required=True, visible_when={"mode": "value"}),
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
             output("table_value")]),
+    action("window.write_table", "Tabloya değer yaz", "Pencere",
+           "Tablo hücresini satır ve sütunla bulur, değerini değiştirip doğrular. Uygulamanın erişilebilir "
+           "ve düzenlenebilir tablo yapısı sunması gerekir; sabit ekran konumu kullanmaz.",
+           [WINDOW,
+            field("table", "Tablo adı veya kimliği", default="",
+                  help="Pencerede tek tablo varsa boş bırakın. Birden fazlaysa uygulamanın erişilebilir tablo adı veya kimliğini yazın."),
+            field("row_mode", "Satır seçimi", "select", "index", options=[
+                {"value": "index", "label": "Satır numarası"}, {"value": "match", "label": "Benzersiz değeri bul"}],
+                  help="Değeri bul yöntemi, kayıtların sırası değişse de doğru satırı seçer."),
+            field("row", "Satır", "number", 1, min=1, max=10000, required=True, visible_when={"row_mode": "index"},
+                  help="1: ilk veri satırı. Başlık sayılmaz; sıralama değişiyorsa benzersiz değerle arayın."),
+            field("match_column", "Aranacak sütun", required=True, visible_when={"row_mode": "match"},
+                  help="Fatura numarası gibi benzersiz değerin sütun başlığı veya 1'den başlayan sütun numarası."),
+            field("match_value", "Aranacak değer", required=True, visible_when={"row_mode": "match"},
+                  help="Tam eşleşme aranır; birden fazla satır eşleşirse yazılmaz. Değişken kullanılabilir: ${row.fatura_no}."),
+            field("column", "Yazılacak sütun", required=True,
+                  help="Sütun başlığı veya 1'den başlayan sütun numarası. Yinelenen başlıklarda numara kullanın."),
+            field("value", "Yazılacak değer", required=True,
+                  help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.tutar}. Boş değer, Tab ve satır sonu kabul edilmez."),
+            output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),
     action("window.state", "Pencereyi büyüt / küçült", "Pencere",
            "Pencereyi tam ekran yapar, simge durumuna küçültür veya geri yükler.",
            [WINDOW, field("state", "İşlem", "select", "maximize", required=True,
@@ -708,7 +728,7 @@ TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read", "database.query"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
-LOCATABLE = {"desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
+LOCATABLE = {"window.write_table", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
              "input.mouse_click",
              "input.mouse_move", "screen.click_image"}
 

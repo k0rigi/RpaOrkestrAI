@@ -17,7 +17,6 @@ from rpa_orkestrai import licensing as licensing_module
 from rpa_orkestrai.app import create_app
 from rpa_orkestrai.config import Settings
 from rpa_orkestrai.licensing import (
-    STARTUP_MESSAGE,
     TOLERANCE_MESSAGE,
     LicenseError,
     LicenseService,
@@ -171,9 +170,9 @@ def test_login_asks_for_a_fresh_signed_answer_and_stores_no_license(tmp_path, se
     endpoint, body = server.requests[0]
     assert endpoint == "giris" and body["kullanici"] == "operator" and body["protokol"] == 2
     assert len(body["nonce"]) == 32 and body["cihaz"] == licensing.device
-    # The workspace keeps the device session only: no password and nothing that opens the Studio.
+    # The workspace keeps only a stable installation identifier, never credentials or a session.
     stored = json.loads((tmp_path / "license.json").read_text(encoding="utf-8"))
-    assert set(stored) == {"install", "refresh", "user"} and "dogru" not in json.dumps(stored)
+    assert set(stored) == {"install"} and "dogru" not in json.dumps(stored)
     # Every request carries its own random value.
     licensing.refresh()
     assert server.requests[1][1]["nonce"] != body["nonce"]
@@ -186,23 +185,31 @@ def test_wrong_password_is_reported_without_changing_state(tmp_path, server):
     assert licensing.status()["state"] == "login_required"
 
 
-def test_a_restart_needs_a_new_confirmation_before_the_studio_opens(tmp_path, server):
-    service(tmp_path, server).login("operator", "dogru")
-
+def test_a_restart_requires_username_and_password_and_a_fresh_license(tmp_path, server):
+    running = service(tmp_path, server)
+    running.login("operator", "dogru")
+    path = tmp_path / "license.json"
+    stored = json.loads(path.read_text())
+    # Migration from 0.9.5 also forgets the saved session and username.
+    stored.update(refresh=running._refresh_token, user="operator")
+    path.write_text(json.dumps(stored))
     reopened = service(tmp_path, server)
-    # The session is remembered, but nothing is trusted until orkestrai.net answers in this run.
-    assert reopened.status()["state"] == "verifying" and reopened.status()["remembered"]
-    assert reopened.allowed() is False
-    assert reopened.refresh()["state"] == "valid" and reopened.allowed()
+    assert reopened.device == running.device
+    assert reopened.status()["state"] == "login_required"
+    assert not reopened.status()["remembered"] and reopened.status()["license"] is None
+    before = len(server.requests)
+    assert reopened.refresh()["state"] == "login_required" and not reopened.allowed()
+    assert len(server.requests) == before
+    assert json.loads(path.read_text()) == {"install": stored["install"]}
+    assert reopened.login("operator", "dogru")["state"] == "valid"
 
-    # Without a connection the Studio stays closed, however recently it was confirmed.
     server.offline = True
     offline = service(tmp_path, server)
-    status = offline.refresh()
-    assert status["state"] == "verification_required" and status["message"] == STARTUP_MESSAGE
-    assert status["online"] is False and offline.allowed() is False
+    with pytest.raises(LicenseUnavailable):
+        offline.login("operator", "dogru")
+    assert not offline.allowed() and offline.status()["state"] == "login_required"
     server.offline = False
-    assert offline.refresh()["state"] == "valid"
+    assert offline.login("operator", "dogru")["state"] == "valid"
 
 
 def test_withdrawn_license_closes_the_studio_and_a_restored_one_reopens_it(tmp_path, server, timer):
@@ -218,10 +225,10 @@ def test_withdrawn_license_closes_the_studio_and_a_restored_one_reopens_it(tmp_p
     assert licensing.allowed() is False and reasons == ["denied"]
     assert status["license"]["user"] == "operator@ornek.com.tr" and status["remembered"]
     # Closing and reopening does not help, with or without a connection.
-    assert service(tmp_path, server).refresh()["state"] == "denied"
+    assert service(tmp_path, server).login("operator", "dogru")["state"] == "denied"
     server.offline = True
     blocked = service(tmp_path, server)
-    assert blocked.refresh()["state"] == "verification_required" and blocked.allowed() is False
+    assert blocked.refresh()["state"] == "login_required" and blocked.allowed() is False
     # Once the license is given back, the kept session continues without the password.
     server.offline, server.denial = False, None
     assert licensing.refresh()["state"] == "valid" and licensing.allowed()
@@ -252,7 +259,7 @@ def test_a_version_that_is_no_longer_served_is_told_to_update(tmp_path, server):
 
     assert status["state"] == "denied" and status["detail"] == "outdated"
     assert "orkestrai.net/rpa" in status["message"] and licensing.allowed() is False
-    assert service(tmp_path, server).refresh()["detail"] == "outdated"
+    assert service(tmp_path, server).login("operator", "dogru")["detail"] == "outdated"
     # A plain refusal carries no such detail.
     server.denial = ("YETKI_YOK", "Bu kullanıcı için RpaOrkestrAI lisansı tanımlı değil.")
     assert licensing.refresh()["detail"] is None
@@ -333,6 +340,7 @@ def test_an_earlier_answer_is_not_accepted_again(tmp_path, server):
     server.replayed = server.last  # a correctly signed answer, but to an earlier request
 
     reopened = service(tmp_path, server)
+    reopened._refresh_token = licensing._refresh_token  # simulate replay against an unverified runtime session
     status = reopened.refresh()
 
     assert status["state"] == "verification_required" and reopened.allowed() is False
@@ -361,8 +369,8 @@ def test_nothing_in_the_workspace_file_opens_the_studio(tmp_path, server, monkey
 
     reopened = service(tmp_path, server)
 
-    assert reopened.allowed() is False and reopened.refresh()["state"] == "verification_required"
-    assert set(json.loads(path.read_text(encoding="utf-8"))) == {"install", "refresh", "user"}
+    assert reopened.allowed() is False and reopened.refresh()["state"] == "login_required"
+    assert set(json.loads(path.read_text(encoding="utf-8"))) == {"install"}
     # The computer's date plays no part either way: a wrong clock neither opens nor locks the Studio.
     # What counts is the answer to this run's own request and the running time since then.
     def no_date():
@@ -371,7 +379,7 @@ def test_nothing_in_the_workspace_file_opens_the_studio(tmp_path, server, monkey
     monkeypatch.setattr(licensing_module.time, "time", no_date)
     server.offline = False
     server.claims = {"verildi": "2001-01-01T00:00:00+03:00", "gecerlilik": "2001-01-01T01:00:00+03:00"}
-    assert reopened.refresh()["state"] == "valid" and reopened.allowed()
+    assert reopened.login("operator", "dogru")["state"] == "valid" and reopened.allowed()
 
 
 def test_signing_in_on_another_computer_closes_this_session(tmp_path, server):
@@ -402,7 +410,9 @@ def test_one_session_cannot_run_in_two_places(tmp_path, server):
     duplicate_dir = tmp_path / "b"
     duplicate_dir.mkdir()
     (duplicate_dir / "license.json").write_bytes((tmp_path / "a" / "license.json").read_bytes())
-    duplicate = service(duplicate_dir, server)  # same computer identity, same stored session
+    duplicate = service(duplicate_dir, server)
+    # Simulate theft of the in-memory token to retain server session-copy protection coverage.
+    duplicate._refresh_token = original._refresh_token
 
     assert duplicate.refresh()["state"] == "valid"   # moves the session forward
     assert original.refresh()["state"] == "valid"    # one step behind: could still be a lost answer
@@ -426,15 +436,17 @@ def test_a_lost_answer_does_not_close_the_session(tmp_path, server, timer):
     # The same running Studio asks again with what it has and simply continues.
     assert licensing.refresh() == {**status, "online": True}
     assert licensing.refresh()["state"] == "valid" and reasons == []
-    # Closed before the answer arrived: the next start continues the session without the password.
+    # Closed before the answer arrived: next launch still requires explicit login.
     server.lose_answers = 1
     licensing.refresh()
-    assert service(tmp_path, server).refresh()["state"] == "valid"
+    assert service(tmp_path, server).refresh()["state"] == "login_required"
 
 
 def test_unexpected_answers_are_not_a_confirmation(tmp_path, server):
-    service(tmp_path, server).login("operator", "dogru")
+    running = service(tmp_path, server)
+    running.login("operator", "dogru")
     reopened = service(tmp_path, server)
+    reopened._refresh_token = running._refresh_token
     server.denial = ("COK_DENEME", "Çok fazla deneme.")
     assert reopened.refresh()["state"] == "verification_required" and reopened.allowed() is False
     server.denial = None
@@ -463,30 +475,22 @@ def test_logout_closes_the_session_on_the_server_and_forgets_it(tmp_path, server
     assert server.requests[-1] == ("cikis", {"token": token, "cihaz": licensing.device})
     assert server.session is None
     stored = json.loads((tmp_path / "license.json").read_text(encoding="utf-8"))
-    assert stored["refresh"] is None and stored["user"] is None
+    assert set(stored) == {"install"}
     # Signing out also works without a connection.
     licensing.login("operator", "dogru")
     server.offline = True
     assert licensing.logout()["state"] == "login_required" and licensing.allowed() is False
 
 
-def test_background_check_confirms_at_start_and_retries_soon_when_unreachable(tmp_path, server, monkeypatch):
+def test_background_check_waits_for_login_after_restart(tmp_path, server):
     service(tmp_path, server).login("operator", "dogru")
-    monkeypatch.setattr(licensing_module, "RETRY_SECONDS", 0.05)
-    server.offline = True
     licensing = service(tmp_path, server)
-    licensing.start()
-    try:
-        deadline = time.monotonic() + 5
-        while licensing.status()["state"] == "verifying" and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert licensing.status()["state"] == "verification_required"
-        server.offline = False
-        while licensing.status()["state"] != "valid" and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert licensing.allowed()
-    finally:
-        licensing.stop()
+    count = len(server.requests)
+    licensing._tick()
+    assert licensing.status()["state"] == "login_required" and not licensing.allowed()
+    assert len(server.requests) == count
+    licensing.login("operator", "dogru")
+    assert licensing._tick() == 600 and licensing.allowed()
 
 
 @pytest.mark.real_license

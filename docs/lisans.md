@@ -13,9 +13,11 @@
 
 1. Uygulamayı açın. Giriş ekranında orkestrai.net **kullanıcı adınızı** ve **şifrenizi** yazın. Kullanıcı adı, e-posta adresinizin `@` işaretinden önceki kısmıdır; e-postanın tamamını da yazabilirsiniz.
 2. Giriş başarılıysa Studio açılır. Sol alttaki kartta adınız, firmanız ve lisans bitiş tarihi görünür. Son 30 günde kalan gün sayısı gösterilir.
-3. Sonraki açılışlarda şifre sorulmaz. Uygulama yine de her açılışta lisansınızı orkestrai.net'e sorar; bunun için internet bağlantısı gerekir. Yeni sürüme güncellendikten sonra da durum aynıdır: şifre sorulmaz, ama onay alınmadan Studio açılmaz.
+3. **0.9.6 ve sonrasında her açılışta kullanıcı adı ve şifre yeniden istenir.** Giriş sırasında lisans süresi ve yetkiler orkestrai.net üzerinden doğrulanır; internet bağlantısı gerekir. Güncellemeden sonraki ilk açılış da buna dahildir.
 
-Şifre bu bilgisayara kaydedilmez. Bilgisayarda yalnız bu bilgisayara bağlı bir oturum kaydı tutulur. Bu kayıt uygulamayı tek başına açmaz; yalnız orkestrai.net'e "bu oturum hâlâ geçerli mi?" diye sormaya yarar. Oturum şu durumlarda kapanır ve yeniden giriş istenir: 30 gün hiç kullanılmazsa, orkestrai.net'te şifreniz değişirse, hesabınız pasifleştirilirse veya hesabınız başka bir bilgisayarda açılırsa.
+Kullanıcı adı, şifre ve yenileme oturumu diske kaydedilmez. Bilgisayarda yalnız kurulum kimliği tutulur. Önceki sürümlerin kaydettiği oturum ve kullanıcı adı açılışta silinir. Uygulama açık kaldığı sürece oturum bellekte tutulur ve lisans belirli aralıklarla denetlenir. Şifre değişikliği, pasif hesap veya başka bilgisayarda giriş oturumu kapatır.
+
+Zamanlanmış akışlar için de uygulamayı açtıktan sonra giriş yapın. Giriş yapılmadan zamanlanmış işler çalışamaz; uygulama açık ve oturum geçerliyken olağan zamanlama sürer.
 
 **Ayarlar → RpaOrkestrAI lisansı** bölümünde lisans durumunu görebilir, **Lisansı şimdi doğrula** ile hemen yenileyebilir veya **Oturumu kapat** ile başka bir kullanıcıya geçebilirsiniz. Oturumu kapatmak akışları ve bağlantı ayarlarını silmez.
 
@@ -32,7 +34,7 @@ Bir hesap aynı anda yalnız bir bilgisayarda çalışır. Başka bir bilgisayar
 
 RpaOrkestrAI kullanılan bilgisayarın `https://orkestrai.net` adresine (443 numaralı port) erişebilmesi gerekir. Kurumsal güvenlik duvarı veya vekil sunucu (proxy) kullanılıyorsa bu adrese izin verin.
 
-- **Açılışta:** Bağlantı yoksa Studio açılmaz ve **Lisans doğrulanamadı** ekranı görünür. Uygulama kendiliğinden yeniden dener; bağlantı gelince Studio açılır. **Yeniden dene** ile hemen denetebilirsiniz.
+- **Açılışta:** Giriş ekranı gösterilir. Bağlantı yoksa giriş doğrulanamaz ve Studio açılmaz. Bağlantı geldikten sonra kullanıcı adı ve şifreyle yeniden giriş yapın.
 - **Çalışırken:** Bağlantı kesilirse Studio en fazla **60 dakika** daha çalışır. Bu sürede bağlantı gelmezse Studio kilitlenir ve çalışan akış durdurulur. Bağlantı geldiğinde Studio kendiliğinden açılır; açık akıştaki kaydedilmemiş değişiklikler yerinde durur.
 - Uygulamayı kapatıp açmak bu süreyi yenilemez: her açılış yeni bir onay ister.
 
@@ -40,7 +42,7 @@ RpaOrkestrAI kullanılan bilgisayarın `https://orkestrai.net` adresine (443 num
 
 ### Süre dolduğunda veya yetki yoksa
 
-- **Kullanım süreniz dolmuştur:** Firmanın MOD_RPA bitiş tarihi geçmiştir. Uygulama uyarıyı gösterir ve 15 saniye sonra kapanır. **Şimdi kapat**, **Yeniden kontrol et** veya **Farklı kullanıcıyla giriş yap** seçilebilir. Yönetici süreyi uzattıktan sonra **Yeniden kontrol et** ile uygulama şifre sorulmadan açılır.
+- **Kullanım süreniz dolmuştur:** Firmanın MOD_RPA bitiş tarihi geçmiştir. Uygulama uyarıyı gösterir ve 15 saniye sonra kapanır. **Şimdi kapat**, **Yeniden kontrol et** veya **Farklı kullanıcıyla giriş yap** seçilebilir. Yönetici süreyi uzattıktan sonra açık oturumda **Yeniden kontrol et** kullanılabilir; uygulama kapatılmışsa tekrar giriş gerekir.
 - **Lisans tanımlı değil:** Kullanıcıya veya firmaya MOD_RPA atanmamıştır. Uygulama aynı şekilde uyarıp kapanır.
 - **Bu sürüm artık desteklenmiyor:** Kurulu sürüm, orkestrai.net'in kabul ettiği en düşük sürümden eskidir. Güncelleme arka planda indirilir ve uygulamayı kapatıp açtığınızda kurulur. Kurulmazsa güncel paketi `https://orkestrai.net/rpa` adresinden indirin. Akışlarınız ve ayarlarınız olduğu gibi kalır.
 
@@ -88,7 +90,7 @@ Kapanmış oturumlar 90 gün sonra silinir.
 Doğrulama şöyle çalışır (protokol 2):
 
 - Uygulama her istekte rastgele bir değer üretir. orkestrai.net bu değeri lisansın içine yazar ve lisansı Ed25519 ile imzalar. Uygulama imzayı gömülü açık anahtarla doğrular; cihaz kimliğinin ve rastgele değerin kendi isteğine ait olduğunu denetler. Böylece her yanıt yalnız bir isteğe aittir; daha önce alınmış bir yanıt yeniden kullanılamaz.
-- Onay yalnız çalışan uygulamanın belleğinde tutulur. `data/license.json` dosyasında kurulum kimliği, oturum belirteci ve kullanıcı adı vardır; lisansın kendisi ve şifre yoktur.
+- Onay yalnız çalışan uygulamanın belleğinde tutulur. `data/license.json` dosyasında yalnız kurulum kimliği vardır; oturum belirteci, kullanıcı adı, lisans ve şifre yoktur.
 - Oturum belirteci her doğrulamada yenilenir ve bir sıra numarası taşır. Sunucu her hesap için tek etkin oturum tutar. Yanıtı yolda kaybolan bir istek aynı uygulama tarafından yinelenebilir; aynı oturumun başka bir kopyası ise fark edilir.
 - Yenileme aralığı (10 dakika) ve bağlantısız çalışma süresi (60 dakika) imzalı lisansın içinde gelir ve sunucuda (`api/app.py`: `RPA_YENILEME_ARALIGI`, `RPA_CALISMA_TOLERANSI`) ayarlanır. Uygulama bu değerleri 1–60 dakika ve 5 dakika–6 saat aralığına sınırlar.
 - Sunucu, `RPA_ASGARI_SURUM` değerinden (şu an 0.8.0) eski uygulamalara lisans vermez; protokol 2 ve isteğe özel rastgele değer de zorunludur. Güvenlikle ilgili bir sürüm yayımlandıktan sonra bu değer yükseltilir.

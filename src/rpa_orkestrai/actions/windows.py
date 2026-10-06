@@ -105,3 +105,24 @@ def read_table(ctx, p):
     if wanted > len(rows):
         raise WorkflowError(f"Tabloda {len(rows)} satır var; {wanted}. satır okunamadı.")
     return rows[wanted - 1][table_column(names, p.get("column"))]
+
+
+def table_selection(p):
+    mode = choice(p.get("row_mode", "index"), "Satır seçimi", {"index", "match"})
+    return {
+        "table": text(p.get("table", ""), "Tablo adı veya kimliği", required=False, limit=300).strip(),
+        "row_mode": mode,
+        "row": integer(p.get("row", 1), "Satır", 1, TABLE_LIMIT) if mode == "index" else 1,
+        "column": text(p.get("column"), "Yazılacak sütun", limit=300),
+        "match_column": text(p.get("match_column"), "Aranacak sütun", limit=300) if mode == "match" else "",
+        "match_value": text(p.get("match_value"), "Aranacak değer", limit=10_000) if mode == "match" else "",
+    }
+
+
+@handler("window.write_table")
+def write_table(ctx, p):
+    selection = table_selection(p)
+    value = text(p.get("value"), "Yazılacak değer", limit=10_000)
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise WorkflowError("Tablo hücresine yazılacak değer satır sonu, Tab veya kontrol karakteri içeremez.")
+    return ctx.windows().table_cell(_window(p), ctx.desktop(), value=value, **selection)
