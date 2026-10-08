@@ -131,7 +131,7 @@ def test_uncertain_cell_is_rejected(problem):
         locate_cell(words, table, 0, 1, reference_point=(30, 55))
 
 
-@pytest.mark.parametrize("text", ["a", "A\tB", "A\tB\n1", "\t\n1\t2", "A\tB\n1\t2\t3"])
+@pytest.mark.parametrize("text", ["a", "A\tB", "A\tB\n1", "A\tB\n1\t2\t3"])
 def test_not_a_complete_table_rejected(text):
     with pytest.raises(WindowError):
         TableText.parse(text)
@@ -361,3 +361,96 @@ def test_heading_order_follows_reordered_clipboard_columns():
     row, column = table.select(**SELECTION)
     assert column == 2
     assert locate_cell(words, table, row, column, reference_point=(30, 55)).point[0] >= 350
+
+
+@pytest.mark.parametrize('header,raw', [
+    (False, 'A125\tARIZALILAR\t1\nA126\tARIZALILAR\t2'),
+    (True, 'Kod\t\tAdet\nA125\tARIZALILAR\t1\nA126\tARIZALILAR\t2'),
+])
+@pytest.mark.parametrize('selector', ['sutun_2', 'sütun_2', '2'])
+def test_read_and_write_share_aliases_and_header_flag(header, raw, selector):
+    from rpa_orkestrai.actions.windows import table_column, table_of
+
+    names, rows = table_of(raw, header=header)
+    table = TableText.parse(raw, header=header)
+    assert table.names == names
+    assert [list(row) for row in table.rows] == rows
+    assert table.column(selector) == table_column(names, selector) == 1
+    assert table.select(**{**SELECTION, 'column': selector}) == (0, 1)
+
+
+def test_single_headerless_row_and_literal_alias_name():
+    table = TableText.parse('A125\tARIZALILAR', header=False)
+    assert table.rows == (('A125', 'ARIZALILAR'),)
+    assert table.column('sutun_2') == 1
+    # An actual copied name takes priority over an automatically interpreted alias.
+    assert TableText.parse('sutun_2\tStatus\nA125\tOLD').column('sutun_2') == 0
+    assert TableText.parse('\t\nA125\tOLD').names == ['sutun_1', 'sutun_2']
+
+
+@pytest.mark.parametrize('column_x', [120, 250, 500])
+def test_headerless_values_follow_resized_columns_with_unreadable_titles(column_x):
+    from rpa_orkestrai.desktop.screen_tables import locate_by_values
+
+    table = TableText(('', '', ''), TABLE.rows, False)
+    words = [w for w in grid_words(column_x) if w.y != 20]
+    assert locate_by_values(words, table, 0, 1).point == (column_x + 35, 56)
+    assert locate_by_values(words, table, 1, 1).point == (column_x + 35, 101)
+
+
+def test_blank_checkbox_columns_do_not_change_copied_column_number():
+    from rpa_orkestrai.desktop.screen_tables import locate_by_values
+
+    table = TableText.parse('A125\t\t1\tARIZALILAR\nA126\t\t1\tARIZALILAR', header=False)
+    words = [word('A125', 20, 50), word('ARIZALILAR', 320, 50),
+             word('A126', 20, 90), word('ARIZALILAR', 320, 90)]
+    row, col = table.select(**{**SELECTION, 'column': 'sutun_4', 'row_mode': 'match',
+                              'match_column': 'sutun_1', 'match_value': 'A126'})
+    assert (row, col) == (1, 3)
+    assert locate_by_values(words, table, row, col).point[1] == 96
+
+
+def test_duplicate_cell_values_on_opposite_sides_of_record_key():
+    from rpa_orkestrai.desktop.screen_tables import locate_by_values
+
+    table = TableText.parse('OLD\tA125\tOLD', header=False)
+    words = [word('OLD', 20, 50), word('A125', 140, 50), word('OLD', 320, 50)]
+    assert locate_by_values(words, table, 0, 0).point[0] < 100
+    assert locate_by_values(words, table, 0, 2).point[0] > 300
+
+
+@pytest.mark.parametrize('raw,words', [
+    ('A125\tOLD\tOLD', [word('A125', 20, 50), word('OLD', 140, 50), word('OLD', 320, 50)]),
+    ('A125\tOLD\nPrefix A125\tOLD', [word('Prefix', 20, 50), word('A125', 70, 50), word('OLD', 320, 50)]),
+    ('A125\tOLD\nA12599\tOLD', [word('A125', 20, 50), word('OLD', 320, 50)]),
+    ('A125\tOLD\nA125\tPrefix OLD', [word('A125', 20, 50), word('Prefix', 250, 50), word('OLD', 320, 50)]),
+    ('A1\tOLD\tKIRMIZI MAVI\tX\nA2\tOLD\tKIRMIZI\tMAVI',
+     [word('A2', 20, 50), word('OLD', 100, 50), word('KIRMIZI', 200, 50), word('MAVI', 265, 50)]),
+])
+def test_headerless_does_not_guess_ambiguous_columns_or_word_fragments(raw, words):
+    from rpa_orkestrai.desktop.screen_tables import locate_by_values
+
+    with pytest.raises(WindowError):
+        locate_by_values(words, TableText.parse(raw, header=False), 0, 1)
+
+
+def test_headerless_runtime_pastes_once_and_reports_exact_read_settings(runtime):
+    service, window, desktop, state, options = runtime
+    original = desktop.hotkey.side_effect
+
+    def copy_without_header(*keys):
+        original(*keys)
+        if keys == ('mod', 'c') and not state['editor']:
+            state['clipboard'] = state['clipboard'].split('\n', 1)[1]
+
+    desktop.hotkey.side_effect = copy_without_header
+    reports = []
+    options.update(header=False, report=reports.append,
+                   selection={**SELECTION, 'column': 'sutun_2'})
+    state['after_write'] = lambda: state.__setitem__('layout', 380)
+    assert screen_table_cell(service, window.result(), desktop, value='YENI DURUM', **options) == {
+        'row': 1, 'column': 2, 'value': 'YENI DURUM'}
+    desktop.paste.assert_called_once_with('YENI DURUM')
+    assert reports == [{'rows': 2, 'columns': ['sutun_1', 'sutun_2', 'sutun_3'], 'row': 1,
+                        'column': 2, 'current_value': 'ARIZALILAR', 'header': False}]
+    assert state['clipboard'] == 'previous clipboard'

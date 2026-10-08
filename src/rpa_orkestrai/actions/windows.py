@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..desktop.table_columns import column_names, resolve_column
 from ..desktop.windows import WindowError, found_window
 from ..errors import WorkflowError
 from . import handler
-from .common import choice, fold, integer, number, region, text
+from .common import choice, integer, number, region, text
 
 # A grid copies one row per line with the cells separated by tabs.
 TABLE_LIMIT = 10_000
@@ -68,26 +69,17 @@ def table_of(value: Any, *, header: bool) -> tuple[list[str], list[list[str]]]:
         return [], []
     width = max(len(row) for row in cells)
     titles = cells[0] if header else []
-    names: list[str] = []
-    for index in range(width):
-        name = titles[index] if index < len(titles) and titles[index] else f"sutun_{index + 1}"
-        base, counter = name, 2
-        while name in names:  # two columns with the same heading stay apart
-            name, counter = f"{base} ({counter})", counter + 1
-        names.append(name)
+    names = column_names(titles, width)
     body = cells[1:] if header else cells
     return names, [[row[index] if index < len(row) else "" for index in range(width)] for row in body]
 
 
 def table_column(names: list[str], column: Any) -> int:
     wanted = text(column, "Sütun").strip()
-    for index, name in enumerate(names):
-        if fold(name) == fold(wanted):
-            return index
-    if wanted.isdigit() and 1 <= int(wanted) <= len(names):
-        return int(wanted) - 1
-    raise WorkflowError(f"Tabloda “{wanted}” sütunu yok. Okunan sütunlar: " + ", ".join(names) + ". "
-                        "Başlığı tablodaki gibi yazın veya sütun numarasını (1, 2, …) kullanın.")
+    try:
+        return resolve_column(names, wanted)
+    except ValueError as exc:
+        raise WorkflowError(str(exc)) from exc
 
 
 @handler("window.read_table")
@@ -137,8 +129,17 @@ def table_operation(ctx, p, *, value=None):
             raise WorkflowError("Tabloya yazılacak değerin başında veya sonunda boşluk olmamalıdır.")
         edit_mode = choice(p.get("edit_mode", "double_click"), "Hücreyi düzenlemeye aç",
                            {"double_click", "single_click", "f2"})
+
+        def report(info):
+            names = "; ".join(f"{i + 1}={name}" for i, name in enumerate(info["columns"]))
+            ctx.log(f"Tablo: {info['rows']} veri satırı. Sütunlar: {names[:4000]}. "
+                    f"Seçilen: {info['row']}. satır, {info['column']}. sütun. "
+                    f"Mevcut değer: {info['current_value'][:300]!r}. "
+                    f"İlk satır başlık: {'evet' if info['header'] else 'hayır'}.")
+
         return ctx.windows().screen_table_cell(
             _window(p), ctx.desktop(), value=value, selection=selection, region=area, edit_mode=edit_mode,
+            header=p.get("header", True) is not False, report=report,
             ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
                          "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
                          "timeout": ctx.settings.action_timeout})

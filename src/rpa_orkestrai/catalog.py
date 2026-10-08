@@ -323,18 +323,22 @@ LIBRARY = [
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
             output("table_value")]),
     action("window.write_table", "Tabloya değer yaz", "Pencere",
-           "Tablo alanını bir kez çizin; satır, sütun başlığı ve yeni değeri girin. Hücrenin güncel yerini bulur, yazar ve doğrular.",
+           "Tablo alanını bir kez çizin; satır, sütun adı veya numarası ve yeni değeri girin. Hücrenin güncel yerini bulur, yazar ve doğrular.",
            [WINDOW,
             field("write_method", "Yazma yöntemi", "select", "native", required=True,
                   new_default="screen", omit_default=True,
-                  options=[{"value": "screen", "label": "Sütun başlığıyla ekranda bul"},
+                  options=[{"value": "screen", "label": "Tabloyu okuyarak ekranda bul"},
                            {"value": "native", "label": "Uygulamanın tablo yapısını kullan"}],
-                  help="Sütun başlığıyla bul: tabloyu kopyalar; başlık ve hücre metnini ekranda yeniden bulur. "
+                  help="Tabloyu okuyarak bul: kopyalanan satır/sütunu ekrandaki güncel hücre değerleriyle eşleştirir. "
                        "Uygulamanın tablo yapısı: düzenlenebilir hücre erişimi gerektirir; eski adımlar bu yöntemi korur."),
             *table_target_fields(),
             field("region", "Tablo alanı", "json", None, required=True, visible_when={"write_method": "screen"},
                   help="Tablo alanını çiz ile yalnız bir tabloyu, başlıkları ve veri satırlarıyla birlikte seçin. "
                        "Alan pencereye göre saklanır; hücrelerin güncel yeri bu alan içinde bulunur."),
+            field("header", "İlk satır sütun başlıklarıdır", "boolean", True, omit_default=True,
+                  visible_when={"write_method": "screen"},
+                  help="Tablodan değer oku ile aynı ayarı kullanın. Yalnız veriler kopyalanıyorsa kapatın: "
+                       "sütunlar sutun_1, sutun_2… olur ve ilk kayıt 1. satırdır. Okuma adımından aktar düğmesi bu ayarı getirir."),
             field("edit_mode", "Hücreyi düzenlemeye aç", "select", "double_click", required=True,
                   omit_default=True, visible_when={"write_method": "screen"},
                   options=[{"value": "double_click", "label": "Çift tıklama"},
@@ -355,8 +359,8 @@ LIBRARY = [
             field("match_value", "Aranacak değer", required=True, visible_when={"row_mode": "match"},
                   help="Tam eşleşme aranır; birden fazla satır eşleşirse yazılmaz. Değişken kullanılabilir: ${row.kod}."),
             field("column", "Yazılacak sütun", required=True,
-                  help="Tablodaki sütunun tam adını yazın (ör. Durum). Sütunun yeri veya genişliği değişse de "
-                       "hücre yeniden bulunur. Sütun numarası yalnız Uygulamanın tablo yapısını kullan yönteminde kabul edilir."),
+                  help="Okumadaki gibi sütun adı (Durum), sutun_2 veya 2 yazın. Numara kopyalanan tablonun "
+                       "soldan başlayan sütun sırasıdır; kutucuk/boş sütunları da sayar. Genişlik değişse de hücre yeniden bulunur."),
             field("value", "Yazılacak değer", required=True,
                   help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.deger}. Boş değer, Tab ve satır sonu kabul edilmez."),
             output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),

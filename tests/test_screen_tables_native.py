@@ -105,7 +105,24 @@ def test_native_ocr_addresses_turkish_header_despite_column_resize(font_size, ta
         assert left <= x <= right, (location, target_bounds)
         assert top - 2 <= y <= bottom + 2, (location, target_bounds)
         assert location.witness_text.center[1] == pytest.approx(y, abs=font_size / 2)
-        # Native OCR may include the selection edge in its word box. The click
+        # Native OCR may include the selection edge in its word box. The
         # horizontal click above must still lie inside the actual drawn text.
         assert location.text.x == pytest.approx(target_x, abs=font_size / 2)
         assert location.text.width > 40
+
+
+@pytest.mark.parametrize('target_x', [330, 490])
+@pytest.mark.parametrize('row_count', [1, 2])
+def test_native_ocr_locates_by_alias_without_any_visible_or_copied_headings(target_x, row_count):
+    image, source, bounds, _ = table_image(target_x=target_x, font_size=14, row_count=row_count, selected=True)
+    ImageDraw.Draw(image).rectangle((0, 0, image.width, 70), fill='white')
+    table = TableText.parse('\n'.join('\t'.join(row) for row in source.rows), header=False)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        focus = pool.submit(table_focus_point, image, 'sutun_3', header=False,
+                            ocr_options={'engine': 'system'}).result(timeout=45)
+        for row, (left, top, right, bottom) in enumerate(bounds):
+            assert table.column('sutun_3') == 2
+            cell = pool.submit(locate_image, image, table, row, 2, reference_point=focus,
+                               ocr_options={'engine': 'system'}).result(timeout=45)
+            assert left <= cell.point[0] <= right
+            assert top - 2 <= cell.point[1] <= bottom + 2

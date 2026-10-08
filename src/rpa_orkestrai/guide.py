@@ -259,10 +259,11 @@ GUIDES = {
          "Satır 1, Yazılacak sütun Durum, Yazılacak değer Tamamlandı: ilk veri satırının Durum hücresini değiştirir.",
          "Bu adımı test et → Yeri göster ile hücrenin güncel yerini kontrol edin; Gerçekten çalıştır ile yazın."],
         "Seçilen hücreye yazılan değer kontrol edilir.",
-        "Tablo alanını bir kez tanıtın; hücreye nokta seçmeniz gerekmez. Yazılacak hücreyi satır ve sütun adı belirler. "
-        "Yeni adımlarda sütun adı gerekir; "
-        "sütun numarası kabul edilmez. Başlık ve mevcut hücre metni her çalışmada yeniden bulunur; sütun genişliği "
-        "değişebilir. Tablo başlıklarıyla kopyalanabilmeli, başlık ve dolu hedef hücre bütünüyle görünmelidir. "
+        "Tablo alanını bir kez tanıtın; sütun adı, sutun_2 veya 2 kullanın. Okuma adımından aktar ile çalışan "
+        "okuma adımının pencere, başlık, satır ve sütun ayarlarını alabilirsiniz. Yalnız veriler kopyalanıyorsa "
+        "İlk satır sütun başlıklarıdır seçeneğini kapatın. Hücre, mevcut değer ve aynı kaydı ayırt eden başka bir "
+        "görünür değerle her çalışmada yeniden bulunur; başlık zorunlu değildir. Sütun numarası kopyalanan "
+        "verinin sırasını belirtir; boş/kutucuk sütunlarını da sayar. "
         "Yeri göster tabloya tıklayıp kopyalar; değer yazmaz. Eski adımlar uygulamanın tablo yapısını kullanır. "
         "Sırası değişen kayıtlarda Diğer seçenekler → Benzersiz değeri bul seçin. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(

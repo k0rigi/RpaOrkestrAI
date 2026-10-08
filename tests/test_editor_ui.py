@@ -1939,7 +1939,7 @@ def test_table_write_screen_conversion_preserves_values_and_native_compatibility
             playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
             assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"] == original
 
-            page.get_by_role("button", name="Sütun başlığıyla yazmaya geç", exact=True).click()
+            page.get_by_role("button", name="Tabloyu okuyarak yazmaya geç", exact=True).click()
             playwright.expect(page.get_by_label("Yazma yöntemi", exact=False)).to_have_value("screen")
             playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_count(0)
             playwright.expect(page.get_by_label("Pencere içi X", exact=False)).to_have_count(0)
@@ -1980,7 +1980,7 @@ def test_table_write_screen_conversion_preserves_values_and_native_compatibility
 
             # Old reference parameters survive conversion, but screen writing only uses the drawn area.
             page.locator('[data-step-id="reference"]').click()
-            page.get_by_role("button", name="Sütun başlığıyla yazmaya geç", exact=True).click()
+            page.get_by_role("button", name="Tabloyu okuyarak yazmaya geç", exact=True).click()
             playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_count(0)
             draw_table_region()
             page.get_by_role("button", name="Kaydet", exact=True).click()
@@ -2000,5 +2000,65 @@ def test_table_write_screen_conversion_preserves_values_and_native_compatibility
             assert "edit_mode" not in new
             assert "target_mode" not in new and "x" not in new and "y" not in new and "relative_to" not in new
             assert captures == [{"application": "Test Application", "title": "Records", "match": "exact"}] * 3
+            assert not errors
+            browser.close()
+
+
+@pytest.mark.parametrize('header,other_window', [(False, False), (True, True)])
+def test_table_write_imports_working_reader_settings_without_changing_new_value(tmp_path, header, other_window):
+    from fastapi.testclient import TestClient
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    playwright = pytest.importorskip('playwright.sync_api')
+    target_window = '${other_window}' if other_window else '${records_window}'
+    with TestClient(create_app(Settings(tmp_path / 'data', dotenv=False))) as client:
+        response = client.post('/api/workflows', json={'name': 'Okumadan yazmaya', 'steps': [
+            {'id': 'window', 'action': 'desktop.find_window', 'params': {
+                'application': 'Test App', 'title': 'Records', 'output': 'records_window'}},
+            {'id': 'other', 'action': 'desktop.find_window', 'params': {
+                'application': 'Test App', 'title': 'Other', 'output': 'other_window'}},
+            {'id': 'reader', 'action': 'window.read_table', 'params': {
+                'window': target_window, 'target_mode': 'coordinates', 'x': 50, 'y': 100,
+                'mode': 'value', 'row': 2, 'column': 'sutun_3', 'header': header}},
+            {'id': 'writer', 'action': 'window.write_table', 'params': {
+                'window': '${records_window}', 'write_method': 'screen', 'region': [0, 20, 800, 300],
+                'row_mode': 'match', 'match_column': 'Code', 'match_value': 'A125',
+                'column': 'Status', 'row': 1, 'header': not header, 'value': 'NEW VALUE'}},
+        ]})
+        assert response.status_code == 201
+        workflow_id = response.json()['id']
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={'width': 980, 'height': 720})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                result = client.request(request.method, urlsplit(request.url).path,
+                                        content=request.post_data_buffer, headers={'content-type': 'application/json'})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route('http://127.0.0.1:8765/**', handle)
+            page.goto('http://127.0.0.1:8765/')
+            page.get_by_role('button', name='Okumadan yazmaya', exact=True).click()
+            page.locator('[data-step-id="writer"]').click()
+            page.get_by_role('button', name='Okuma adımından aktar', exact=True).click()
+            playwright.expect(page.get_by_label('Yazılacak sütun', exact=False)).to_have_value('sutun_3')
+            playwright.expect(page.get_by_label('Yazılacak değer', exact=False)).to_have_value('NEW VALUE')
+            check = page.get_by_label('İlk satır sütun başlıklarıdır', exact=False)
+            assert check.is_checked() is header
+            page.get_by_role('button', name='Kaydet', exact=True).click()
+            playwright.expect(page.locator('#saved-label')).to_contain_text('kaydedildi')
+            params = client.get(f'/api/workflows/{workflow_id}').json()['steps'][3]['params']
+            assert params['window'] == target_window and params['row'] == 2
+            assert params['column'] == 'sutun_3' and params['value'] == 'NEW VALUE'
+            assert ('header' not in params) if header else params['header'] is False
+            assert not any(k in params for k in ('row_mode', 'match_column', 'match_value'))
+            if other_window:
+                assert 'region' not in params
+            else:
+                assert params['region'] == [0, 20, 800, 300]
             assert not errors
             browser.close()

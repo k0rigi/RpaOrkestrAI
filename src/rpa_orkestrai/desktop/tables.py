@@ -10,26 +10,25 @@ import platform
 from collections import deque
 
 from .elements import MAC_DEPTH_LIMIT, MAC_ELEMENT_LIMIT, WINDOWS_ELEMENT_LIMIT, AxElements, UiaElements
+from .table_columns import numbered_column, resolve_column
 from .windows import WindowError
 
 LIMIT = 10_000
 UNSUPPORTED = ("Bu uygulama tablonun hücrelerine doğrudan yazmayı desteklemiyor. "
-               "Alanı doldur adımıyla yazılacak alanı ekrandan seçebilirsiniz.")
+               "Tabloyu okuyarak ekranda bul yöntemini kullanıp tablo alanını çizebilirsiniz.")
 
 
 def column_index(names, wanted):
     wanted = wanted.strip()
+    # Preserve native numeric selectors; named aliases share the clipboard rules.
     if wanted.isdecimal():
-        index = int(wanted) - 1
-        if 0 <= index < len(names):
+        index = numbered_column(wanted)
+        if index is not None and index < len(names):
             return index
-    else:
-        matches = [i for i, name in enumerate(names) if name.strip().casefold() == wanted.casefold()]
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            raise WindowError("Birden fazla sütun bu başlığa sahip. Sütun numarası kullanın.")
-    raise WindowError(f"“{wanted}” sütunu bulunamadı. Başlığı kontrol edin veya 1'den başlayan sütun numarası kullanın.")
+    try:
+        return resolve_column([name.strip() for name in names], wanted)
+    except ValueError as exc:
+        raise WindowError(str(exc)) from exc
 
 
 def resolve_cell(backend, window, *, table, row_mode, row, column, match_column, match_value, check, point=None):

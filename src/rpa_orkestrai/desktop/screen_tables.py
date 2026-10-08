@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, replace
 
 from .ocr import OcrUnavailable, read_words
+from .table_columns import column_names, numbered_column, resolve_column
 from .windows import WindowError
 
 
@@ -33,26 +34,27 @@ def header_key(text):
 class TableText:
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
+    has_header: bool = True
+
+    @property
+    def names(self):
+        return column_names(self.headers, len(self.headers))
 
     @classmethod
-    def parse(cls, text):
+    def parse(cls, text, *, header=True):
         lines = str(text).replace("\r\n", "\n").replace("\r", "\n").strip("\n").split("\n")
         cells = tuple(tuple(cell.strip() for cell in line.split("\t")) for line in lines)
-        if (len(cells) < 2 or len(cells) > 10_001 or not 2 <= len(cells[0]) <= 1000
-                or sum(bool(c) for c in cells[0]) < 2 or any(len(row) != len(cells[0]) for row in cells)):
-            raise WindowError("Tablo başlıkları ve satırları birlikte kopyalanamadı. Tabloyu okuma adımındaki gibi "
-                              "bir veri hücresinden seçin; uygulamanın başlıklarla birlikte kopyalamayı desteklemesi gerekir.")
-        return cls(cells[0], cells[1:])
+        if (len(cells) < (2 if header else 1) or len(cells) > 10_000 + int(header)
+                or not 2 <= len(cells[0]) <= 1000 or any(len(row) != len(cells[0]) for row in cells)):
+            raise WindowError("Tablo, satır ve sütunlarıyla kopyalanamadı. Yalnız veri kopyalanıyorsa "
+                              "İlk satır sütun başlıklarıdır seçeneğini kapatın; okuma adımıyla aynı ayarı kullanın.")
+        return cls(cells[0] if header else ("",) * len(cells[0]), cells[1:] if header else cells, header)
 
     def column(self, value):
-        wanted = normalized(value)
-        matches = [i for i, title in enumerate(self.headers) if normalized(title) == wanted]
-        if not matches and wanted.isdecimal() and 1 <= int(wanted) <= len(self.headers):
-            matches = [int(wanted) - 1]
-        if len(matches) != 1:
-            raise WindowError("Sütun başlığı bulunamadı veya birden fazla sütunda aynı başlık var. "
-                              "Başlığı kontrol edin ya da sütun numarasını kullanın.")
-        return matches[0]
+        try:
+            return resolve_column(self.names, value)
+        except ValueError as exc:
+            raise WindowError(str(exc)) from exc
 
     def select(self, *, row_mode, row, column, match_column, match_value, **unused):
         col = self.column(column)
@@ -66,8 +68,8 @@ class TableText:
             index = row - 1
             if not 0 <= index < len(self.rows):
                 raise WindowError(f"Tabloda {len(self.rows)} satır var; {row}. satır bulunamadı.")
-        if not self.rows[index][col] or not self.headers[col]:
-            raise WindowError("Başlığa göre yazmada sütun başlığı ve mevcut hücre metni görünür ve dolu olmalıdır. "
+        if not self.rows[index][col]:
+            raise WindowError("Ekrandan bulmada mevcut hücre metni görünür ve dolu olmalıdır. "
                               "Boş hücre için uygulamanın tablo yapısı yöntemini kullanın.")
         return index, col
 
@@ -152,9 +154,12 @@ class LocatedCell:
     text: Box
     witness_header: Box
     witness_text: Box
+    has_headers: bool = True
 
     @property
     def point(self):
+        if not self.has_headers:
+            return self.text.center
         # The intersection is actual header/text evidence, not inferred cell bounds.
         return ((max(self.header.x, self.text.x) + min(self.header.right, self.text.right)) / 2,
                 self.text.center[1])
@@ -261,12 +266,82 @@ def locate_cell(words, table, row, column, *, reference_point=None):
     return next(iter(found.values()))
 
 
+def locate_by_values(words, table, row, column):
+    """Bind actual text boxes to an unambiguous pair in the copied matrix.
+
+    No cell width, row height, visible column count or header text is assumed.
+    A witness must be a whole single-word cell: otherwise OCR could join words
+    from neighboring columns into a different record's multiword value.
+    Substrings in *every* row/column are considered competing interpretations.
+    """
+    phrases = Phrases(words)
+    value = normalized(table.rows[row][column])
+    cells = [(r, c, normalized(text)) for r, record in enumerate(table.rows)
+             for c, text in enumerate(record) if text]
+    if table.has_header:
+        cells.extend((-1, c, normalized(text)) for c, text in enumerate(table.headers) if text)
+    cache = {}
+
+    def occurrences(term):
+        if term not in cache:
+            result = {}
+            for r, c, content in cells:
+                # A clipped cell can expose only a prefix/suffix, including
+                # part of a record code (A125 inside A12599).
+                if term in content:
+                    result.setdefault(r, []).append((c, content == term))
+            cache[term] = result
+        return cache[term]
+
+    found = {}
+    targets = phrases.find(value)
+    if not value or not targets:
+        raise WindowError("Yazılacak hücrenin mevcut değeri ekranda okunamadı; yazılmadı.")
+    sources = occurrences(value)
+    for index, text in enumerate(table.rows[row]):
+        witness = normalized(text)
+        if index == column or not witness or " " in witness or witness == value:
+            continue
+        witness_boxes = phrases.find(witness)
+        if not witness_boxes:
+            continue
+        direction = 1 if index > column else -1
+        alternatives = set()
+        for r, witnesses in occurrences(witness).items():
+            for c, target_exact in sources.get(r, []):
+                for w, witness_exact in witnesses:
+                    if c == w or (w - c) * direction > 0:
+                        alternatives.add((r, c, w, target_exact, witness_exact))
+                        if len(alternatives) > 1:
+                            break
+                if len(alternatives) > 1:
+                    break
+            if len(alternatives) > 1:
+                break
+        if alternatives != {(row, column, index, True, True)}:
+            continue
+        for target in targets:
+            for other in witness_boxes:
+                if (same_line(target, other) and overlap_x(target, other) <= 0
+                        and (other.x - target.x) * direction > 0):
+                    found.setdefault(target, LocatedCell(target, target, other, other, has_headers=False))
+    if len(found) > 1:
+        raise AmbiguousTable("Seçilen alanda aynı satır birden fazla yerde eşleşti; yalnız bir tablo seçin.")
+    if not found:
+        raise WindowError("Hücre, tablodaki diğer değerlerle tek bir satır ve sütuna bağlanamadı. "
+                          "Hedef hücreyi ve kaydı ayırt eden başka bir hücreyi görünür yapın; yazılmadı.")
+    return next(iter(found.values()))
+
+
 def same_location(before, after):
     # OCR floats can change by a pixel, especially when text becomes selected.
     # Require measured overlap of all four pieces of evidence and their centers
     # to remain inside each other's text boxes; permit no row/column jump.
-    for old, new in zip((before.header, before.text, before.witness_header, before.witness_text),
-                        (after.header, after.text, after.witness_header, after.witness_text)):
+    previous, current = (before.text, before.witness_text), (after.text, after.witness_text)
+    if before.has_headers and after.has_headers:
+        previous += (before.header, before.witness_header)
+        current += (after.header, after.witness_header)
+    for old, new in zip(previous, current):
         if (not same_line(old, new) or overlap_x(old, new) < .5 * min(old.width, new.width)
                 or abs(old.center[0] - new.center[0]) > min(old.width, new.width) / 2):
             return False
@@ -286,17 +361,31 @@ def measured_words(image, preparation, *, vocabulary, ocr_options):
     return [replace(w, x=w.x / 2, y=w.y / 2, width=w.width / 2, height=w.height / 2) for w in words]
 
 
-def table_focus_point(image, column, *, ocr_options=None):
+def table_focus_point(image, column, *, ocr_options=None, header=True):
     """Find actual data text inside the one table rectangle; no saved point."""
-    if str(column).strip().isdecimal():
-        raise WindowError("Sütun başlığıyla yazmada sütun numarası yerine başlığını yazın.")
+    fallback = None
     for preparation in range(3):
         words = measured_words(image, preparation, vocabulary=(str(column),), ocr_options=ocr_options)
         phrases = Phrases(words)
-        headers = phrases.find(column, heading=True)
+        headers = [] if numbered_column(column) is not None else phrases.find(column, heading=True)
         if len(headers) > 1:
             raise AmbiguousTable("Seçilen alanda aynı sütun başlığı birden fazla yerde var. Yalnız bir tablo seçin.")
         if not headers:
+            # The rectangle is explicitly one table. Two aligned text bands
+            # provide a real copy point below the top band, even if the copied
+            # table supplies no names. This point never authorizes a write.
+            bands = [line for line in phrases.lines if len(line) >= 2]
+            for top in bands:
+                for line in bands:
+                    if min(b.y for _, b in line) <= max(b.bottom for _, b in top):
+                        continue
+                    aligned = [(s, b) for s, b in line if len(s) >= 2 and any(overlap_x(b, h) >= 2 for _, h in top)]
+                    if len(aligned) >= 2 and fallback is None:
+                        fallback = min(aligned, key=lambda item: item[1].x)[1].center
+            if not header and len(bands) == 1 and fallback is None:
+                values = [(s, b) for s, b in bands[0] if len(s) >= 2]
+                if len(values) >= 2:
+                    fallback = min(values, key=lambda item: item[1].x)[1].center
             continue
         header = headers[0]
         header_words = [Box(w.x, w.y, w.width, w.height) for w in words if w.confidence >= .8
@@ -312,6 +401,8 @@ def table_focus_point(image, column, *, ocr_options=None):
                 # Use actual text rather than row selectors/checkboxes or the
                 # potentially moved destination column's previous coordinate.
                 return min((b for b in candidates if same_line(first, b)), key=lambda b: b.x).center
+    if fallback is not None:
+        return fallback
     raise WindowError("Seçilen tablo alanında sütun başlığı ve okunabilir veri satırı bulunamadı; tıklanmadı. "
                       "Tablo alanını başlıkları ve veri satırlarını kapsayacak şekilde çizin.")
 
@@ -322,7 +413,14 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
         words = measured_words(image, preparation, vocabulary=(*table.headers, *table.rows[row]),
                                ocr_options=ocr_options)
         try:
-            return locate_cell(words, table, row, column, reference_point=reference_point)
+            try:
+                return locate_by_values(words, table, row, column)
+            except AmbiguousTable:
+                raise
+            except WindowError:
+                if not table.has_header or not table.headers[column]:
+                    raise
+                return locate_cell(words, table, row, column, reference_point=reference_point)
         except AmbiguousTable:
             raise
         except WindowError:
@@ -331,7 +429,7 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
 
 
 def screen_table_cell(service, target, desktop, *, region, selection, value=None, ocr_options=None,
-                      edit_mode="double_click"):
+                      edit_mode="double_click", header=True, report=None):
     """Copy -> locate -> check editor -> paste once -> verify the full table."""
     import pyperclip
 
@@ -381,7 +479,7 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
             guard()
             desktop.hotkey("mod", "a")
             guard()
-            return TableText.parse(copy_selection())
+            return TableText.parse(copy_selection(), header=header)
 
         def locate(table, row, col):
             guard()
@@ -397,11 +495,14 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
         if captured_window != window:
             raise WindowError("Pencere değişti; yazılmadı.")
         reference_point = table_focus_point(image.crop((left, top, left + width, top + height)),
-                                            selection["column"], ocr_options=ocr_options)
+                                            selection["column"], ocr_options=ocr_options, header=header)
         table_point = service._point_in_window(window, left + reference_point[0], top + reference_point[1], desktop)
         guard()
         table = copy_table(table_point)
         row, col = table.select(**selection)
+        if report:
+            report({"rows": len(table.rows), "columns": table.names, "row": row + 1,
+                    "column": col + 1, "current_value": table.rows[row][col], "header": header})
         location = locate(table, row, col)
         point = service._point_in_window(window, left + location.point[0], top + location.point[1], desktop)
         if value is None:
@@ -433,7 +534,7 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
         pause()
         expected_rows = [list(r) for r in table.rows]
         expected_rows[row][col] = value
-        expected = TableText(table.headers, tuple(tuple(r) for r in expected_rows))
+        expected = TableText(table.headers, tuple(tuple(r) for r in expected_rows), table.has_header)
         # Pasting may resize columns; locate the new text again before copying.
         new_location = locate(expected, row, col)
         new_point = service._point_in_window(window, left + new_location.point[0], top + new_location.point[1], desktop)

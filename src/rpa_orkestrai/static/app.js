@@ -3759,7 +3759,7 @@
       controls.append(locateButton, runButton, cancelButton);
       if (plan.locatable)
         body.append(node("p", "help", screenTable
-          ? "Yeri göster, tabloya tıklayıp içeriğini kopyalar ve başlıkla bulunan hücreyi gösterir. Hücreye değer yazmaz; pano geri yüklenir."
+          ? "Yeri göster, tabloya tıklayıp içeriğini kopyalar; seçilen satırı, sütunu ve mevcut değeri test günlüğünde gösterir. Hücreye değer yazmaz; pano geri yüklenir."
           : "Yeri göster, pencereyi öne getirip fareyi hedefin üzerine götürür. Doğru yerdeyse hedef doğru seçilmiştir."));
       body.append(previewLabel, controls, result);
       let current = null, timer = null;
@@ -4997,15 +4997,55 @@
     const tableAdvanced = new Set(["write_method", "edit_mode", "table", "row_mode", "match_column", "match_value", "confidence", "timeout", "offset_x", "offset_y", "output"]);
     if (step.action === "window.write_table") {
       const screenTable = parameterValue(step, "write_method") === "screen";
-      if (screenTable) pane.append(note("Tablo alanını çiz → satırı belirt → sütun başlığını yaz → yeni değeri gir. Sütun genişliği veya yeri değişse de hücre seçilen alan içinde yeniden bulunur. Başlık ve mevcut hücre metni tam görünmeli; tablo başlıklarıyla kopyalanabilmelidir."));
+      if (screenTable) {
+        pane.append(note("Tablo alanını çiz → satırı belirt → sütun adı, sutun_2 veya 2 yaz → yeni değeri gir. Hücre, kopyalanan verilerden ekranda yeniden bulunur. Başlık kopyalanmıyorsa İlk satır sütun başlıklarıdır seçeneğini kapatın."));
+        const sources = allSteps(state.workflow.steps).filter((item) => item.action === "window.read_table");
+        if (sources.length) {
+          const picker = node("select");
+          picker.setAttribute("aria-label", "Ayarları alınacak okuma adımı");
+          sources.forEach((item, index) => {
+            const detail = parameterValue(item, "mode") === "count" ? "Satır sayısı"
+              : `${parameterValue(item, "column") || "Sütun belirtilmemiş"} · Satır ${parameterValue(item, "row")}`;
+            const option = node("option", "", `${index + 1}. ${item.title || "Tablodan değer oku"} · ${detail}`);
+            option.value = item.id;
+            picker.append(option);
+          });
+          const nearest = (precedingSteps(step.id) || []).slice().reverse().find((item) =>
+            item.action === "window.read_table" && JSON.stringify(parameterValue(item, "window")) === JSON.stringify(parameterValue(step, "window")));
+          if (nearest) picker.value = nearest.id;
+          const transfer = node("div", "loop-help");
+          transfer.append(field("Çalışan okuma adımı", picker,
+            "Seçtiğiniz adımın pencere, başlık, satır ve sütun ayarlarını alır. Yeni değer korunur; tablo alanını kontrol edin."),
+          button("Okuma adımından aktar", "copy", () => {
+            const source = sources.find((item) => item.id === picker.value);
+            if (!source) return;
+            const previousWindow = JSON.stringify(parameterValue(step, "window"));
+            step.params.window = clone(parameterValue(source, "window"));
+            if (previousWindow !== JSON.stringify(step.params.window)) delete step.params.region;
+            if (parameterValue(source, "header") === false) step.params.header = false;
+            else delete step.params.header;
+            if (parameterValue(source, "mode") !== "count") {
+              step.params.row = clone(parameterValue(source, "row"));
+              step.params.column = clone(parameterValue(source, "column"));
+              delete step.params.row_mode;
+              delete step.params.match_column;
+              delete step.params.match_value;
+            }
+            markDirty();
+            renderInspector();
+            toast("Okuma ayarları aktarıldı. Yazılacak değeri ve tablo alanını kontrol edin.");
+          }, "small"));
+          pane.append(transfer);
+        }
+      }
       else {
         const conversion = node("div", "loop-help");
         conversion.append(note("Bu adım uygulamanın sunduğu tablo yapısıyla çalışıyor. Sütun başlığı ve ekrandaki metinle hücre bulmak için yöntemi değiştirebilirsiniz."),
-          button("Sütun başlığıyla yazmaya geç", "sheet", () => {
+          button("Tabloyu okuyarak yazmaya geç", "sheet", () => {
             step.params.write_method = "screen";
             markDirty();
             renderInspector();
-            toast("Değerler korundu. Tablo alanını bir kez çizin; yazılacak sütunun adını belirtin.");
+            toast("Değerler korundu. Tablo alanını bir kez çizin; sütun adı, sutun_2 veya numara kullanabilirsiniz.");
           }, "small"));
         pane.append(conversion);
       }

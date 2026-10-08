@@ -57,7 +57,7 @@ def _check_ocr_and_tables(folder: Path) -> None:
         for x, header, value in [(20, "Code", "A125"), (260, "Status", "READY"), (520, "Count", "1")]:
             draw.text((x, 20), header, fill="black", font=table_font)
             draw.text((x, 85), value, fill="black", font=table_font)
-        table = TableText.parse("Code\tStatus\tCount\nA125\tREADY\t1")
+        table = TableText.parse("A125\tREADY\t1", header=False)
         cell = locate_image(table_image, table, 0, 1, reference_point=(40, 100),
                             ocr_options={"engine": "system"})
         if not (260 <= cell.point[0] < 400 and 85 <= cell.point[1] < 130):
