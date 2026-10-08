@@ -21,6 +21,14 @@ def normalized(text):
     return " ".join(str(text).replace("İ", "i").replace("I", "i").replace("ı", "i").casefold().split())
 
 
+def header_key(text):
+    # Windows English OCR reads Turkish dotted/dotless I as i, l or j.
+    # This key is ONLY for headings, which are checked against the complete
+    # clipboard schema. Cell values and row witnesses keep exact matching.
+    words = normalized(text).replace("l", "i").split()
+    return " ".join("i" + word[1:] if word.startswith("j") else word for word in words)
+
+
 @dataclass(frozen=True)
 class TableText:
     headers: tuple[str, ...]
@@ -94,7 +102,7 @@ def overlap_x(a, b):
 
 
 class Phrases:
-    """Exact phrases made of adjacent, aligned words; never fuzzy OCR text."""
+    """Adjacent, aligned words; optical aliases are restricted to headings."""
     def __init__(self, words):
         if len(words) > 8000:
             raise WindowError("Ekranda çok fazla metin var; hedef tabloyu ayrı bir pencerede açın.")
@@ -111,11 +119,13 @@ class Phrases:
         for line in self.lines:
             line.sort(key=lambda item: item[1].x)
 
-    def find(self, text):
-        wanted = normalized(text)
+    def find(self, text, *, heading=False):
+        key = header_key if heading else normalized
+        wanted = key(text)
         if not wanted:
             return []
-        if wanted not in self.cache:
+        cache_key = (heading, wanted)
+        if cache_key not in self.cache:
             result = []
             for line in self.lines:
                 for start in range(len(line)):
@@ -123,7 +133,7 @@ class Phrases:
                     for word, box in line[start:]:
                         if boxes and box.x - boxes[-1].right > 4 * max(box.height, boxes[-1].height):
                             break
-                        assembled = (assembled + " " + word).strip()
+                        assembled = (assembled + " " + key(word)).strip()
                         if not wanted.startswith(assembled):
                             break
                         boxes.append(box)
@@ -132,8 +142,8 @@ class Phrases:
                             result.append(Box(x, y, max(b.right for b in boxes) - x,
                                               max(b.bottom for b in boxes) - y, len(boxes)))
                             break
-            self.cache[wanted] = result
-        return self.cache[wanted]
+            self.cache[cache_key] = result
+        return self.cache[cache_key]
 
 
 @dataclass(frozen=True)
@@ -153,9 +163,9 @@ class LocatedCell:
 def header_groups(phrases, table):
     entries = []
     for index, title in enumerate(table.headers):
-        if not title or sum(normalized(h) == normalized(title) for h in table.headers) != 1:
+        if not title or sum(header_key(h) == header_key(title) for h in table.headers) != 1:
             continue
-        entries.extend((index, box) for box in phrases.find(title))
+        entries.extend((index, box) for box in phrases.find(title, heading=True))
     bands = []
     for item in sorted(entries, key=lambda e: (e[1].y, e[1].x)):
         matches = [band for band in bands if all(same_line(item[1], entry[1]) for entry in band)]
@@ -181,14 +191,14 @@ def locate_cell(words, table, row, column, *, reference_point=None):
     phrases = Phrases(words)
     value = table.rows[row][column]
     heading = table.headers[column]
-    if sum(normalized(h) == normalized(heading) for h in table.headers) != 1:
-        raise WindowError("Ekrandaki sütun başlığı benzersiz değil; hücre güvenle bulunamadı.")
+    if sum(header_key(h) == header_key(heading) for h in table.headers) != 1:
+        raise AmbiguousTable("Tabloda aynı veya optik olarak ayırt edilemeyen sütun başlıkları var; yazılmadı.")
     # A second cell in the same row must distinguish this record in the full
     # clipboard table. Counting OCR lines would confuse scrolling with row index.
     witnesses = []
     for index, current in enumerate(table.rows[row]):
         title = table.headers[index]
-        if index == column or not current or not title or sum(normalized(h) == normalized(title)
+        if index == column or not current or not title or sum(header_key(h) == header_key(title)
                                                              for h in table.headers) != 1:
             continue
         signature = (normalized(value), normalized(current))
@@ -283,7 +293,7 @@ def table_focus_point(image, column, *, ocr_options=None):
     for preparation in range(3):
         words = measured_words(image, preparation, vocabulary=(str(column),), ocr_options=ocr_options)
         phrases = Phrases(words)
-        headers = phrases.find(column)
+        headers = phrases.find(column, heading=True)
         if len(headers) > 1:
             raise AmbiguousTable("Seçilen alanda aynı sütun başlığı birden fazla yerde var. Yalnız bir tablo seçin.")
         if not headers:

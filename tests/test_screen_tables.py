@@ -10,10 +10,12 @@ from rpa_orkestrai.actions.windows import table_operation, write_table
 from rpa_orkestrai.desktop.ocr import OcrWord
 from rpa_orkestrai.desktop.screen_tables import (
     AmbiguousTable,
+    Phrases,
     TableText,
     locate_cell,
     locate_image,
     screen_table_cell,
+    table_focus_point,
 )
 from rpa_orkestrai.desktop.windows import WindowError, WindowInfo, WindowService
 from rpa_orkestrai.errors import WorkflowError
@@ -48,6 +50,42 @@ def test_single_row_uses_another_visible_cell_to_confirm_identity():
     table = TableText(TABLE.headers, TABLE.rows[:1])
     result = locate_cell(grid_words()[:7], table, 0, 1, reference_point=(30, 55))
     assert result.point[1] == 56
+
+
+@pytest.mark.parametrize("title", ["İade", "Jade", "lade"])
+def test_heading_optical_aliases_do_not_relax_cell_text_matching(title):
+    words = [replace(w, text=title) if w.text == "İade" else
+             replace(w, text="Sonrasl") if w.text == "Sonrası" else w for w in grid_words()]
+    assert locate_cell(words, TABLE, 0, 1, reference_point=(30, 55)).point[1] == 56
+    # The same optical substitutions are not allowed in a record's actual value.
+    words = [replace(w, text="ARIZAJILAR") if w.text == "ARIZALILAR" else w for w in words]
+    with pytest.raises(WindowError):
+        locate_cell(words, TABLE, 0, 1, reference_point=(30, 55))
+
+
+@pytest.mark.parametrize("titles", [("Alan I", "Alan l"), ("İade", "Jade")])
+def test_optically_colliding_clipboard_headers_rejected_even_when_exact_visible(titles):
+    table = TableText(("Kod", *titles), (("A125", "ESKI", "ESKI"),))
+    words = [word("Kod", 20, 20), word(titles[0], 150, 20), word(titles[1], 350, 20),
+             word("A125", 20, 50), word("ESKI", 150, 50), word("ESKI", 350, 50)]
+    with pytest.raises(AmbiguousTable, match="ayırt edilemeyen"):
+        locate_cell(words, table, 0, 1, reference_point=(30, 55))
+
+
+def test_heading_cache_cannot_supply_a_cell_value_match():
+    phrases = Phrases([word("Sonrasl", 20, 20)])
+    assert phrases.find("Sonrası", heading=True)
+    assert phrases.find("Sonrası") == []
+    assert phrases.find("Sonrasl")
+    assert Phrases([word("Proje", 20, 20)]).find("Proie", heading=True) == []
+    assert Phrases([word("Alan1", 20, 20)]).find("AlanI", heading=True) == []
+
+
+def test_focus_rejects_exact_and_optical_heading_candidates_together(monkeypatch):
+    words = grid_words() + [word("Jade", 550, 20), word("Sonrasl", 585, 20)]
+    monkeypatch.setattr("rpa_orkestrai.desktop.screen_tables.measured_words", lambda *a, **kw: words)
+    with pytest.raises(AmbiguousTable):
+        table_focus_point(Image.new("RGB", (900, 500)), "İade Sonrası")
 
 
 def test_reference_binds_to_source_table_not_identical_neighbor():
