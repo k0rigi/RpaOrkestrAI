@@ -8,11 +8,50 @@ from unittest.mock import Mock
 
 import pytest
 
-from rpa_orkestrai.desktop.elements import ElementInfo, ElementService, validate_locator
+from rpa_orkestrai.desktop.elements import (
+    AxElements,
+    ElementInfo,
+    ElementService,
+    UiaElements,
+    validate_locator,
+)
 from rpa_orkestrai.desktop.windows import WindowError, WindowInfo, WindowService
 
 SYSTEM = platform.system()
 WINDOW = WindowInfo(7, 42, "ERP", "İade Faturası", 100, 80, 800, 600)
+
+
+@pytest.mark.parametrize("changed", [{"CurrentProcessId": 99}, {"CurrentHasKeyboardFocus": False},
+                                     {"CurrentIsEnabled": False}])
+def test_windows_focused_editor_rejects_wrong_process_or_focus(changed):
+    backend = object.__new__(UiaElements)
+    element = SimpleNamespace(**{"CurrentControlType": 50004, "CurrentProcessId": 42,
+                                 "CurrentHasKeyboardFocus": True, "CurrentIsEnabled": True, **changed})
+    backend._context = lambda: (SimpleNamespace(GetFocusedElement=lambda: element), None, None)
+    with pytest.raises(WindowError, match="odağı"):
+        backend.focused_editor(WINDOW)
+
+
+@pytest.mark.parametrize("role,focused,enabled,writable", [("AXTextField", True, True, True),
+    ("AXTextArea", True, True, True), ("AXTable", True, True, True),
+    ("AXTextField", False, True, True), ("AXTextField", True, False, True),
+    ("AXTextField", True, True, False)])
+def test_mac_focused_editor_requires_writable_focused_text(role, focused, enabled, writable):
+    backend = object.__new__(AxElements)
+    backend.ax = SimpleNamespace(AXUIElementIsAttributeSettable=Mock(return_value=(0, writable)))
+    editor = field(role=role, value="OLD")
+    backend._application = Mock(return_value="app")
+    backend._attribute = lambda element, name: {"AXFocusedUIElement": "editor", "AXRole": role,
+                                                "AXFocused": focused, "AXEnabled": enabled}[name]
+    backend._info = Mock(return_value=editor)
+    if role == "AXTable":
+        assert backend.focused_editor(WINDOW) is None
+    elif not (focused and enabled and writable):
+        with pytest.raises(WindowError):
+            backend.focused_editor(WINDOW)
+    else:
+        assert backend.focused_editor(WINDOW) == editor
+    backend._application.assert_called_once_with(WINDOW)
 
 
 def field(**values):

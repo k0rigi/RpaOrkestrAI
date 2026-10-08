@@ -15,7 +15,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .windows import WindowError, WindowInfo
@@ -166,6 +166,10 @@ class ElementService:
         return [info for info in self.backend.elements(window, locator["role"] or None)
                 if info.usable_in(window) and matches(info, locator)]
 
+    def focused_editor(self, window: WindowInfo) -> ElementInfo | None:
+        """Read the actual focused text editor, without addressing or writing a grid."""
+        return self.backend.focused_editor(window)
+
     def describe_at(self, window: WindowInfo, x: int, y: int) -> dict:
         """Locator for the field at a screen point, or the reason none is usable."""
         try:
@@ -311,6 +315,30 @@ class UiaElements:
         except OSError as exc:
             raise WindowError("uygulama penceresinin alanları okunamadı. Pencere kapanmış veya yanıt vermiyor olabilir.") from exc
 
+    def focused_editor(self, window: WindowInfo) -> ElementInfo | None:
+        automation, request, _ = self._context()
+        try:
+            element = automation.GetFocusedElement()
+            if not element or int(element.CurrentControlType) != 50004:
+                return None
+            if (int(element.CurrentProcessId) != window.pid or not element.CurrentHasKeyboardFocus
+                    or not element.CurrentIsEnabled):
+                raise WindowError("Düzenleme alanının odağı değişti; yazılmadı.")
+            from comtypes.gen.UIAutomationClient import IUIAutomationValuePattern
+
+            unknown = element.GetCurrentPattern(10002)
+            if not unknown:
+                return None
+            pattern = unknown.QueryInterface(IUIAutomationValuePattern)
+            if pattern.CurrentIsReadOnly:
+                raise WindowError("Düzenleme alanı salt okunur; yazılmadı.")
+            info = self._info(element.BuildUpdatedCache(request))
+            return replace(info, value=str(pattern.CurrentValue)) if info else None
+        except OSError:
+            # Java/custom-drawn controls may not expose an editor. The caller
+            # still has to prove the target through fresh OCR in that case.
+            return None
+
     def element_at(self, window: WindowInfo, x: int, y: int) -> ElementInfo | None:
         # Hit-test the window's own tree: another window above the point (Studio,
         # the picker HUD) can never be mistaken for the uygulama field.
@@ -338,6 +366,19 @@ class AxElements:
         # A hung uygulama must not freeze the picker or a run for the 6-second default.
         self.ax.AXUIElementSetMessagingTimeout(application, 1.0)
         return application
+
+    def focused_editor(self, window: WindowInfo) -> ElementInfo | None:
+        element = self._attribute(self._application(window), "AXFocusedUIElement")
+        if element is None or self._text(element, "AXRole") not in {"AXTextField", "AXTextArea"}:
+            return None
+        if not self._attribute(element, "AXFocused") or not self._attribute(element, "AXEnabled"):
+            raise WindowError("Düzenleme alanının odağı değişti; yazılmadı.")
+        error, writable = self.ax.AXUIElementIsAttributeSettable(element, "AXValue", None)
+        if error:
+            return None
+        if not writable:
+            raise WindowError("Düzenleme alanı salt okunur; yazılmadı.")
+        return self._info(element)
 
     def _attribute(self, element: Any, name: str) -> Any:
         try:

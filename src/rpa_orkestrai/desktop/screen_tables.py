@@ -155,6 +155,7 @@ class LocatedCell:
     witness_header: Box
     witness_text: Box
     has_headers: bool = True
+    witness_column: int = -1
 
     @property
     def point(self):
@@ -257,7 +258,7 @@ def locate_cell(words, table, row, column, *, reference_point=None):
                         if (same_line(cell, other_cell) and belongs(other_cell, index, witness=True)
                                 and overlap_x(cell, other_cell) <= 0
                                 and (index - column) * (other_cell.x - cell.x) > 0):
-                            location = LocatedCell(header, cell, other_header, other_cell)
+                            location = LocatedCell(header, cell, other_header, other_cell, witness_column=index)
                             found.setdefault((header, cell), location)
     if len(found) != 1:
         error = AmbiguousTable if len(found) > 1 else WindowError
@@ -324,7 +325,8 @@ def locate_by_values(words, table, row, column):
             for other in witness_boxes:
                 if (same_line(target, other) and overlap_x(target, other) <= 0
                         and (other.x - target.x) * direction > 0):
-                    found.setdefault(target, LocatedCell(target, target, other, other, has_headers=False))
+                    found.setdefault(target, LocatedCell(target, target, other, other, has_headers=False,
+                                                        witness_column=index))
     if len(found) > 1:
         raise AmbiguousTable("Seçilen alanda aynı satır birden fazla yerde eşleşti; yalnız bir tablo seçin.")
     if not found:
@@ -346,6 +348,35 @@ def same_location(before, after):
                 or abs(old.center[0] - new.center[0]) > min(old.width, new.width) / 2):
             return False
     return True
+
+
+def editor_matches(editor, window, region, location, value):
+    """An accessible editor must cover the measured target, never the whole row."""
+    left, top, width, height = region
+    x, y = window.x + left, window.y + top
+    box, witness = location.text, location.witness_text
+    return (editor.usable_in(window) and editor.value == value
+            and x <= editor.x < editor.x + editor.width <= x + width
+            and y <= editor.y < editor.y + editor.height <= y + height
+            and editor.contains(x + box.x, y + box.y)
+            and editor.contains(x + box.right - 1, y + box.bottom - 1)
+            and (editor.x + editor.width <= x + witness.x or editor.x >= x + witness.right))
+
+
+def witness_stays(image, table, row, location, *, ocr_options):
+    if location.witness_column < 0:
+        return False
+    value = table.rows[row][location.witness_column]
+    for preparation in range(3):
+        words = measured_words(image, preparation, vocabulary=(*table.headers, *table.rows[row]),
+                               ocr_options=ocr_options)
+        matching = [box for box in Phrases(words).find(value)
+                    if same_location(location, replace(location, witness_text=box))]
+        if len(matching) > 1:
+            raise AmbiguousTable("Düzenlenen satır tek bir konumda doğrulanamadı; yazılmadı.")
+        if matching:
+            return True
+    return False
 
 
 def measured_words(image, preparation, *, vocabulary, ocr_options):
@@ -491,6 +522,37 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
             guard()
             return result
 
+        def check_editor_location():
+            # Selection/caret can turn OLD into OLP in OCR. Never fuzzy-match
+            # data: use the focused editor's actual value/bounds plus a fresh
+            # row witness, or retry fresh screenshots for a blinking caret.
+            for attempt in range(3):
+                guard()
+                editor = service.elements.focused_editor(window)
+                if editor is not None:
+                    if not editor_matches(editor, window, region, location, table.rows[row][col]):
+                        raise WindowError("Düzenlenen hücre veya satır değişti; yazılmadı.")
+                    captured, image = service._capture_window(target, desktop)
+                    guard()
+                    if (captured != window or not witness_stays(
+                            image.crop((left, top, left + width, top + height)), table, row, location,
+                            ocr_options=ocr_options) or service.elements.focused_editor(window) != editor):
+                        raise WindowError("Düzenlenen hücre veya satır değişti; yazılmadı.")
+                    guard()
+                    return
+                try:
+                    current_location = locate(table, row, col)
+                except AmbiguousTable:
+                    raise
+                except WindowError:
+                    if attempt == 2:
+                        raise
+                    pause()
+                else:
+                    if not same_location(location, current_location):
+                        raise WindowError("Düzenlenen hücre veya satır değişti; yazılmadı.")
+                    return
+
         captured_window, image = service._capture_window(target, desktop)
         if captured_window != window:
             raise WindowError("Pencere değişti; yazılmadı.")
@@ -524,8 +586,7 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
             raise WindowError("Hücre düzenlemeye açılamadı veya mevcut metin doğrulanamadı; yeni değer yazılmadı. "
                               "Diğer seçenekler altındaki hücre düzenleme yöntemini kontrol edin.")
         # A sort/reflow between the double-click and paste must not redirect input.
-        if not same_location(location, locate(table, row, col)):
-            raise WindowError("Düzenlenen hücre veya satır değişti; yazılmadı.")
+        check_editor_location()
         guard()
         attempted = True
         desktop.paste(value)

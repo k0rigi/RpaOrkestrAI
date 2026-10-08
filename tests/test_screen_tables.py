@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from rpa_orkestrai.actions.windows import table_operation, write_table
+from rpa_orkestrai.desktop.elements import ElementInfo
 from rpa_orkestrai.desktop.ocr import OcrWord
 from rpa_orkestrai.desktop.screen_tables import (
     AmbiguousTable,
@@ -152,7 +153,7 @@ def runtime(monkeypatch):
 
     window = WindowInfo(11, 42, "Application", "Records", 100, 80, 900, 500)
     backend = SimpleNamespace(list_windows=Mock(return_value=[window]), activate=Mock(), is_active=Mock(return_value=True))
-    service = WindowService(backend=backend)
+    service = WindowService(backend=backend, elements=SimpleNamespace(focused_editor=Mock(return_value=None)))
     service.cancel.wait = Mock(return_value=False)
     desktop = Mock()
     desktop.size.return_value = (1920, 1080)
@@ -323,6 +324,91 @@ def test_focus_loss_before_write_never_pastes(runtime):
         screen_table_cell(service, window.result(), desktop, value="YENI", **options)
     desktop.paste.assert_not_called()
     assert state["clipboard"] == "previous clipboard"
+
+
+@pytest.fixture
+def caret_editor(runtime, monkeypatch):
+    from rpa_orkestrai.desktop import screen_tables
+
+    service, window, desktop, state, options = runtime
+    original = screen_tables.read_words
+
+    def with_caret(*args, **kwargs):
+        words = original(*args, **kwargs)
+        if state["editor"]:
+            return [replace(w, text=w.text + "|") if w.text == state["value"] else w for w in words]
+        return words
+
+    monkeypatch.setattr(screen_tables, "read_words", with_caret)
+    editor = ElementInfo("Edit", "", "", "", 295, 125, 160, 28, value="ARIZALILAR")
+    service.elements.focused_editor.return_value = editor
+    return runtime, editor, with_caret, original
+
+
+def test_caret_ocr_error_uses_actual_editor_and_fresh_row_witness(caret_editor):
+    (service, window, desktop, state, options), _, _, _ = caret_editor
+    result = screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    assert result["value"] == "YENI"
+    desktop.paste.assert_called_once_with("YENI")
+    assert service.elements.focused_editor.call_count == 2
+
+
+@pytest.mark.parametrize("changed", [dict(x=475), dict(y=170), dict(value="OTHER"),
+                                     dict(x=110, width=345), dict(offscreen=True)])
+def test_caret_never_hides_wrong_editor(caret_editor, changed):
+    (service, window, desktop, state, options), editor, _, _ = caret_editor
+    service.elements.focused_editor.return_value = replace(editor, **changed)
+    with pytest.raises(WindowError, match="hücre veya satır değişti"):
+        screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    desktop.paste.assert_not_called()
+
+
+def test_caret_editor_changes_during_witness_check_never_pastes(caret_editor):
+    (service, window, desktop, state, options), editor, _, _ = caret_editor
+    service.elements.focused_editor.side_effect = [editor, replace(editor, y=170)]
+    with pytest.raises(WindowError, match="hücre veya satır değişti"):
+        screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    desktop.paste.assert_not_called()
+
+
+def test_caret_row_witness_moves_never_pastes(caret_editor, monkeypatch):
+    (service, window, desktop, state, options), _, caret, _ = caret_editor
+
+    def moved(*args, **kwargs):
+        return [replace(w, y=w.y + 50) if state["editor"] and w.text == "A125" else w
+                for w in caret(*args, **kwargs)]
+
+    monkeypatch.setattr("rpa_orkestrai.desktop.screen_tables.read_words", moved)
+    with pytest.raises(WindowError, match="hücre veya satır değişti"):
+        screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    desktop.paste.assert_not_called()
+
+
+def test_blinking_caret_without_accessibility_retries_fresh_screenshot(caret_editor, monkeypatch):
+    (service, window, desktop, state, options), _, caret, original = caret_editor
+    service.elements.focused_editor.return_value = None
+    screenshots = []
+
+    def blinking(*args, **kwargs):
+        if service.elements.focused_editor.call_count > 1:
+            assert desktop.screenshot.call_count > screenshots[0]
+            return original(*args, **kwargs)
+        if state["editor"] and not screenshots:
+            screenshots.append(desktop.screenshot.call_count)
+        return caret(*args, **kwargs)
+
+    monkeypatch.setattr("rpa_orkestrai.desktop.screen_tables.read_words", blinking)
+    assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["value"] == "YENI"
+    desktop.paste.assert_called_once_with("YENI")
+
+
+def test_permanent_ocr_error_without_editor_never_pastes(caret_editor):
+    (service, window, desktop, state, options), _, _, _ = caret_editor
+    service.elements.focused_editor.return_value = None
+    with pytest.raises(WindowError):
+        screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    desktop.paste.assert_not_called()
+    assert service.elements.focused_editor.call_count == 3
 
 
 def test_verification_failure_after_write_never_retries(runtime):
