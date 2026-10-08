@@ -111,17 +111,32 @@ Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne t
 
 ## Tabloya değer yaz (0.9.6+)
 
-Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. 0.9.7 sürümünden itibaren **Ekranda seç** ile tablonun içindeki bir noktayı veya sabit bir başlığı gösterin. Referans görsel, konum ve alan kimliği yöntemleri tablo okuma adımıyla aynıdır. Bir görselin dışındaki tabloyu hedefliyorsanız hedef noktayı tablonun içinde seçin; fark otomatik kaydedilir.
+**Sütun başlığıyla ekranda bul yöntemi 0.9.8 veya üzerinde kullanılabilir.** Yeni eklenen adımlarda **Sütun başlığıyla ekranda bul** kullanılır. Mevcut adımların yöntemi değişmez; **Sütun başlığıyla yazmaya geç** düğmesi satır, sütun, değer ve varsa satır arama ayarlarını koruyarak yeni yönteme geçirir. Bu yöntemle kaydedilen akış eski sürümlerde açılmaz.
 
-Ana formda **Satır**, **Yazılacak sütun** ve **Yazılacak değer** bulunur. Satır ve sütun numaraları 1'den başlar, başlık satırı sayılmaz; sütun adı da kullanılabilir. Her akış kendi sabit değerlerini veya değişkenlerini kullanır; belirli bir kayıt türü varsayılmaz.
+Önce **Pencereyi tanı**, ardından **Tabloya değer yaz** ekleyin. **Tablo alanını çiz → Pencereyi yakala** ile görüntüyü alın; tek bir tabloyu **başlıkları ve veri satırlarıyla birlikte** dikdörtgen içine alıp **Tablo alanını kaydet** deyin. Başka bir tablo veya form alanını seçime katmayın. Bu işlem yalnız bir kez yapılır; her hücre için referans noktası seçmeniz gerekmez.
 
-**Diğer seçenekler** altında değere göre satır bulma, eşleştirme ayarları ve sonuç değişkeni bulunur. Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin; aranacak sütunu ve o kaydı ayırt eden değeri belirtin. Tam eşleşme aranır. Hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
+Tablo alanı pencereye göre saklanır; pencere taşındığında onunla taşınır. Sütunlar bu alan içinde genişleyebilir, daralabilir veya yer değiştirebilir. İlk tablo kopyalama için tıklanacak metin de bu alanda otomatik bulunur; sabit bir hücre X/Y'si kullanılmaz. Tablonun kendisi pencere içinde başka yere taşınır veya seçilen alanın dışına büyürse **Tablo alanını çiz** ile alanı yenileyin.
 
-**Penceredeki tek tablo** yöntemi, hedef seçmeden tek tabloyu kullanır. Gerekirse **Diğer seçenekler** altında tablo adı/kimliği girilebilir. 0.9.6 ile kaydedilen adımlar bu yöntemle aynen çalışır; otomatik olarak görsel istemeye başlamaz. Referanslı tablo yazma için 0.9.7 veya üzeri gerekir.
+Ana formu şu şekilde doldurun:
 
-**Yeri göster** yalnız hücreyi gösterir. Gerçek çalıştırma değeri doğrudan hücreye yazar ve geri okuyarak doğrular. Salt okunur/görünmeyen hücre, değişen pencere veya kaybolan odakta akış durur. Doğrulama başarısızsa uygulamayı kontrol edin: yazma denenmiş olabilir. Kaydetme veya onay gerekiyorsa ilgili adımı akışınıza göre ekleyin. Bu adım tek adım testinin hazırlığında kendiliğinden çalıştırılmaz.
+| Alan | Örnek | Anlamı |
+| --- | --- | --- |
+| Tablo alanı | Başlık ve satırları içeren tek tablo | **Tablo alanını çiz** ile bir kez seçilir. |
+| Satır | `1` | İlk veri satırı; başlık sayılmaz. |
+| Yazılacak sütun | `Durum` | Başlığı Durum olan sütun. |
+| Yazılacak değer | `Tamamlandı` | Hücredeki metnin yerine yazılacak değer. |
 
-Windows'ta UI Automation Grid/Table ve Value, macOS'ta Erişilebilirlik tablo ve düzenlenebilir hücre desteği gerekir. Referans, hangi tablonun kullanılacağını belirler; uygulamanın sunmadığı hücre erişimini sağlamaz. Kopyalanabilen her tablo doğrudan yazmayı desteklemeyebilir. Destek yoksa adım açıklamayla durur; **Alanı doldur** gibi diğer yöntemler kullanılabilir.
+Her çalışmada seçilen alandaki tablo, **Tablodan değer oku** gibi başlıklarıyla kopyalanır. İstenen sütun ve satır bu içerikten belirlenir; alan içindeki başlıklar ve mevcut hücre metni okunarak hücrenin **o andaki yeri** bulunur. Böylece sütun genişliği veya sırası değişse bile eski hücre X/Y'sine gidilmez. Hücre düzenlemeye açıldıktan sonra mevcut içerik yeniden kontrol edilir; değer yazılır ve tablo tekrar kopyalanarak sonuç doğrulanır. Pano sonunda geri yüklenir. **Sütun başlığıyla ekranda bul** yönteminde yazılacak sütunun adı zorunludur; sütun numarası kabul edilmez. Akış değişkenleri kullanılabilir.
+
+Bu yöntem için tablonun başlıklarıyla kopyalanabilmesi ve hedef hücrenin metin olarak düzenlenebilmesi gerekir. Hedef başlık ve hücrenin dolu mevcut değeri ekranda tam görünmelidir. Boş, kırpılmış, ekran dışında kalan veya birden fazla yerle eşleşen hücreye tahminle yazılmaz. Açılır liste, seçim penceresi ya da salt okunur alan gibi farklı düzenleme davranışlarında adım durabilir; bir yöntemin başarısızlığından sonra otomatik olarak diğerine geçilmez.
+
+**Bu adımı test et → Yeri göster (değer yazmadan)** tabloya tıklayıp içeriğini kopyalar ve bulunan hücrenin üzerine fareyi götürür; değer yazmaz. **Gerçekten çalıştır** yazmayı dener. Doğrulama başarısızsa yazma denenmiş olabileceğinden uygulamayı kontrol edin. Pencere veya odak değişirse işlem durur. Kaydetme/onay gerekiyorsa akışa ayrıca ekleyin. Bu adım başka adımın test hazırlığında kendiliğinden çalıştırılmaz.
+
+**Diğer seçenekler** altında yazma yöntemi, değere göre satır bulma, eşleştirme ayarları ve sonuç değişkeni bulunur. Kayıt sırası değişiyorsa **Satır seçimi → Benzersiz değeri bul** seçin; örneğin **Aranacak sütun: Kod**, **Aranacak değer: A125** girin. Tam eşleşme aranır; hiç satır bulunmazsa veya birden fazlası eşleşirse yazılmaz.
+
+Başlıkla yazmada **Diğer seçenekler → Hücreyi düzenlemeye aç** alanını, hedef hücreyi elle nasıl düzenliyorsanız ona göre seçin: **Çift tıklama** (varsayılan), **Tek tıklama** veya **Hücreyi seçip F2**. Açılan düzenleyicide eski metin doğrulanmadan yeni değer yazılmaz; diğer açma yöntemleri kendiliğinden denenmez.
+
+**Uygulamanın tablo yapısını kullan** mevcut akışların yöntemidir: Windows'ta UI Automation Grid/Table ve Value, macOS'ta Erişilebilirlik tablo ve düzenlenebilir hücre desteği gerekir. Sütun adı veya 1'den başlayan sütun numarası kullanılabilir. Bu yöntemde **Yeri göster** yalnız hücrenin yerini gösterir. **Penceredeki tek tablo** ile hedef seçmeden tek tabloyu kullanabilir, gerekirse tablo adı/kimliği girebilirsiniz. 0.9.6 adımları bu şekilde korunur; 0.9.7 ile bu yönteme konum/görsel/alan kimliği referansı da eklenebilir. Referans, uygulamanın sunmadığı hücre erişimini sağlamaz.
 
 ## Metin okunacak bölgeyi çizme
 

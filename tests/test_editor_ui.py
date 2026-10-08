@@ -1831,10 +1831,21 @@ def test_table_write_reference_picker_simple_form_and_legacy_compatibility(tmp_p
             playwright.expect(page.get_by_label("Tablo adı veya kimliği", exact=False)).to_have_value("old-grid")
             page.get_by_label("Adım ara").fill("Tabloya değer yaz")
             page.locator(".library-action").filter(has_text="Tabloya değer yaz").click()
-            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_value("image")
+            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_count(0)
+            playwright.expect(page.get_by_label("Tablo alanı", exact=False)).to_have_value("Henüz seçilmedi")
+            playwright.expect(page.get_by_role("button", name="Tablo alanını çiz", exact=True)).to_be_visible()
+            playwright.expect(page.get_by_role("button", name="Ekranda seç", exact=True)).to_have_count(0)
             playwright.expect(page.locator(".table-options")).not_to_have_attribute("open", "")
+            playwright.expect(page.get_by_label("Yazma yöntemi", exact=False)).not_to_be_visible()
             playwright.expect(page.get_by_label("Eşleşme eşiği", exact=False)).not_to_be_visible()
             playwright.expect(page.get_by_label("Yazılacak sütun", exact=False)).to_be_visible()
+            page.locator(".table-options > summary").click()
+            playwright.expect(page.get_by_label("Yazma yöntemi", exact=False)).to_have_value("screen")
+            playwright.expect(page.get_by_label("Hücreyi düzenlemeye aç", exact=False)).to_have_value("double_click")
+            page.get_by_label("Yazma yöntemi", exact=False).select_option("native")
+            playwright.expect(page.get_by_label("Hücreyi düzenlemeye aç", exact=False)).to_have_count(0)
+            page.locator(".table-options > summary").click()
+            page.get_by_label("Tabloyu bulma yöntemi", exact=False).select_option("image")
             page.get_by_role("button", name="Ekranda seç" if source == "native" else "Görüntü üzerinde seç", exact=True).click()
             if source == "native":
                 page.get_by_role("button", name="Tamam, geri sayımı başlat", exact=True).click()
@@ -1859,11 +1870,135 @@ def test_table_write_reference_picker_simple_form_and_legacy_compatibility(tmp_p
             playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
             steps = client.get(f"/api/workflows/{workflow_id}").json()["steps"]
             old = next(s for s in steps if s["id"] == "old")["params"]
-            assert "target_mode" not in old and old["table"] == "old-grid"
+            assert "target_mode" not in old and "write_method" not in old and old["table"] == "old-grid"
             new = next(s for s in steps if s["action"] == "window.write_table" and s["id"] != "old")["params"]
             assert new["window"] == "${records_window}" and new["target_mode"] == "image"
+            assert "write_method" not in new and "region" not in new
             assert new["offset_x"] == 0 and new["offset_y"] == 0
             assert new["template"] == "table-reference.png" and new["value"] == "${kayit.deger}"
             assert new["row_mode"] == "match" and new["match_value"] == "${kayit.kod}"
             assert len(crops) == 1 and not errors
+            browser.close()
+
+
+@pytest.mark.parametrize("viewport", [{"width": 980, "height": 720}, {"width": 1400, "height": 1000}])
+def test_table_write_screen_conversion_preserves_values_and_native_compatibility(tmp_path, viewport):
+    from fastapi.testclient import TestClient
+    playwright = pytest.importorskip("playwright.sync_api")
+    Image = pytest.importorskip("PIL.Image")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    original = {"window": "${records_window}", "table": "records", "row": 3, "column": "Durum",
+                "value": "${kayit.deger}", "row_mode": "match", "match_column": "Kod", "match_value": "A125"}
+    reference = {"window": "${records_window}", "target_mode": "image", "template": "table.png",
+                 "offset_x": 4, "offset_y": 8, "row": 2, "column": "Durum", "value": "Tamamlandı"}
+    png = io.BytesIO()
+    Image.new("RGB", (1600, 1000), "white").save(png, format="PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(png.getvalue()).decode()
+    errors, captures = [], []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Başlıkla yazma", "steps": [
+            {"id": "window", "action": "desktop.find_window", "params": {
+                "application": "Test Application", "title": "Records", "output": "records_window"}},
+            {"id": "old", "action": "window.write_table", "params": original},
+            {"id": "reference", "action": "window.write_table", "params": reference},
+        ]})
+        assert response.status_code == 201
+        workflow_id = response.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport=viewport)
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/pick/capabilities":
+                    route.fulfill(json={"native": False})
+                elif path == "/api/desktop/capture-window":
+                    captures.append(json.loads(request.post_data))
+                    route.fulfill(json={"id": "table-region", "image": data_url, "width": 1600, "height": 1000,
+                                        "window": {"width": 1600, "height": 1000}})
+                elif path == "/api/desktop/captures/table-region" and request.method == "DELETE":
+                    route.fulfill(status=204)
+                else:
+                    assert path not in {"/api/desktop/pointer", "/api/desktop/templates", "/api/desktop/capture-screen"}
+                    result = client.request(request.method, path, content=request.post_data_buffer,
+                                            headers={"content-type": "application/json"})
+                    route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Başlıkla yazma", exact=True).click()
+            page.locator('[data-step-id="old"]').click()
+            playwright.expect(page.get_by_label("Yazma yöntemi", exact=False)).to_have_value("native")
+            # Viewing and explicitly selecting the old method must not add a new parameter.
+            page.get_by_label("Yazma yöntemi", exact=False).select_option("native")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"] == original
+
+            page.get_by_role("button", name="Sütun başlığıyla yazmaya geç", exact=True).click()
+            playwright.expect(page.get_by_label("Yazma yöntemi", exact=False)).to_have_value("screen")
+            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_count(0)
+            playwright.expect(page.get_by_label("Pencere içi X", exact=False)).to_have_count(0)
+            playwright.expect(page.get_by_role("button", name="Ekranda seç", exact=True)).to_have_count(0)
+            playwright.expect(page.get_by_label("Tablo adı veya kimliği", exact=False)).to_have_count(0)
+            playwright.expect(page.get_by_label("Yazılacak sütun", exact=False)).to_have_value("Durum")
+            playwright.expect(page.get_by_label("Yazılacak değer", exact=False)).to_have_value("${kayit.deger}")
+            playwright.expect(page.get_by_label("Aranacak sütun", exact=False)).to_have_value("Kod")
+            playwright.expect(page.get_by_label("Aranacak değer", exact=False)).to_have_value("A125")
+            def draw_table_region():
+                page.get_by_role("button", name="Tablo alanını çiz", exact=True).click()
+                save = page.get_by_role("button", name="Tablo alanını kaydet", exact=True)
+                playwright.expect(save).to_be_disabled()
+                page.get_by_role("button", name="Pencereyi yakala", exact=True).click()
+                canvas = page.locator(".target-picker-canvas")
+                playwright.expect(canvas).to_be_visible()
+                bounds = canvas.bounding_box()
+                page.mouse.move(bounds["x"] + bounds["width"] * .5, bounds["y"] + bounds["height"] * .4)
+                page.mouse.down()
+                page.mouse.move(bounds["x"] + bounds["width"] * .25, bounds["y"] + bounds["height"] * .2, steps=5)
+                page.mouse.up()
+                save.click()
+                playwright.expect(page.get_by_label("Tablo alanı", exact=False)).to_have_value("Tablo alanı seçildi (400 × 200)")
+
+            draw_table_region()
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"] == {
+                **original, "write_method": "screen", "region": [400, 200, 400, 200]}
+            page.get_by_role("button", name="Bu adımı test et", exact=True).click()
+            playwright.expect(page.get_by_role("button", name="Yeri göster (değer yazmadan)", exact=True)).to_be_visible()
+            playwright.expect(page.locator(".step-test-dialog")).to_contain_text("tabloya tıklayıp içeriğini kopyalar")
+            page.keyboard.press("Escape")
+
+            page.get_by_role("button", name="Tablo alanını çiz", exact=True).click()
+            page.keyboard.press("Escape")
+            playwright.expect(page.get_by_label("Tablo alanı", exact=False)).to_have_value("Tablo alanı seçildi (400 × 200)")
+
+            # Old reference parameters survive conversion, but screen writing only uses the drawn area.
+            page.locator('[data-step-id="reference"]').click()
+            page.get_by_role("button", name="Sütun başlığıyla yazmaya geç", exact=True).click()
+            playwright.expect(page.get_by_label("Tabloyu bulma yöntemi", exact=False)).to_have_count(0)
+            draw_table_region()
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][2]["params"] == {
+                **reference, "write_method": "screen", "region": [400, 200, 400, 200]}
+            page.get_by_label("Adım ara").fill("Tabloya değer yaz")
+            page.locator(".library-action").filter(has_text="Tabloya değer yaz").click()
+            draw_table_region()
+            page.get_by_label("Yazılacak sütun", exact=False).fill("Durum")
+            page.get_by_label("Yazılacak değer", exact=False).fill("Tamamlandı")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            new = next(s["params"] for s in client.get(f"/api/workflows/{workflow_id}").json()["steps"]
+                       if s["id"] not in {"window", "old", "reference"})
+            assert new["write_method"] == "screen" and new["region"] == [400, 200, 400, 200]
+            assert "edit_mode" not in new
+            assert "target_mode" not in new and "x" not in new and "y" not in new and "relative_to" not in new
+            assert captures == [{"application": "Test Application", "title": "Records", "match": "exact"}] * 3
+            assert not errors
             browser.close()

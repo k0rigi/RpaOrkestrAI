@@ -7,7 +7,7 @@ from typing import Any
 from ..desktop.windows import WindowError, found_window
 from ..errors import WorkflowError
 from . import handler
-from .common import choice, fold, integer, number, text
+from .common import choice, fold, integer, number, region, text
 
 # A grid copies one row per line with the cells separated by tabs.
 TABLE_LIMIT = 10_000
@@ -126,11 +126,28 @@ def table_target(ctx, p):
     return {} if mode == "auto" else {"targeting": ctx.window_target(p)}
 
 
+def table_operation(ctx, p, *, value=None):
+    method = choice(p.get("write_method", "native"), "Hücreye yazma yöntemi", {"native", "screen"})
+    selection = table_selection(p)
+    if method == "screen":
+        area = region(p.get("region"))
+        if area is None:
+            raise WorkflowError("Tablo alanını çiz ile yalnız bir tablonun başlıklarını ve veri satırlarını seçin.")
+        if value is not None and value != value.strip():
+            raise WorkflowError("Tabloya yazılacak değerin başında veya sonunda boşluk olmamalıdır.")
+        edit_mode = choice(p.get("edit_mode", "double_click"), "Hücreyi düzenlemeye aç",
+                           {"double_click", "single_click", "f2"})
+        return ctx.windows().screen_table_cell(
+            _window(p), ctx.desktop(), value=value, selection=selection, region=area, edit_mode=edit_mode,
+            ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
+                         "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
+                         "timeout": ctx.settings.action_timeout})
+    return ctx.windows().table_cell(_window(p), ctx.desktop(), value=value, **selection, **table_target(ctx, p))
+
+
 @handler("window.write_table")
 def write_table(ctx, p):
-    selection = table_selection(p)
     value = text(p.get("value"), "Yazılacak değer", limit=10_000)
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise WorkflowError("Tablo hücresine yazılacak değer satır sonu, Tab veya kontrol karakteri içeremez.")
-    targeting = table_target(ctx, p)
-    return ctx.windows().table_cell(_window(p), ctx.desktop(), value=value, **selection, **targeting)
+    return table_operation(ctx, p, value=value)

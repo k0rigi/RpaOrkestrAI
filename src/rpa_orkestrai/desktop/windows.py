@@ -332,6 +332,11 @@ class WindowService:
         self._guard(target, window)
         desktop.click(*point, clicks=clicks, button=button)
 
+    def screen_table_cell(self, target: dict, desktop: Any, **options: Any):
+        from .screen_tables import screen_table_cell
+
+        return screen_table_cell(self, target, desktop, **options)
+
     def table_cell(self, target: dict, desktop: Any, *, value: str | None = None,
                    targeting: dict | None = None, **selection: Any):
         """Locate/show a native cell, or write and verify it without keyboard input."""

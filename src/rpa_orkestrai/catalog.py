@@ -75,11 +75,11 @@ def target_fields() -> list[dict]:
 
 def table_target_fields() -> list[dict]:
     fields = target_fields()
-    fields[0] = {**fields[0], "default": "auto", "new_default": "image", "omit_default": True,
-                 "label": "Tabloyu bulma yöntemi", "help": "Ekranda seç ile tablonun içindeki bir noktayı gösterin. "
-                 "Referans görsel, tablo taşındığında da bulunmasını sağlar.",
+    fields[0] = {**fields[0], "default": "auto", "omit_default": True,
+                 "label": "Tabloyu bulma yöntemi", "help": "Uygulamanın tablo yapısında hangi tablonun "
+                 "kullanılacağını seçin. Referans verirseniz nokta tablonun içinde olmalıdır.",
                  "options": [*fields[0]["options"], {"value": "auto", "label": "Penceredeki tek tablo"}]}
-    return fields
+    return [{**f, "visible_when": {**f.get("visible_when", {}), "write_method": "native"}} for f in fields]
 
 
 # Existing workflows still need these definitions for editing and execution.
@@ -323,9 +323,27 @@ LIBRARY = [
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
             output("table_value")]),
     action("window.write_table", "Tabloya değer yaz", "Pencere",
-           "Ekrandan seçtiğiniz tablonun bir hücresine değer yazar ve sonucu kontrol eder.",
-           [WINDOW, *table_target_fields(),
-            field("table", "Tablo adı veya kimliği", default="", visible_when={"target_mode": "auto"},
+           "Tablo alanını bir kez çizin; satır, sütun başlığı ve yeni değeri girin. Hücrenin güncel yerini bulur, yazar ve doğrular.",
+           [WINDOW,
+            field("write_method", "Yazma yöntemi", "select", "native", required=True,
+                  new_default="screen", omit_default=True,
+                  options=[{"value": "screen", "label": "Sütun başlığıyla ekranda bul"},
+                           {"value": "native", "label": "Uygulamanın tablo yapısını kullan"}],
+                  help="Sütun başlığıyla bul: tabloyu kopyalar; başlık ve hücre metnini ekranda yeniden bulur. "
+                       "Uygulamanın tablo yapısı: düzenlenebilir hücre erişimi gerektirir; eski adımlar bu yöntemi korur."),
+            *table_target_fields(),
+            field("region", "Tablo alanı", "json", None, required=True, visible_when={"write_method": "screen"},
+                  help="Tablo alanını çiz ile yalnız bir tabloyu, başlıkları ve veri satırlarıyla birlikte seçin. "
+                       "Alan pencereye göre saklanır; hücrelerin güncel yeri bu alan içinde bulunur."),
+            field("edit_mode", "Hücreyi düzenlemeye aç", "select", "double_click", required=True,
+                  omit_default=True, visible_when={"write_method": "screen"},
+                  options=[{"value": "double_click", "label": "Çift tıklama"},
+                           {"value": "single_click", "label": "Tek tıklama"},
+                           {"value": "f2", "label": "Hücreyi seçip F2"}],
+                  help="Hücreyi elle nasıl düzenlemeye açıyorsanız onu seçin. "
+                       "Eski metin doğrulanmadan yeni değer yazılmaz."),
+            field("table", "Tablo adı veya kimliği", default="",
+                  visible_when={"write_method": "native", "target_mode": "auto"},
                   help="Pencerede tek tablo varsa boş bırakın. Birden fazlaysa uygulamanın erişilebilir tablo adı veya kimliğini yazın."),
             field("row_mode", "Satır seçimi", "select", "index", options=[
                 {"value": "index", "label": "Satır numarası"}, {"value": "match", "label": "Benzersiz değeri bul"}],
@@ -337,7 +355,8 @@ LIBRARY = [
             field("match_value", "Aranacak değer", required=True, visible_when={"row_mode": "match"},
                   help="Tam eşleşme aranır; birden fazla satır eşleşirse yazılmaz. Değişken kullanılabilir: ${row.kod}."),
             field("column", "Yazılacak sütun", required=True,
-                  help="Sütun başlığı veya 1'den başlayan sütun numarası. Yinelenen başlıklarda numara kullanın."),
+                  help="Tablodaki sütunun tam adını yazın (ör. Durum). Sütunun yeri veya genişliği değişse de "
+                       "hücre yeniden bulunur. Sütun numarası yalnız Uygulamanın tablo yapısını kullan yönteminde kabul edilir."),
             field("value", "Yazılacak değer", required=True,
                   help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.deger}. Boş değer, Tab ve satır sonu kabul edilmez."),
             output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),

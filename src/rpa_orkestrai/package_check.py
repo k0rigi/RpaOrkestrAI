@@ -40,6 +40,7 @@ def _check_ocr_and_tables(folder: Path) -> None:
 
     from .actions.files import read_table, write_table
     from .desktop.ocr import read_text
+    from .desktop.screen_tables import TableText, locate_image
 
     image = Image.new("RGB", (700, 120), "white")
     try:
@@ -49,6 +50,18 @@ def _check_ocr_and_tables(folder: Path) -> None:
     ImageDraw.Draw(image).text((20, 30), "INVOICE 2026", fill="black", font=font)
     if platform.system() in {"Darwin", "Windows"} and "INVOICE" not in read_text(image, engine="system").upper():
         raise RuntimeError("Paket içindeki sistem OCR'ı metni okuyamadı.")
+    if platform.system() in {"Darwin", "Windows"}:
+        table_image = Image.new("RGB", (750, 180), "white")
+        draw = ImageDraw.Draw(table_image)
+        table_font = ImageFont.load_default(size=30)
+        for x, header, value in [(20, "Code", "A125"), (260, "Status", "READY"), (520, "Count", "1")]:
+            draw.text((x, 20), header, fill="black", font=table_font)
+            draw.text((x, 85), value, fill="black", font=table_font)
+        table = TableText.parse("Code\tStatus\tCount\nA125\tREADY\t1")
+        cell = locate_image(table_image, table, 0, 1, reference_point=(40, 100),
+                            ocr_options={"engine": "system"})
+        if not (260 <= cell.point[0] < 400 and 85 <= cell.point[1] < 130):
+            raise RuntimeError("Paket içindeki tablo hücresi konumu doğrulanamadı.")
     book = folder / "check.xlsx"
     write_table(None, {"rows": [{"No": 1, "Ad": "Çağrı"}], "path": str(book)})
     if read_table(None, {"path": str(book)})[0]["Ad"] != "Çağrı":
@@ -222,7 +235,7 @@ def run_check(report: Path) -> int:
                       "version": __version__, "platform": current_platform_key(),
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
-                                 "excel-tables", "http-api", "login-item", "password-store",
+                                 "screen-table-target", "excel-tables", "http-api", "login-item", "password-store",
                                  "bundled-static-files"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

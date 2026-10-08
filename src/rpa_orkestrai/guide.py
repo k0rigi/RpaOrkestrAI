@@ -61,7 +61,7 @@ STEP_FIELD_HELP = {
     ("desktop.window_click", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
     ("desktop.window_fill", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
     ("window.read_field", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
-    ("window.read_table", "column"): "Tablodaki sütun başlığı (ör. Form Id) veya sütun numarası. Büyük/küçük harf "
+    ("window.read_table", "column"): "Tablodaki sütun başlığı (ör. Kod) veya sütun numarası. Büyük/küçük harf "
                                       "farkı önemsizdir.",
     ("window.read_table", "row"): "1: tablodaki ilk veri satırı. Başlık satırı sayılmaz.",
     ("window.read_table", "header"): "Çoğu uygulama tablosu kopyalanırken ilk satıra sütun adlarını koyar. Kopyalanan "
@@ -255,16 +255,20 @@ GUIDES = {
         "Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir; tek bir hücre için "
         "Tablodan değer oku adımını kullanın."),
     "window.write_table": guide(
-        ["Pencereyi seçin; Ekranda seç ile yazılacak tabloyu gösterin.",
-         "Satır, sütun ve yazılacak değeri girin. Her alanda akışınızın değişkenlerini kullanabilirsiniz.",
-         "Yeri göster ile hücreyi kontrol edin; Bu adımı test et ile yazmayı deneyin."],
+        ["Pencereyi seçin; Tablo alanını çiz ile tek bir tabloyu, başlık ve veri satırlarıyla birlikte dikdörtgen içine alın.",
+         "Satır 1, Yazılacak sütun Durum, Yazılacak değer Tamamlandı: ilk veri satırının Durum hücresini değiştirir.",
+         "Bu adımı test et → Yeri göster ile hücrenin güncel yerini kontrol edin; Gerçekten çalıştır ile yazın."],
         "Seçilen hücreye yazılan değer kontrol edilir.",
-        "Sırası değişen kayıtlarda Diğer seçenekler → Satır seçimi → Benzersiz değeri bul kullanın. "
-        "Tablo doğrudan yazmayı desteklemiyorsa adım durur. Gerekli kaydetme/onay adımlarını akışınıza göre ekleyin."),
+        "Tablo alanını bir kez tanıtın; hücreye nokta seçmeniz gerekmez. Yazılacak hücreyi satır ve sütun adı belirler. "
+        "Yeni adımlarda sütun adı gerekir; "
+        "sütun numarası kabul edilmez. Başlık ve mevcut hücre metni her çalışmada yeniden bulunur; sütun genişliği "
+        "değişebilir. Tablo başlıklarıyla kopyalanabilmeli, başlık ve dolu hedef hücre bütünüyle görünmelidir. "
+        "Yeri göster tabloya tıklayıp kopyalar; değer yazmaz. Eski adımlar uygulamanın tablo yapısını kullanır. "
+        "Sırası değişen kayıtlarda Diğer seçenekler → Benzersiz değeri bul seçin. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",
-         "Sütun alanına tablodaki başlığı yazın (ör. Form Id) ya da sütun numarasını (1, 2, …).",
+         "Sütun alanına tablodaki başlığı yazın (ör. Kod) ya da sütun numarasını (1, 2, …).",
          "Satır 1, tablodaki ilk veri satırıdır."],
         "Seçilen hücrenin metni, ekranda göründüğü gibi. “Kaç satır var?” seçilirse bulunan satır sayısı.",
         "Arama sonuç vermediyse satır sayısı 0 olur; önce bunu Koşul ile kontrol edin. Tablodaki 540.767 gibi "

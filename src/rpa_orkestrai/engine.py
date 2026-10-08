@@ -479,10 +479,9 @@ class Executor:
         if action in {"desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table"}:
             x, y = self.windows().locate_target(p["window"], desktop, **self.window_target(p))
         elif action == "window.write_table":
-            from .actions.windows import _window, table_selection, table_target
+            from .actions.windows import table_operation
 
-            selection = table_selection(p)
-            x, y = self.windows().table_cell(_window(p), desktop, **selection, **table_target(self, p))
+            x, y = table_operation(self, p)
         elif action == "screen.click_image":
             from .actions.screen import search
 
