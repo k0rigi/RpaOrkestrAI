@@ -211,6 +211,42 @@ def test_write_checks_editor_pastes_once_and_verifies_new_width(runtime):
     assert len(writes) == 1 and 300 <= writes[0].args[0] <= 370
 
 
+@pytest.mark.parametrize("failure", [None, "no_response", "lost_focus"])
+def test_slow_clipboard_retries_only_read_with_focus_guard(runtime, monkeypatch, failure):
+    service, window, desktop, state, options = runtime
+    clock, copies = [0.0], []
+    original = desktop.hotkey.side_effect
+
+    def hotkey(*keys):
+        if keys == ("mod", "c"):
+            copies.append(keys)
+            if len(copies) == 1 or failure == "no_response":
+                return
+        original(*keys)
+
+    def wait(seconds):
+        clock[0] += seconds
+        if copies and failure == "lost_focus":
+            service.backend.is_active.return_value = False
+        return False
+
+    monkeypatch.setattr("rpa_orkestrai.desktop.screen_tables.time",
+                        SimpleNamespace(monotonic=lambda: clock[0], monotonic_ns=lambda: round(clock[0] * 1e9)))
+    desktop.hotkey.side_effect = hotkey
+    service.cancel.wait.side_effect = wait
+    if failure:
+        with pytest.raises(WindowError, match="kopyalanamadı" if failure == "no_response" else "odağı"):
+            screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+        desktop.paste.assert_not_called()
+        assert len(copies) == (3 if failure == "no_response" else 1)
+        assert desktop.click.call_count == 1
+    else:
+        assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["value"] == "YENI"
+        assert len(copies) == 5
+        desktop.paste.assert_called_once_with("YENI")
+    assert state["clipboard"] == "previous clipboard"
+
+
 def test_show_target_copies_table_without_editing(runtime):
     service, window, desktop, state, options = runtime
     point = screen_table_cell(service, window.result(), desktop, **options)

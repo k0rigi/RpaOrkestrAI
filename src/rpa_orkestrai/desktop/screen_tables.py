@@ -493,7 +493,8 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
             pyperclip.copy(marker)
             guard()
             desktop.hotkey("mod", "c")
-            deadline = time.monotonic() + 1.5
+            started = time.monotonic()
+            deadline, retry_at, requests = started + 3, started + .75, 1
             while True:
                 guard()
                 copied = pyperclip.paste()
@@ -501,6 +502,14 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
                     return str(copied)
                 if time.monotonic() >= deadline:
                     raise WindowError("Tablo veya hücre metni kopyalanamadı; yazılmadı.")
+                # A newly opened application may ignore Copy while processing
+                # selection or initializing clipboard support. Retry only this
+                # read command, never clicks, editor activation or pasting.
+                if requests < 3 and time.monotonic() >= retry_at:
+                    guard()
+                    desktop.hotkey("mod", "c")
+                    requests += 1
+                    retry_at = time.monotonic() + .75
                 pause()
 
         def copy_table(point):
