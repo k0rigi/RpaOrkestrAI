@@ -524,7 +524,19 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
 
         def copy_table(point):
             guard()
-            before_editor = service.elements.focused_editor(window) if initial_point is not None and point else None
+            before_editor = None
+            if initial_point is not None and point is not None:
+                # Tab can leave a stale UIA editor while the table is committing
+                # a value. Retry only this read; never repeat paste or Tab.
+                for attempt in range(3):
+                    guard()
+                    try:
+                        before_editor = service.elements.focused_editor(window)
+                        break
+                    except WindowError:
+                        if attempt == 2:
+                            raise
+                        pause()
             if point is not None:
                 guard()
                 desktop.click(*point, clicks=1, button="left")

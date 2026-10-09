@@ -756,3 +756,28 @@ def test_missing_table_selection_explains_button_instead_of_hidden_coordinates()
         'write_method': 'point', 'target_mode': 'coordinates', 'column': 'sutun_2', 'value': 'YENI'})])
     with pytest.raises(WorkflowError, match='Tabloyu seç düğmesi'):
         validate_workflow(flow)
+
+
+@pytest.mark.parametrize('settles', [True, False])
+def test_post_write_focus_transition_retries_only_editor_read(runtime, settles):
+    service, window, desktop, state, options = runtime
+    options['targeting'] = dict(x=35, y=56)
+    reads = []
+
+    def editor():
+        if state['value'] == 'YENI':
+            reads.append(True)
+            if not settles or len(reads) == 1:
+                raise WindowError('Düzenleme alanının odağı değişti; yazılmadı.')
+        return None
+
+    service.elements.focused_editor.side_effect = lambda window: editor()
+    if settles:
+        assert screen_table_cell(service, window.result(), desktop, value='YENI', **options)['value'] == 'YENI'
+        assert len(reads) == 2
+    else:
+        with pytest.raises(WindowError, match='yazma denendi'):
+            screen_table_cell(service, window.result(), desktop, value='YENI', **options)
+        assert len(reads) == 3
+    desktop.paste.assert_called_once_with('YENI')
+    assert [c.args for c in desktop.press.call_args_list] == [('tab',)]
