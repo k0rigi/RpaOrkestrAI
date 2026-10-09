@@ -496,8 +496,8 @@ class Executor:
             desktop.move(x, y, duration=0.4)
         except ValueError as exc:
             raise WorkflowError("Hedef nokta ana ekranın dışında.") from exc
-        detail = ("Tablo kopyalanarak kontrol edildi; yeni değer yazılmadı."
-                  if action == "window.write_table" and p.get("write_method") == "screen"
+        detail = ("Tablo kontrol edildi; yeni değer yazılmadı."
+                  if action == "window.write_table" and p.get("write_method") in {"screen", "point"}
                   else "Tıklama veya yazma yapılmadı.")
         self.log(f"Hedef gösterildi: fare ekranda ({round(x)}, {round(y)}) noktasına götürüldü. {detail}")
         return {"x": round(x), "y": round(y)}

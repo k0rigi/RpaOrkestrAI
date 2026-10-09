@@ -2,6 +2,7 @@
 
 (() => {
   const root = document.getElementById("app");
+  const tablePreviews = new WeakMap();
   const state = {
     workflows: [],
     runs: [],
@@ -3326,7 +3327,7 @@
       const label = all.length > 1 ? (index === 0 ? "Başlangıç konumunu al" : "Bitiş konumunu al") : "Fare konumunu al";
       tools.append(button(`${label} (3 sn)`, "target", () => capturePointer(step, xName, yName), "small"));
     });
-    if (spec.region || screenTable) tools.append(button(screenTable ? "Tablo alanını çiz" : "Bölge çiz", "target", () => captureRegion(step), "small"));
+    if (spec.region && !screenTable) tools.append(button("Bölge çiz", "target", () => captureRegion(step), "small"));
     if (spec.template) tools.append(button("Ekrandan görsel seç", "eye", () => pickScreenTemplate(step), "small"));
     if (!tools.children.length) return null;
     tools.append(node("p", "help", screenTable
@@ -3745,7 +3746,7 @@
       result.setAttribute("aria-live", "polite");
       const runLabel = plan.locatable ? "Gerçekten çalıştır" : "Testi çalıştır";
       const runButton = button(runLabel, "play", () => run(false), plan.locatable ? "" : "primary");
-      const screenTable = step.action === "window.write_table" && parameterValue(step, "write_method") === "screen";
+      const screenTable = step.action === "window.write_table" && ["screen", "point"].includes(parameterValue(step, "write_method"));
       const locateButton = button(screenTable ? "Yeri göster (değer yazmadan)" : "Yeri göster (tıklamadan)", "target", () => run(true), "primary");
       locateButton.title = screenTable
         ? "Tabloya tıklayıp içeriğini kopyalar; bulunan hücreyi gösterir, değer yazmaz."
@@ -4093,6 +4094,19 @@
     const tools = node("div", "window-target-tools");
     const recognized = recognizedWindowFor(step);
     const busy = state.runs.some((run) => ["queued", "running"].includes(run.status));
+    if (step.action === "window.write_table") {
+      const choose = button("Tabloyu seç", "sheet", () => pickWindowTarget(step, "table"));
+      choose.disabled = !recognized || busy;
+      const selected = parameterValue(step, "write_method") === "point" &&
+        Number.isFinite(step.params.x) && Number.isFinite(step.params.y);
+      tools.append(choose, node("p", "help", !recognized ? "Önce Pencere alanından hedef pencereyi seçin."
+        : busy ? "Tablo seçmek için çalışan akışın bitmesini bekleyin."
+        : selected ? "Tablo seçildi. Yazılacak hücreyi satır ve sütunla belirtin."
+        : "Tablonun herhangi bir hücresine bir kez tıklayın; tabloyu bütünüyle tanır."));
+      const preview = tablePreviews.get(step);
+      if (selected && preview) tools.append(node("p", "help", `${preview.rows} satır · ${preview.columns.length} sütun bulundu.`));
+      return tools;
+    }
     const target = button("Ekranda seç", "desktop", () => pickWindowTarget(step, "native"));
     const snapshot = button("Görüntü üzerinde seç", "eye", () => pickWindowTarget(step, "snapshot"), "small");
     target.disabled = true;
@@ -4121,6 +4135,8 @@
     return tools;
   }
   function pickWindowTarget(step, source = "native") {
+    const simpleTable = source === "table";
+    if (simpleTable) source = "snapshot";
     const workflow = state.workflow;
     const recognized = recognizedWindowFor(step);
     if (!recognized) {
@@ -4138,10 +4154,10 @@
     }
     const referenceOnly = step.action === "desktop.window_wait_image";
     const tableTarget = step.action === "window.write_table";
-    dialog("Uygulama ekranında hedef seç", (body, d) => {
+    dialog(simpleTable ? "Tabloyu seç" : "Uygulama ekranında hedef seç", (body, d) => {
       d.classList.add("target-picker-dialog");
       // A saved field identity is re-picked through the pointer (Konum) selection.
-      let mode = referenceOnly ? "image" : parameterValue(step, "target_mode") === "image" ? "image" : "coordinates";
+      let mode = simpleTable ? "coordinates" : referenceOnly ? "image" : parameterValue(step, "target_mode") === "image" ? "image" : "coordinates";
       let capture = null, rectangle = null, point = null, drag = null, image = null;
       let element = null, useElement = false;
       let loading = false, saving = false, epoch = 0;
@@ -4154,11 +4170,12 @@
         ? "Önce süreyi seçip geri sayımı başlatın. Uygulama penceresi öne gelir; seçiminiz bitince burada kontrol edip kaydedebilirsiniz. Seçim sırasında uygulamaya tıklama veya metin gönderilmez."
         : "Uygulama penceresinin görüntüsü alınır. Konum için görüntüye tıklayın; görsel referans için fareyle bir dikdörtgen çizin. Studio arka planda kalırsa Alt+Tab (Mac: ⌘+Tab) ile geri dönün.");
       intro.append(" Bu sürümde uygulama penceresini ana ekranda, tamamı görünür olacak şekilde tutun.");
+      if (simpleTable) intro.textContent = "Görüntüde tablonun herhangi bir hücresine tıklayın. Satır ve sütunları tablonun tamamından alır; yazılacak hücreyi daha sonra belirtirsiniz.";
       const toolbar = node("div", "target-picker-toolbar");
       const modeLabel = node("span", "field-label", "Hedef yöntemi");
       const coordinates = button("Konum", "desktop", () => changeMode("coordinates"), "small");
       const visual = button("Görsel referans", "eye", () => changeMode("image"), "small");
-      if (!referenceOnly) toolbar.append(modeLabel, coordinates, visual);
+      if (!referenceOnly && !simpleTable) toolbar.append(modeLabel, coordinates, visual);
       const preparation = node("div", "target-picker-preparation");
       const delay = node("select");
       for (const seconds of [3, 5, 10]) {
@@ -4237,8 +4254,8 @@
         cancelPick.hidden = !nativeBusy;
         preparation.hidden = source !== "native" || Boolean(capture);
         frame.hidden = !capture;
-        selection.hidden = !capture;
-        actions.hidden = !capture;
+        selection.hidden = !capture || simpleTable;
+        actions.hidden = !capture || simpleTable;
         reset.disabled = busy || (!point && !rectangle);
         save.disabled = busy || !capture ||
           (mode === "coordinates" ? !point : !rectangle || (!referenceOnly && !tableTarget && !point));
@@ -4252,7 +4269,7 @@
             : nativeStatus?.message || "Ekranda seçim hazırlanıyor…";
         } else if (loading) instruction.textContent = "Uygulama penceresinin görüntüsü alınıyor…";
         else if (source === "native" && !capture) instruction.textContent = "Hedef yöntemini ve hazırlık süresini seçin. Hazır olduğunuzda geri sayımı başlatın.";
-        else if (mode === "coordinates") instruction.textContent = "Yazılacak veya tıklanacak alanın ortasına tıklayın.";
+        else if (mode === "coordinates") instruction.textContent = simpleTable ? "Tablonun herhangi bir hücresine tıklayın." : "Yazılacak veya tıklanacak alanın ortasına tıklayın.";
         else if (!rectangle) instruction.textContent = "Sabit ve ayırt edici bir etiketi çevreleyen dikdörtgen çizin. Değişen alan değerlerini referansa dahil etmeyin.";
         else if (tableTarget) instruction.textContent = "Tablo referansı hazır. Kaydedebilir veya tablonun içinde farklı bir hedef noktaya tıklayabilirsiniz.";
         else if (!referenceOnly && !point) instruction.textContent = "Şimdi işlem yapılacak alanın ortasına tıklayın. Alan, seçtiğiniz referansın dışında olabilir.";
@@ -4263,7 +4280,7 @@
       }
       function paintStructure() {
         structure.replaceChildren();
-        if (referenceOnly || mode !== "coordinates" || !capture || !element) return;
+        if (simpleTable || referenceOnly || mode !== "coordinates" || !capture || !element) return;
         if (!element.available) {
           structure.append(note(element.reason || "Uygulama yapısından alan okunamadı; konum kaydedilecek."));
           return;
@@ -4380,6 +4397,7 @@
         draw();
       });
       canvas.addEventListener("pointerup", (event) => {
+        if (simpleTable && point && !loading && !saving) { commit(); return; }
         if (!drag) return;
         rectangle = dragged(drag, location(event));
         drag = null;
@@ -4543,7 +4561,7 @@
         status.replaceChildren(node("p", "help", "Hedef kaydediliyor…"));
         try {
           let values;
-          const byStructure = mode === "coordinates" && useElement && element?.available && element.locator;
+          const byStructure = !simpleTable && mode === "coordinates" && useElement && element?.available && element.locator;
           if (byStructure) values = { target_mode: "element", element: element.locator, ...toWindow(point) };
           else if (mode === "coordinates") values = { target_mode: mode, ...toWindow(point) };
           else {
@@ -4560,9 +4578,25 @@
               Object.assign(values, { target_mode: "image", offset_x: position.x - center.x, offset_y: position.y - center.y });
             }
           }
+          if (simpleTable) {
+            status.replaceChildren(node("p", "help", "Tablonun satır ve sütunları okunuyor…"));
+            const preview = await api("/api/desktop/inspect-table", {
+              method: "POST", body: JSON.stringify({ ...selector, ...toWindow(point),
+                window_id: capture.window.window_id, pid: capture.window.pid,
+                width: capture.window.width, height: capture.window.height,
+                header: parameterValue(step, "header") !== false }),
+            });
+            if (!current()) return;
+            if (!Array.isArray(preview.columns) || !preview.columns.length || !Number.isInteger(preview.rows))
+              throw new Error("Tablonun yapısı okunamadı; yeniden seçin.");
+            tablePreviews.set(step, preview);
+            values.write_method = "point";
+            for (const name of ["region", "table", "template", "element", "offset_x", "offset_y"])
+              delete step.params[name];
+          }
           d.close();
           applyStepParams(step, values);
-          toast(byStructure ? `Alan kimliği kaydedildi: ${element.summary}`
+          toast(simpleTable ? "Tablo seçildi. Satır, sütun ve yeni değeri girin." : byStructure ? `Alan kimliği kaydedildi: ${element.summary}`
             : mode === "image" ? "Görsel referans ve hedef kaydedildi." : "Pencere içindeki hedef konum kaydedildi.");
         } catch (error) {
           if (current()) status.replaceChildren(note(error.message));
@@ -4943,7 +4977,7 @@
     if (step.action === "desktop.find_window") pane.append(windowRecognitionTools(step));
     // Every step that points at something inside a window gets Ekranda seç, by its own fields.
     const windowTarget = (spec.fields || []).some((f) => f.name === "target_mode" && fieldVisible(step, f))
-      || step.action === "desktop.window_wait_image";
+      || ["desktop.window_wait_image", "window.write_table"].includes(step.action);
     let targetTools = windowTarget ? windowTargetTools(step) : null;
     if (targetTools) pane.append(targetTools);
     if (spec.retired === "desktop.window_wait_image") pane.append(retiredImageSearch(step));
@@ -4994,64 +5028,11 @@
     if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
     if (step.action === "sheets.read_rows") pane.append(note("Seçtiğiniz sütunlar birlikte okunur. Ana alanı dolu satırlar korunur; diğer sütunlar boş olabilir. Sonraki adımlarda seçtiğiniz değişken adlarını kullanın."));
     let tableOptions = null;
-    const tableAdvanced = new Set(["write_method", "edit_mode", "table", "row_mode", "match_column", "match_value", "confidence", "timeout", "offset_x", "offset_y", "output"]);
+    const tableAdvanced = new Set(["write_method", "edit_mode", "header", "region", "table", "target_mode", "x", "y", "template", "element", "row_mode", "match_column", "match_value", "confidence", "timeout", "offset_x", "offset_y", "output"]);
     if (step.action === "window.write_table") {
-      const screenTable = parameterValue(step, "write_method") === "screen";
-      if (screenTable) {
-        pane.append(note("Tablo alanını çiz → satırı belirt → sütun adı, sutun_2 veya 2 yaz → yeni değeri gir. Hücre, kopyalanan verilerden ekranda yeniden bulunur. Başlık kopyalanmıyorsa İlk satır sütun başlıklarıdır seçeneğini kapatın."));
-        const sources = allSteps(state.workflow.steps).filter((item) => item.action === "window.read_table");
-        if (sources.length) {
-          const picker = node("select");
-          picker.setAttribute("aria-label", "Ayarları alınacak okuma adımı");
-          sources.forEach((item, index) => {
-            const detail = parameterValue(item, "mode") === "count" ? "Satır sayısı"
-              : `${parameterValue(item, "column") || "Sütun belirtilmemiş"} · Satır ${parameterValue(item, "row")}`;
-            const option = node("option", "", `${index + 1}. ${item.title || "Tablodan değer oku"} · ${detail}`);
-            option.value = item.id;
-            picker.append(option);
-          });
-          const nearest = (precedingSteps(step.id) || []).slice().reverse().find((item) =>
-            item.action === "window.read_table" && JSON.stringify(parameterValue(item, "window")) === JSON.stringify(parameterValue(step, "window")));
-          if (nearest) picker.value = nearest.id;
-          const transfer = node("div", "loop-help");
-          transfer.append(field("Çalışan okuma adımı", picker,
-            "Seçtiğiniz adımın pencere, başlık, satır ve sütun ayarlarını alır. Yeni değer korunur; tablo alanını kontrol edin."),
-          button("Okuma adımından aktar", "copy", () => {
-            const source = sources.find((item) => item.id === picker.value);
-            if (!source) return;
-            const previousWindow = JSON.stringify(parameterValue(step, "window"));
-            step.params.window = clone(parameterValue(source, "window"));
-            if (previousWindow !== JSON.stringify(step.params.window)) delete step.params.region;
-            if (parameterValue(source, "header") === false) step.params.header = false;
-            else delete step.params.header;
-            if (parameterValue(source, "mode") !== "count") {
-              step.params.row = clone(parameterValue(source, "row"));
-              step.params.column = clone(parameterValue(source, "column"));
-              delete step.params.row_mode;
-              delete step.params.match_column;
-              delete step.params.match_value;
-            }
-            markDirty();
-            renderInspector();
-            toast("Okuma ayarları aktarıldı. Yazılacak değeri ve tablo alanını kontrol edin.");
-          }, "small"));
-          pane.append(transfer);
-        }
-      }
-      else {
-        const conversion = node("div", "loop-help");
-        conversion.append(note("Bu adım uygulamanın sunduğu tablo yapısıyla çalışıyor. Sütun başlığı ve ekrandaki metinle hücre bulmak için yöntemi değiştirebilirsiniz."),
-          button("Tabloyu okuyarak yazmaya geç", "sheet", () => {
-            step.params.write_method = "screen";
-            markDirty();
-            renderInspector();
-            toast("Değerler korundu. Tablo alanını bir kez çizin; sütun adı, sutun_2 veya numara kullanabilirsiniz.");
-          }, "small"));
-        pane.append(conversion);
-      }
       tableOptions = node("details", "table-options");
       tableOptions.dataset.stepId = step.id;
-      tableOptions.open = Boolean(tableOptionsOpen || parameterValue(step, "row_mode") === "match" || (!screenTable && parameterValue(step, "table")));
+      tableOptions.open = Boolean(tableOptionsOpen);
       tableOptions.append(node("summary", "", "Diğer seçenekler"));
     }
     (spec.fields || []).forEach((f) => {
@@ -5066,7 +5047,7 @@
         const summary = textInput(Array.isArray(region) && region.length === 4
           ? `Tablo alanı seçildi (${region[2]} × ${region[3]})` : "Henüz seçilmedi");
         summary.readOnly = true;
-        fieldPane.append(field(f.label, summary, f.help, true));
+        fieldPane.append(field(f.label, summary, f.help, true), button("Kayıtlı alanı değiştir", "target", () => captureRegion(step), "small"));
         return;
       }
       if (f.type === "columns") {
@@ -5087,6 +5068,7 @@
       }
       if (f.reference === "window") {
         fieldPane.append(windowReferenceField(step, f, () => {
+          tablePreviews.delete(step);
           if (!targetTools) return;
           const updated = windowTargetTools(step);
           targetTools.replaceWith(updated);
@@ -5191,6 +5173,17 @@
         }
       }
       const wrap = field(f.label || f.name, control, f.help, f.required);
+      if (step.action === "window.write_table" && f.name === "column" && tablePreviews.has(step)) {
+        const list = node("datalist");
+        list.id = `table-columns-${step.id}`;
+        tablePreviews.get(step).columns.forEach((name) => {
+          const option = node("option");
+          option.value = name;
+          list.append(option);
+        });
+        control.setAttribute("list", list.id);
+        wrap.append(list);
+      }
       if (jsonMode) wrap.insertBefore(jsonMode, control);
       if (f.type === "path") {
         const row = node("div", "path-row");
@@ -5317,6 +5310,8 @@
         if (next === undefined || (f.name === "wait_after" && next === 0) ||
             (f.omit_default && (next === f.default || next === ""))) delete step.params[f.name];
         else step.params[f.name] = next;
+        if (step.action === "window.write_table" && ["header", "x", "y", "target_mode", "write_method"].includes(f.name))
+          tablePreviews.delete(step);
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();
         markDirty();

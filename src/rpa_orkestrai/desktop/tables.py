@@ -10,28 +10,30 @@ import platform
 from collections import deque
 
 from .elements import MAC_DEPTH_LIMIT, MAC_ELEMENT_LIMIT, WINDOWS_ELEMENT_LIMIT, AxElements, UiaElements
-from .table_columns import numbered_column, resolve_column
+from .table_columns import column_names, numbered_column, resolve_column
 from .windows import WindowError
 
 LIMIT = 10_000
 UNSUPPORTED = ("Bu uygulama tablonun hücrelerine doğrudan yazmayı desteklemiyor. "
-               "Tabloyu okuyarak ekranda bul yöntemini kullanıp tablo alanını çizebilirsiniz.")
+               "Tabloyu seç düğmesiyle tabloyu yeniden tanıtın; uygun yöntem otomatik seçilir.")
 
 
-def column_index(names, wanted):
+def column_index(names, wanted, *, canonical=False):
     wanted = wanted.strip()
     # Preserve native numeric selectors; named aliases share the clipboard rules.
-    if wanted.isdecimal():
+    if wanted.isdecimal() and not canonical:
         index = numbered_column(wanted)
         if index is not None and index < len(names):
             return index
     try:
-        return resolve_column([name.strip() for name in names], wanted)
+        titles = [name.strip() for name in names]
+        return resolve_column(column_names(titles, len(titles)) if canonical else titles, wanted)
     except ValueError as exc:
         raise WindowError(str(exc)) from exc
 
 
-def resolve_cell(backend, window, *, table, row_mode, row, column, match_column, match_value, check, point=None):
+def resolve_cell(backend, window, *, table, row_mode, row, column, match_column, match_value, check, point=None,
+                 canonical=False):
     candidates = backend.tables(window, check)
     if point is not None:
         candidates = [item for item in candidates if (info := item.info()) is not None
@@ -50,9 +52,9 @@ def resolve_cell(backend, window, *, table, row_mode, row, column, match_column,
     names = grid.headers(columns)
     if len(names) != columns:
         raise WindowError("Tablonun sütun yapısı okunamadı.")
-    col = column_index(names, column)
+    col = column_index(names, column, canonical=canonical)
     if row_mode == "match":
-        key_col = column_index(names, match_column)
+        key_col = column_index(names, match_column, canonical=canonical)
         matches = []
         for index in range(rows):
             check()
@@ -161,6 +163,11 @@ class UiaCell:
     def read(self):
         return str(self.value_pattern().CurrentValue)
 
+    def write_available(self):
+        from comtypes.gen import UIAutomationClient as uia
+
+        return _pattern(self.element, 10002, uia.IUIAutomationValuePattern) is not None
+
     def write(self, value, guard):
         pattern = self.value_pattern()
         if pattern.CurrentIsReadOnly or not self.element.CurrentIsEnabled:
@@ -237,6 +244,14 @@ class AxCell:
         if value is None:
             raise WindowError(UNSUPPORTED)
         return str(value)
+
+    def write_available(self):
+        try:
+            element = self.value_element()
+        except WindowError:
+            return False
+        error, _ = self.backend.ax.AXUIElementIsAttributeSettable(element, "AXValue", None)
+        return error == 0
 
     def write(self, value, guard):
         element = self.value_element()

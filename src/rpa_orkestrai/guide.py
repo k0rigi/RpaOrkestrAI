@@ -255,17 +255,14 @@ GUIDES = {
         "Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir; tek bir hücre için "
         "Tablodan değer oku adımını kullanın."),
     "window.write_table": guide(
-        ["Pencereyi seçin; Tablo alanını çiz ile tek bir tabloyu, başlık ve veri satırlarıyla birlikte dikdörtgen içine alın.",
+        ["Pencereyi seçin; Tabloyu seç düğmesine basıp görüntüde tablonun herhangi bir hücresine tıklayın.",
          "Satır 1, Yazılacak sütun Durum, Yazılacak değer Tamamlandı: ilk veri satırının Durum hücresini değiştirir.",
          "Bu adımı test et → Yeri göster ile hücrenin güncel yerini kontrol edin; Gerçekten çalıştır ile yazın."],
         "Seçilen hücreye yazılan değer kontrol edilir.",
-        "Tablo alanını bir kez tanıtın; sütun adı, sutun_2 veya 2 kullanın. Okuma adımından aktar ile çalışan "
-        "okuma adımının pencere, başlık, satır ve sütun ayarlarını alabilirsiniz. Yalnız veriler kopyalanıyorsa "
-        "İlk satır sütun başlıklarıdır seçeneğini kapatın. Hücre, mevcut değer ve aynı kaydı ayırt eden başka bir "
-        "görünür değerle her çalışmada yeniden bulunur; başlık zorunlu değildir. Sütun numarası kopyalanan "
-        "verinin sırasını belirtir; boş/kutucuk sütunlarını da sayar. "
-        "Yeri göster tabloya tıklayıp kopyalar; değer yazmaz. Eski adımlar uygulamanın tablo yapısını kullanır. "
-        "Sırası değişen kayıtlarda Diğer seçenekler → Benzersiz değeri bul seçin. Kaydetme/onayı ayrıca ekleyin."),
+        "Seçilen nokta tabloyu tanıtır; hedef hücrenin konumu değildir. Satır ve sütunlar seçimde okunur, "
+        "çalışırken yeniden bulunur. Sütunu listeden seçebilir, adını, sutun_2 veya 2 yazabilirsiniz. "
+        "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. "
+        "Başlık ve düzenleme ayarları Diğer seçenekler altındadır. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",

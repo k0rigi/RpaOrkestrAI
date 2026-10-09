@@ -39,6 +39,7 @@ from .models import (
     ScheduleSettings,
     SecretRequest,
     StepTestRequest,
+    TableInspectRequest,
     TemplateCropRequest,
     WindowCheckRequest,
     Workflow,
@@ -323,6 +324,33 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     def cancel_desktop_pick(pick_id: str):
         picks.cancel(pick_id)
         return Response(status_code=204)
+
+    @app.post("/api/desktop/inspect-table")
+    def inspect_desktop_table(body: TableInspectRequest):
+        from .desktop.controller import DesktopController
+        from .desktop.windows import WindowError, WindowService
+
+        try:
+            with manager.desktop_setup():
+                windows = WindowService()
+                previous = next((w for w in windows.list_windows() if windows.backend.is_active(w)), None)
+                target = windows.find(body.application, body.title, body.match)
+                current = windows.current(target)
+                if (current.window_id, current.pid, current.width, current.height) != (
+                        body.window_id, body.pid, body.width, body.height):
+                    raise WindowError("Pencere değişti; tabloyu yeniden seçin.")
+                try:
+                    return windows.inspect_table(target, DesktopController(), x=body.x, y=body.y, header=body.header)
+                finally:
+                    if previous is not None and previous.window_id != current.window_id:
+                        try:
+                            windows.focus(previous.result())
+                        except WindowError:
+                            pass
+        except WindowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/desktop/capture-window")
     def capture_desktop_window(body: WindowCheckRequest):

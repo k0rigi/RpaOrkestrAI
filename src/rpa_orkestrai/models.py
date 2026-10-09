@@ -287,6 +287,16 @@ class WindowCheckRequest(Model):
     match: Literal["exact", "contains"] = "exact"
 
 
+class TableInspectRequest(WindowCheckRequest):
+    x: int = Field(ge=0, le=20000, strict=True)
+    y: int = Field(ge=0, le=20000, strict=True)
+    header: bool = True
+    window_id: int = Field(gt=0, strict=True)
+    pid: int = Field(gt=0, strict=True)
+    width: int = Field(gt=0, le=20000, strict=True)
+    height: int = Field(gt=0, le=20000, strict=True)
+
+
 class TemplateCropRequest(Model):
     capture_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     x: int = Field(ge=0, strict=True)

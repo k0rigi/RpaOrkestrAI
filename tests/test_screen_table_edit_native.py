@@ -3,6 +3,7 @@ import platform
 import subprocess
 import time
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,9 +15,14 @@ from rpa_orkestrai.desktop.windows import Win32Windows, WindowService
 pytestmark = pytest.mark.skipif(platform.system() != 'Windows', reason='Real Windows table editing')
 
 
-@pytest.mark.parametrize('header,width,edit_mode', [(False, 140, 'f2'), (False, 280, 'double_click'),
-                                                   (True, 140, 'double_click'), (True, 280, 'f2')])
-def test_screen_write_uses_real_grid_clipboard_with_optional_headers(tmp_path, header, width, edit_mode):
+@pytest.mark.parametrize('header,width,edit_mode,method', [
+    (False, 140, 'f2', 'screen'), (False, 280, 'double_click', 'screen'),
+    (True, 140, 'double_click', 'screen'), (True, 280, 'f2', 'screen'),
+    (False, 280, 'double_click', 'point'), (False, 140, 'f2', 'point-copy'),
+    (True, 140, 'double_click', 'point-copy'), (True, 280, 'double_click', 'point-shape'),
+])
+def test_screen_write_uses_real_grid_clipboard_with_optional_headers(tmp_path, monkeypatch,
+                                                                    header, width, edit_mode, method):
     title = 'RpaOrkestrAI screen grid ' + uuid.uuid4().hex
     script = tmp_path / 'screen-grid.ps1'
     source = '''Add-Type -AssemblyName PresentationFramework
@@ -80,12 +86,26 @@ $window.Content = $grid
         import ctypes
         ctypes.windll.user32.SetCursorPos(*info.center)
         reports = []
-        result = screen_table_cell(service, window.result(), DesktopController(), region=region,
-                                   selection=dict(row_mode='index', row=2, column='sutun_2',
-                                                  match_column='', match_value=''),
-                                   value='READY', header=header, edit_mode=edit_mode, report=reports.append)
+        options = dict(selection=dict(table='', row_mode='index', row=2, column='sutun_2',
+                                      match_column='', match_value=''), value='READY', header=header,
+                       edit_mode=edit_mode, report=reports.append)
+        if method == 'screen':
+            result = screen_table_cell(service, window.result(), DesktopController(), region=region, **options)
+        else:
+            if method == 'point-copy':
+                monkeypatch.setattr('rpa_orkestrai.desktop.tables.native_backend',
+                                    lambda: SimpleNamespace(tables=lambda *args: []))
+            elif method == 'point-shape':
+                monkeypatch.setattr('rpa_orkestrai.desktop.tables.UiaCell.write_available', lambda self: False)
+                options['header'] = False  # Native shape must detect the actual copied titles.
+            x, y = grids[0].cell(0, 0).info().center
+            x, y = x - window.x, y - window.y
+            structure = service.inspect_table(window.result(), DesktopController(), x=x, y=y, header=header)
+            assert structure['rows'] == 2 and len(structure['columns']) == 3
+            result = service.point_table_cell(window.result(), DesktopController(), targeting=dict(x=x, y=y), **options)
         assert result == {'row': 2, 'column': 2, 'value': 'READY'}
-        assert reports[0]['current_value'] == 'OLD' and reports[0]['rows'] == 2
+        if method != 'point':
+            assert reports[0]['current_value'] == 'OLD' and reports[0]['rows'] == 2
         # Independent native reads prove which real cell changed; the writer
         # itself uses no UIA row/column addressing or accessibility value write.
         assert grids[0].cell(0, 1).read() == 'OLD'

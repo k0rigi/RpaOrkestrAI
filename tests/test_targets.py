@@ -95,3 +95,31 @@ def test_capture_api_is_explicit_same_origin_and_blocked_during_run(tmp_path, mo
         assert saved.status_code == 201
         assert (tmp_path / "templates" / saved.json()["template"]).exists()
         assert client.get("/api/runs").json() == []
+
+
+def test_table_inspection_guards_stale_window_origin_and_running_flow(tmp_path, monkeypatch):
+    window, _ = capture()
+    previous = WindowInfo(13, 43, "Studio", "Studio", 0, 0, 200, 150)
+    windows = Mock()
+    windows.list_windows.return_value = [previous, window]
+    windows.backend.is_active.side_effect = lambda item: item == previous
+    windows.find.return_value = window.result()
+    windows.current.return_value = window
+    windows.inspect_table.return_value = {"rows": 12, "columns": ["Code", "Status"]}
+    monkeypatch.setattr("rpa_orkestrai.desktop.windows.WindowService", Mock(return_value=windows))
+    body = {"title": window.title, "x": 35, "y": 50, "window_id": window.window_id, "pid": window.pid,
+            "width": window.width, "height": window.height}
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        endpoint = "/api/desktop/inspect-table"
+        assert client.post(endpoint, json=body, headers={"origin": "https://evil.example"}).status_code == 403
+        manager = client.app.state.manager
+        manager._active = ("test", threading.Event())
+        assert client.post(endpoint, json=body).status_code == 409
+        manager._active = None
+        for changed in ({"window_id": 999}, {"pid": 999}, {"width": 999}, {"x": -1}):
+            assert client.post(endpoint, json={**body, **changed}).status_code == 422
+        windows.inspect_table.assert_not_called()
+        result = client.post(endpoint, json=body)
+        assert result.status_code == 200 and result.json() == windows.inspect_table.return_value
+        assert windows.inspect_table.call_args.kwargs == {"x": 35, "y": 50, "header": True}
+        windows.focus.assert_called_once_with(previous.result())

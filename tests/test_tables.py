@@ -24,6 +24,9 @@ class Cell:
     def read(self):
         return self.value
 
+    def write_available(self):
+        return True
+
     def info(self):
         return ElementInfo("DataItem", f"{self.row}-{self.column}", "", "", 150 + self.column * 90,
                            150 + self.row * 40, 80, 30, self.value, not self.visible)
@@ -145,6 +148,12 @@ def test_duplicate_headers_require_explicit_column_number():
     assert column_index(["Tutar", "Tutar"], "2") == 1
 
 
+def test_point_column_names_match_the_inspected_structure():
+    assert column_index(["Status", "Status"], "Status (2)", canonical=True) == 1
+    assert column_index(["", "sutun_1"], "sutun_1", canonical=True) == 0
+    assert column_index(["", "sutun_1"], "sutun_1 (2)", canonical=True) == 1
+
+
 def test_cancel_checked_during_key_search(setup):
     window, grid, backend, *_ = setup
     check = Mock(side_effect=InterruptedError)
@@ -213,6 +222,63 @@ def test_native_provider_error_is_reported_without_retry(setup):
 
 def set_grid_bounds(grid, x=120, y=120, width=250, height=150):
     grid.info = Mock(return_value=ElementInfo("DataGrid", "", "", "", x, y, width, height))
+
+
+def test_point_automatically_uses_native_structure_without_clipboard(setup):
+    window, grid, _, windows, desktop, _ = setup
+    set_grid_bounds(grid)
+    windows.screen_table_cell = Mock()
+    result = windows.point_table_cell(window.result(), desktop, targeting=dict(x=70, y=70),
+                                     selection={**SELECTION, "column": "sutun_2", "row": 2}, value="NEW")
+    assert result == {"row": 2, "column": 2, "value": "NEW"}
+    assert grid.cells[1][1].writes == ["NEW"]
+    windows.screen_table_cell.assert_not_called()
+    desktop.click.assert_not_called()
+
+
+@pytest.mark.parametrize("problem", ["readonly", "provider", "duplicate"])
+def test_point_never_falls_back_after_native_write_or_ambiguity(setup, problem):
+    window, grid, backend, windows, desktop, _ = setup
+    set_grid_bounds(grid)
+    windows.screen_table_cell = Mock()
+    if problem == "readonly":
+        grid.cells[0][1].readonly = True
+    elif problem == "provider":
+        grid.cells[0][1].write = Mock(side_effect=RuntimeError("unknown outcome"))
+    else:
+        backend.tables.return_value = [grid, grid]
+    with pytest.raises(WindowError):
+        windows.point_table_cell(window.result(), desktop, targeting=dict(x=70, y=70),
+                                 selection=SELECTION, value="NEW")
+    windows.screen_table_cell.assert_not_called()
+    desktop.click.assert_not_called()
+
+
+@pytest.mark.parametrize("has_structure", [False, True])
+def test_point_selects_clipboard_before_writing_when_native_cells_unavailable(setup, has_structure):
+    window, grid, backend, windows, desktop, _ = setup
+    set_grid_bounds(grid)
+    if has_structure:
+        grid.cells[0][1].write_available = Mock(return_value=False)
+    else:
+        backend.tables.return_value = []
+    windows.screen_table_cell = Mock(return_value="result")
+    assert windows.point_table_cell(window.result(), desktop, targeting=dict(x=70, y=70),
+                                    selection=SELECTION, value="NEW") == "result"
+    passed = windows.screen_table_cell.call_args.kwargs
+    assert passed["region"] == ((20, 40, 250, 150) if has_structure else None)
+    assert passed["copy_shape"] == ((2, 2) if has_structure else None)
+    assert passed["selection"]["column"] == ("2" if has_structure else "Tutar")
+    assert not any(cell.writes for row in grid.cells for cell in row)
+
+
+def test_point_inspection_returns_entire_table_structure_without_writes(setup):
+    window, grid, _, windows, desktop, _ = setup
+    set_grid_bounds(grid)
+    assert windows.inspect_table(window.result(), desktop, x=70, y=70) == {
+        "rows": 2, "columns": ["Fatura No", "Tutar"]}
+    desktop.click.assert_not_called()
+    assert not any(cell.writes for row in grid.cells for cell in row)
 
 
 @pytest.mark.parametrize("mode", ["coordinates", "image", "element"])

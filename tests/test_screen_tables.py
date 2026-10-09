@@ -256,6 +256,58 @@ def test_show_target_copies_table_without_editing(runtime):
     assert state["clipboard"] == "previous clipboard"
 
 
+@pytest.mark.parametrize("point", [(35, 56), (235, 56), (35, 101)])
+def test_point_identifies_whole_table_without_a_rectangle(runtime, point):
+    service, window, desktop, state, options = runtime
+    options.pop("region")
+    options["targeting"] = dict(target_mode="coordinates", x=point[0], y=point[1])
+    assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["column"] == 2
+    assert desktop.click.call_args_list[0].args == (window.x + point[0], window.y + point[1])
+    desktop.paste.assert_called_once_with("YENI")
+    assert state["clipboard"] == "previous clipboard"
+
+
+def test_point_inspection_reads_all_structure_without_editing(runtime):
+    service, window, desktop, state, options = runtime
+    table = screen_table_cell(service, window.result(), desktop, selection={}, inspect=True,
+                              targeting=dict(target_mode="coordinates", x=35, y=56))
+    assert table == TABLE
+    assert table.names == ["Kod", "İade Sonrası", "Miktar"]
+    desktop.paste.assert_not_called()
+    assert desktop.click.call_count == 1 and state["clipboard"] == "previous clipboard"
+
+
+def test_point_does_not_resolve_a_duplicate_table_by_nearness(runtime, monkeypatch):
+    service, window, desktop, state, options = runtime
+    from rpa_orkestrai.desktop import screen_tables
+    original = screen_tables.read_words
+
+    def duplicate(*args, **kwargs):
+        words = original(*args, **kwargs)
+        return words + [replace(w, y=w.y + 320) for w in words]
+
+    monkeypatch.setattr(screen_tables, "read_words", duplicate)
+    with pytest.raises(WindowError, match="birden fazla"):
+        screen_table_cell(service, window.result(), desktop, selection=SELECTION, value="YENI",
+                          targeting=dict(target_mode="coordinates", x=35, y=56))
+    desktop.paste.assert_not_called()
+
+
+def test_provider_shape_detects_copied_header_without_user_setting(runtime):
+    service, window, desktop, state, options = runtime
+    options.update(header=False, copy_shape=(2, 3))  # Actual copied text includes titles.
+    assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["row"] == 1
+    desktop.paste.assert_called_once_with("YENI")
+
+
+def test_provider_shape_rejects_partial_clipboard(runtime):
+    service, window, desktop, state, options = runtime
+    options["copy_shape"] = (20, 3)
+    with pytest.raises(WindowError, match="tamamıyla"):
+        screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+    desktop.paste.assert_not_called()
+
+
 @pytest.mark.parametrize("edit_mode", ["single_click", "f2"])
 def test_edit_mode_still_checks_old_text_before_pasting(runtime, edit_mode):
     service, window, desktop, state, options = runtime

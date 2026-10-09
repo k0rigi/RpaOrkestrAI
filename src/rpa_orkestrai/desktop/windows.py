@@ -337,6 +337,88 @@ class WindowService:
 
         return screen_table_cell(self, target, desktop, **options)
 
+    def point_table_cell(self, target: dict, desktop: Any, *, targeting: dict, selection: dict,
+                         value=None, **options):
+        """A point identifies the table; its destination is always resolved anew.
+
+        Choose a provider before any write. A failed/uncertain native write is
+        never retried through clipboard input.
+        """
+        from .tables import column_index, native_backend
+
+        window, point = self._resolve_target(target, desktop, **targeting)
+        self._guard(target, window)
+        try:
+            backend = native_backend()
+            candidates = [grid for grid in backend.tables(window, self._check)
+                          if (info := grid.info()) is not None and info.usable_in(window) and info.contains(*point)]
+        except (ImportError, OSError):
+            candidates = []
+        self._guard(target, window)
+        if len(candidates) > 1:
+            raise WindowError("Seçilen noktada birden fazla tablo var; yazılmadı.")
+        area = None
+        copy_shape = None
+        if candidates:
+            grid = candidates[0]
+            rows, columns = grid.shape()
+            if not 0 < rows <= 10_000 or not 0 < columns <= 1000:
+                raise WindowError("Tablo boş veya desteklenen sınırların dışında; yazılmadı.")
+            headers = grid.headers(columns)
+            try:
+                column = column_index(headers, selection["column"], canonical=True)
+            except WindowError:
+                if any(headers):
+                    raise
+                column = None
+            probe_row = selection["row"] - 1 if selection["row_mode"] == "index" else 0
+            if not 0 <= probe_row < rows:
+                raise WindowError(f"Tabloda {rows} satır var; istenen satır bulunamadı.")
+            if column is not None and grid.cell(probe_row, column).write_available():
+                return self.table_cell(target, desktop, targeting=targeting, value=value, canonical=True, **selection)
+            info = candidates[0].info()
+            if (info is None or not info.contains(*point) or info.x < window.x or info.y < window.y
+                    or info.x + info.width > window.x + window.width
+                    or info.y + info.height > window.y + window.height):
+                raise WindowError("Tablonun konumu değişti; tabloyu yeniden seçin.")
+            area = (info.x - window.x, info.y - window.y, info.width, info.height)
+            copy_shape = (rows, columns)
+            if column is not None:
+                selection = {**selection, "column": str(column + 1)}
+            if selection["row_mode"] == "match" and any(headers):
+                selection = {**selection, "match_column": str(column_index(
+                    headers, selection["match_column"], canonical=True) + 1)}
+        self._guard(target, window)
+        return self.screen_table_cell(target, desktop, targeting=targeting, region=area,
+                                      selection=selection, value=value, copy_shape=copy_shape, **options)
+
+    def inspect_table(self, target: dict, desktop: Any, *, x: int, y: int, header=True):
+        """Read table dimensions/names from one point, without changing a value."""
+        from .table_columns import column_names
+        from .tables import native_backend
+
+        targeting = {"target_mode": "coordinates", "x": x, "y": y}
+        window, point = self._resolve_target(target, desktop, **targeting)
+        try:
+            grids = [grid for grid in native_backend().tables(window, self._check)
+                     if (info := grid.info()) is not None and info.usable_in(window) and info.contains(*point)]
+        except (ImportError, OSError):
+            grids = []
+        self._guard(target, window)
+        if len(grids) > 1:
+            raise WindowError("Seçilen noktada birden fazla tablo var; tabloyu yeniden seçin.")
+        if grids:
+            rows, columns = grids[0].shape()
+            if not 0 < rows <= 10_000 or not 0 < columns <= 1000:
+                raise WindowError("Tablo boş veya desteklenen sınırların dışında.")
+            names = column_names(grids[0].headers(columns), columns)
+            self._guard(target, window)
+        else:
+            table = self.screen_table_cell(target, desktop, targeting=targeting, selection={},
+                                           header=header, inspect=True)
+            rows, names = len(table.rows), table.names
+        return {"rows": rows, "columns": names}
+
     def table_cell(self, target: dict, desktop: Any, *, value: str | None = None,
                    targeting: dict | None = None, **selection: Any):
         """Locate/show a native cell, or write and verify it without keyboard input."""

@@ -75,11 +75,11 @@ def target_fields() -> list[dict]:
 
 def table_target_fields() -> list[dict]:
     fields = target_fields()
-    fields[0] = {**fields[0], "default": "auto", "omit_default": True,
+    fields[0] = {**fields[0], "default": "auto", "omit_default": True, "new_default": "coordinates",
                  "label": "Tabloyu bulma yöntemi", "help": "Uygulamanın tablo yapısında hangi tablonun "
                  "kullanılacağını seçin. Referans verirseniz nokta tablonun içinde olmalıdır.",
                  "options": [*fields[0]["options"], {"value": "auto", "label": "Penceredeki tek tablo"}]}
-    return [{**f, "visible_when": {**f.get("visible_when", {}), "write_method": "native"}} for f in fields]
+    return [{**f, "visible_when": {**f.get("visible_when", {}), "write_method": ["native", "point"]}} for f in fields]
 
 
 # Existing workflows still need these definitions for editing and execution.
@@ -323,24 +323,25 @@ LIBRARY = [
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
             output("table_value")]),
     action("window.write_table", "Tabloya değer yaz", "Pencere",
-           "Tablo alanını bir kez çizin; satır, sütun adı veya numarası ve yeni değeri girin. Hücrenin güncel yerini bulur, yazar ve doğrular.",
+           "Tablonun herhangi bir yerine tıklayarak seçin. Satır, sütun ve yeni değeri girin; hücreyi güncel tablo yapısından bulup yazar.",
            [WINDOW,
             field("write_method", "Yazma yöntemi", "select", "native", required=True,
-                  new_default="screen", omit_default=True,
-                  options=[{"value": "screen", "label": "Tabloyu okuyarak ekranda bul"},
+                  new_default="point", omit_default=True,
+                  options=[{"value": "point", "label": "Seçilen tabloyu otomatik tanı"},
+                           {"value": "screen", "label": "Kaydedilmiş tablo alanını kullan"},
                            {"value": "native", "label": "Uygulamanın tablo yapısını kullan"}],
-                  help="Tabloyu okuyarak bul: kopyalanan satır/sütunu ekrandaki güncel hücre değerleriyle eşleştirir. "
+                  help="Otomatik: seçilen noktadaki tablo yapısını kullanır; doğrudan hücre erişimi yoksa tablonun tamamını kopyalayıp hücreyi bulur. "
                        "Uygulamanın tablo yapısı: düzenlenebilir hücre erişimi gerektirir; eski adımlar bu yöntemi korur."),
             *table_target_fields(),
             field("region", "Tablo alanı", "json", None, required=True, visible_when={"write_method": "screen"},
                   help="Tablo alanını çiz ile yalnız bir tabloyu, başlıkları ve veri satırlarıyla birlikte seçin. "
                        "Alan pencereye göre saklanır; hücrelerin güncel yeri bu alan içinde bulunur."),
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True, omit_default=True,
-                  visible_when={"write_method": "screen"},
+                  visible_when={"write_method": ["screen", "point"]},
                   help="Tablodan değer oku ile aynı ayarı kullanın. Yalnız veriler kopyalanıyorsa kapatın: "
-                       "sütunlar sutun_1, sutun_2… olur ve ilk kayıt 1. satırdır. Okuma adımından aktar düğmesi bu ayarı getirir."),
+                       "sütunlar sutun_1, sutun_2… olur ve ilk kayıt 1. satırdır. Doğrudan tablo erişiminde bu ayar kullanılmaz."),
             field("edit_mode", "Hücreyi düzenlemeye aç", "select", "double_click", required=True,
-                  omit_default=True, visible_when={"write_method": "screen"},
+                  omit_default=True, visible_when={"write_method": ["screen", "point"]},
                   options=[{"value": "double_click", "label": "Çift tıklama"},
                            {"value": "single_click", "label": "Tek tıklama"},
                            {"value": "f2", "label": "Hücreyi seçip F2"}],

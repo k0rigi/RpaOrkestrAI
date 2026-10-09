@@ -231,7 +231,7 @@ def locate_cell(words, table, row, column, *, reference_point=None):
     if reference_point is not None and len(scopes) != 1:
         error = AmbiguousTable if len(scopes) > 1 else WindowError
         raise error("Tablo içeriği ile sütun başlıkları aynı tabloda doğrulanamadı. "
-                    "Tablo alanını çiz ile yalnız bir tablonun başlıklarını ve satırlarını seçin.")
+                    "Tabloyu seç ile hedef tablonun bir veri hücresini yeniden seçin.")
     found = {}
     for headings, bottom, end in scopes:
         header = headings[column]
@@ -459,8 +459,9 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
                 raise
 
 
-def screen_table_cell(service, target, desktop, *, region, selection, value=None, ocr_options=None,
-                      edit_mode="double_click", header=True, report=None):
+def screen_table_cell(service, target, desktop, *, region=None, selection, value=None, ocr_options=None,
+                      edit_mode="double_click", header=True, report=None, targeting=None, inspect=False,
+                      copy_shape=None):
     """Copy -> locate -> check editor -> paste once -> verify the full table."""
     import pyperclip
 
@@ -469,6 +470,11 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
     try:
         if edit_mode not in {"double_click", "single_click", "f2"}:
             raise WindowError("Hücre düzenleme yöntemi geçersiz.")
+        initial_point = None
+        if targeting is not None:
+            window, initial_point = service._resolve_target(target, desktop, **targeting)
+            if region is None:
+                region = (0, 0, window.width, window.height)
         if (not isinstance(region, (tuple, list)) or len(region) != 4
                 or any(type(n) is not int for n in region) or min(region[:2]) < 0 or min(region[2:]) <= 0):
             raise WindowError("Geçerli bir tablo alanı çizin.")
@@ -476,7 +482,7 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
         current = service.current(target)
         if left + width > current.width or top + height > current.height:
             raise WindowError("Tablo alanı pencere sınırlarını aşıyor; alanı yeniden çizin.")
-        window = service.focus(target)
+        window = service.focus(target) if initial_point is None else window
         if left + width > window.width or top + height > window.height:
             raise WindowError("Pencere boyutu değişti; tablo alanını yeniden çizin.")
 
@@ -519,7 +525,14 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
             guard()
             desktop.hotkey("mod", "a")
             guard()
-            return TableText.parse(copy_selection(), header=header)
+            copied = copy_selection()
+            if copy_shape is not None:
+                raw = TableText.parse(copied, header=False)
+                rows, columns = copy_shape
+                if len(raw.headers) != columns or len(raw.rows) not in {rows, rows + 1}:
+                    raise WindowError("Kopyalanan içerik tablonun tamamıyla eşleşmedi; yazılmadı.")
+                return TableText.parse(copied, header=len(raw.rows) == rows + 1)
+            return TableText.parse(copied, header=header)
 
         def locate(table, row, col):
             guard()
@@ -562,18 +575,26 @@ def screen_table_cell(service, target, desktop, *, region, selection, value=None
                         raise WindowError("Düzenlenen hücre veya satır değişti; yazılmadı.")
                     return
 
-        captured_window, image = service._capture_window(target, desktop)
-        if captured_window != window:
-            raise WindowError("Pencere değişti; yazılmadı.")
-        reference_point = table_focus_point(image.crop((left, top, left + width, top + height)),
-                                            selection["column"], ocr_options=ocr_options, header=header)
-        table_point = service._point_in_window(window, left + reference_point[0], top + reference_point[1], desktop)
+        if initial_point is None:
+            captured_window, image = service._capture_window(target, desktop)
+            if captured_window != window:
+                raise WindowError("Pencere değişti; yazılmadı.")
+            reference_point = table_focus_point(image.crop((left, top, left + width, top + height)),
+                                                selection["column"], ocr_options=ocr_options, header=header)
+            table_point = service._point_in_window(window, left + reference_point[0], top + reference_point[1], desktop)
+        else:
+            table_point = initial_point
+            reference_point = (initial_point[0] - window.x - left, initial_point[1] - window.y - top)
+            if not (0 <= reference_point[0] < width and 0 <= reference_point[1] < height):
+                raise WindowError("Seçilen nokta tablonun dışında; tabloyu yeniden seçin.")
         guard()
         table = copy_table(table_point)
+        if inspect:
+            return table
         row, col = table.select(**selection)
         if report:
             report({"rows": len(table.rows), "columns": table.names, "row": row + 1,
-                    "column": col + 1, "current_value": table.rows[row][col], "header": header})
+                    "column": col + 1, "current_value": table.rows[row][col], "header": table.has_header})
         location = locate(table, row, col)
         point = service._point_in_window(window, left + location.point[0], top + location.point[1], desktop)
         if value is None:

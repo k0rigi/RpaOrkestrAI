@@ -119,11 +119,15 @@ def table_target(ctx, p):
 
 
 def table_operation(ctx, p, *, value=None):
-    method = choice(p.get("write_method", "native"), "Hücreye yazma yöntemi", {"native", "screen"})
+    method = choice(p.get("write_method", "native"), "Hücreye yazma yöntemi", {"native", "screen", "point"})
     selection = table_selection(p)
-    if method == "screen":
-        area = region(p.get("region"))
-        if area is None:
+    if method == "point" and (p.get("target_mode", "coordinates") == "auto" or
+                              (p.get("target_mode", "coordinates") == "coordinates"
+                               and (p.get("x") is None or p.get("y") is None))):
+        raise WorkflowError("Önce Tabloyu seç düğmesiyle tablonun herhangi bir hücresine tıklayın.")
+    if method in {"screen", "point"}:
+        area = region(p.get("region")) if method == "screen" else None
+        if method == "screen" and area is None:
             raise WorkflowError("Tablo alanını çiz ile yalnız bir tablonun başlıklarını ve veri satırlarını seçin.")
         if value is not None and value != value.strip():
             raise WorkflowError("Tabloya yazılacak değerin başında veya sonunda boşluk olmamalıdır.")
@@ -137,8 +141,11 @@ def table_operation(ctx, p, *, value=None):
                     f"Mevcut değer: {info['current_value'][:300]!r}. "
                     f"İlk satır başlık: {'evet' if info['header'] else 'hayır'}.")
 
-        return ctx.windows().screen_table_cell(
-            _window(p), ctx.desktop(), value=value, selection=selection, region=area, edit_mode=edit_mode,
+        operation = ctx.windows().point_table_cell if method == "point" else ctx.windows().screen_table_cell
+        targeting = {"targeting": ctx.window_target({**p, "target_mode": p.get("target_mode", "coordinates")})} \
+            if method == "point" else {"region": area}
+        return operation(
+            _window(p), ctx.desktop(), value=value, selection=selection, **targeting, edit_mode=edit_mode,
             header=p.get("header", True) is not False, report=report,
             ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
                          "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
