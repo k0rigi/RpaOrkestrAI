@@ -2,6 +2,24 @@
 import re
 
 
+def clipboard_rows(value):
+    """Ignore separator lines, but preserve tab-delimited empty records/columns."""
+    lines = str(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return tuple(tuple(cell.strip() for cell in line.split("\t"))
+                 for line in lines if line.strip() or "\t" in line)
+
+
+def split_header(cells, *, header, header_row=1):
+    """Only a chosen header may exclude preceding rows; never guess by content."""
+    if type(header_row) is not int or not 1 <= header_row <= 10_000:
+        raise ValueError("Başlık satırı 1–10.000 arasında bir tam sayı olmalıdır.")
+    if not header:
+        return (), cells, ()
+    if not cells or header_row > len(cells):
+        raise ValueError("Seçilen başlık satırı kopyalanan tabloda yok; tabloyu yeniden seçin.")
+    return cells[header_row - 1], cells[header_row:], cells[:header_row - 1]
+
+
 def folded(value):
     return str(value).replace("İ", "i").replace("I", "i").replace("ı", "i").casefold()
 

@@ -340,7 +340,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                         body.window_id, body.pid, body.width, body.height):
                     raise WindowError("Pencere değişti; tabloyu yeniden seçin.")
                 try:
-                    return windows.inspect_table(target, DesktopController(), x=body.x, y=body.y, header=body.header)
+                    return windows.inspect_table(target, DesktopController(), x=body.x, y=body.y,
+                                                 header=body.header, header_row=body.header_row)
                 finally:
                     if previous is not None and previous.window_id != current.window_id:
                         try:

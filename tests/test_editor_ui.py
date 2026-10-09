@@ -1888,3 +1888,82 @@ def test_table_one_click_inspects_structure_and_keeps_only_basic_fields(tmp_path
             assert inspections[-1]["window_id"] == 11 and inspections[-1]["pid"] == 42
             assert not errors
             browser.close()
+
+
+@pytest.mark.parametrize("prefix", [False, True])
+def test_table_header_selection_corrects_rows_and_persists_without_second_copy(tmp_path, prefix):
+    from fastapi.testclient import TestClient
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.desktop.screen_tables import TableText
+    playwright = pytest.importorskip("playwright.sync_api")
+    Image = pytest.importorskip("PIL.Image")
+    png = io.BytesIO()
+    Image.new("RGB", (1000, 600), "white").save(png, format="PNG")
+    image = "data:image/png;base64," + base64.b64encode(png.getvalue()).decode()
+    headers, values = [""] * 36, [""] * 36
+    headers[6:9], values[6:9] = ["Fatura No", "Hasarlı", "İade Sonrası"], ["02103500", "", "ARIZALILAR"]
+    raw = "\n".join((["\t" * 35] if prefix else []) + ["\t".join(headers), "\t".join(values)])
+    preview = TableText.parse(raw, header=prefix).preview()
+    inspections, errors = [], []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        workflow_id = client.post("/api/workflows", json={"name": "Başlık düzeltme", "steps": [
+            {"id": "window", "action": "desktop.find_window", "params": {
+                "application": "Test App", "title": "Records", "output": "records_window"}},
+            {"id": "writer", "action": "window.write_table", "params": {
+                "window": "${records_window}", "row": 1, "column": "sutun_9", "header": prefix,
+                "value": "${record.value}"}}]}).json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 980, "height": 720})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                path = urlsplit(request.url).path
+                if path == "/api/desktop/capture-window":
+                    route.fulfill(json={"id": "table-shot", "image": image, "width": 1000, "height": 600,
+                        "window": {"width": 1000, "height": 600, "window_id": 11, "pid": 42}})
+                elif path == "/api/desktop/inspect-table":
+                    inspections.append(json.loads(request.post_data))
+                    route.fulfill(json=preview)
+                elif path == "/api/desktop/captures/table-shot":
+                    route.fulfill(status=204)
+                else:
+                    result = client.request(request.method, path, content=request.post_data_buffer,
+                                            headers={"content-type": "application/json"})
+                    route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Başlık düzeltme", exact=True).click()
+            page.locator('[data-step-id="writer"]').click()
+            page.get_by_role("button", name="Tabloyu seç", exact=True).click()
+            canvas = page.locator(".target-picker-canvas")
+            playwright.expect(canvas).to_be_visible()
+            bounds = canvas.bounding_box()
+            page.mouse.click(bounds["x"] + bounds["width"] * .3, bounds["y"] + bounds["height"] * .4)
+            tools = page.locator(".window-target-tools")
+            playwright.expect(tools).to_contain_text("2 satır · 36 sütun")
+            page.get_by_role("button", name=f"{1 + prefix}. satırı başlık yap", exact=True).click()
+            playwright.expect(tools).to_contain_text("1 satır · 36 sütun")
+            playwright.expect(page.locator(".table-preview-header")).to_contain_text("Fatura No")
+            playwright.expect(page.locator(".table-preview tr").last).to_contain_text("Veri 1")
+            playwright.expect(page.locator(".table-preview tr").last).to_contain_text("02103500")
+            assert page.locator("datalist option").evaluate_all("items => items.map(x => x.value)")[8] == "İade Sonrası"
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            saved = client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"]
+            assert saved["header"] is True and saved.get("header_row", 1) == 1 + prefix
+            assert saved["row"] == 1 and saved["column"] == "sutun_9" and saved["value"] == "${record.value}"
+            if not prefix:
+                assert "header_row" not in saved
+            page.get_by_role("button", name="Başlık yok", exact=True).click()
+            playwright.expect(tools).to_contain_text(f"{2 + prefix} satır · 36 sütun")
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
+            saved = client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"]
+            assert saved["header"] is False and "header_row" not in saved
+            assert len(inspections) == 1 and not errors
+            browser.close()

@@ -392,7 +392,7 @@ class WindowService:
         return self.screen_table_cell(target, desktop, targeting=targeting, region=area,
                                       selection=selection, value=value, copy_shape=copy_shape, **options)
 
-    def inspect_table(self, target: dict, desktop: Any, *, x: int, y: int, header=True):
+    def inspect_table(self, target: dict, desktop: Any, *, x: int, y: int, header=True, header_row=1):
         """Read table dimensions/names from one point, without changing a value."""
         from .table_columns import column_names
         from .tables import native_backend
@@ -415,10 +415,8 @@ class WindowService:
             self._guard(target, window)
         else:
             table = self.screen_table_cell(target, desktop, targeting=targeting, selection={},
-                                           header=header, inspect=True)
-            rows, names = len(table.rows), table.names
-            return {"rows": rows, "columns": names, "sample_rows": [list(r) for r in table.rows[:3]],
-                    "header": table.has_header, "source": "clipboard"}
+                                           header=header, header_row=header_row, inspect=True)
+            return table.preview()
         return {"rows": rows, "columns": names}
 
     def table_cell(self, target: dict, desktop: Any, *, value: str | None = None,

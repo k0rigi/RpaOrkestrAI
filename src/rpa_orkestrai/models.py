@@ -291,6 +291,7 @@ class TableInspectRequest(WindowCheckRequest):
     x: int = Field(ge=0, le=20000, strict=True)
     y: int = Field(ge=0, le=20000, strict=True)
     header: bool = True
+    header_row: int = Field(default=1, ge=1, le=10000, strict=True)
     window_id: int = Field(gt=0, strict=True)
     pid: int = Field(gt=0, strict=True)
     width: int = Field(gt=0, le=20000, strict=True)

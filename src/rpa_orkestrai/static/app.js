@@ -4104,8 +4104,44 @@
         : selected ? "Tablo seçildi. Yazılacak hücreyi satır ve sütunla belirtin."
         : "Tablonun herhangi bir hücresine bir kez tıklayın; tabloyu bütünüyle tanır."));
       const preview = tablePreviews.get(step);
+      if (selected && !preview) tools.append(node("p", "help", parameterValue(step, "header") === false
+        ? "Kayıtlı seçim: başlık yok; Satır 1 kopyalanan ilk satırdır. Önizleme için tabloyu yeniden seçin."
+        : `Kayıtlı başlık: kopyalanan ${parameterValue(step, "header_row") || 1}. satır. Satır 1 bunun ardından başlar. Önizleme için tabloyu yeniden seçin.`));
       if (selected && preview) tools.append(node("p", "help", `${preview.rows} satır · ${preview.columns.length} sütun bulundu.`));
-      if (selected && preview?.sample_rows?.length) {
+      if (selected && preview?.raw_sample && preview?.variants) {
+        const selectHeader = (variant) => {
+          tablePreviews.set(step, { ...preview, ...variant });
+          delete step.params.header_row;
+          applyStepParams(step, { header: variant.header,
+            ...(variant.header && variant.header_row > 1 ? { header_row: variant.header_row } : {}) });
+        };
+        tools.append(node("p", "help", "Başlıkları içeren satırda Başlık yap seçin. Veri 1, yazılacak Satır 1’dir; başlık ve öncesi veri sayılmaz."));
+        const noHeader = button("Başlık yok", "", () => selectHeader(preview.variants.find((v) => !v.header)), "small");
+        noHeader.disabled = !preview.header;
+        tools.append(noHeader);
+        const sample = node("div", "table-preview");
+        const table = node("table");
+        preview.raw_sample.forEach((cells, index) => {
+          const row = node("tr");
+          const isHeader = preview.header && index + 1 === preview.header_row;
+          if (isHeader) row.classList.add("table-preview-header");
+          const label = isHeader ? "Başlık" : preview.header && index + 1 < preview.header_row
+            ? "Atlanır" : `Veri ${index + 1 - (preview.header ? preview.header_row : 0)}`;
+          const role = node("th", "table-preview-role");
+          role.append(node("span", "", label));
+          const chooseHeader = button("Başlık yap", "", () => selectHeader(
+            preview.variants.find((v) => v.header && v.header_row === index + 1)), "small");
+          chooseHeader.setAttribute("aria-label", `${index + 1}. satırı başlık yap`);
+          chooseHeader.disabled = isHeader;
+          role.append(chooseHeader);
+          row.append(role);
+          cells.forEach((value) => row.append(node(isHeader ? "th" : "td", "", String(value))));
+          table.append(row);
+        });
+        sample.append(table);
+        tools.append(sample);
+        if (!preview.rows) tools.append(node("p", "help", "Seçilen başlıktan sonra veri satırı yok. Bu satır veri içeriyorsa Başlık yok seçin."));
+      } else if (selected && preview?.sample_rows?.length) {
         const sample = node("div", "table-preview");
         sample.append(node("p", "help", "Okunan ilk veri satırı (Satır 1):"));
         const table = node("table");
@@ -4604,7 +4640,8 @@
               method: "POST", body: JSON.stringify({ ...selector, ...toWindow(point),
                 window_id: capture.window.window_id, pid: capture.window.pid,
                 width: capture.window.width, height: capture.window.height,
-                header: tableHeader.checked }),
+                header: tableHeader.checked,
+                header_row: tableHeader.checked ? parameterValue(step, "header_row") || 1 : 1 }),
             });
             if (!current()) return;
             if (!Array.isArray(preview.columns) || !preview.columns.length || !Number.isInteger(preview.rows))
@@ -4613,6 +4650,7 @@
             values.write_method = "point";
             values.edit_mode = "auto";
             values.header = tableHeader.checked;
+            if (!values.header) delete step.params.header_row;
             for (const name of ["region", "table", "template", "element", "offset_x", "offset_y"])
               delete step.params[name];
           }
@@ -5047,7 +5085,7 @@
     }
     if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
     if (step.action === "sheets.read_rows") pane.append(note("Seçtiğiniz sütunlar birlikte okunur. Ana alanı dolu satırlar korunur; diğer sütunlar boş olabilir. Sonraki adımlarda seçtiğiniz değişken adlarını kullanın."));
-    const tableAutomatic = new Set(["write_method", "edit_mode", "header", "region", "table", "target_mode", "x", "y", "template", "element", "confidence", "timeout", "offset_x", "offset_y", "output"]);
+    const tableAutomatic = new Set(["write_method", "edit_mode", "header", "header_row", "region", "table", "target_mode", "x", "y", "template", "element", "confidence", "timeout", "offset_x", "offset_y", "output"]);
     (spec.fields || []).forEach((f) => {
       const fieldPane = pane;
       const key = `${step.id}:${f.name}`;
@@ -5328,7 +5366,7 @@
         if (next === undefined || (f.name === "wait_after" && next === 0) ||
             (f.omit_default && (next === f.default || next === ""))) delete step.params[f.name];
         else step.params[f.name] = next;
-        if (step.action === "window.write_table" && ["header", "x", "y", "target_mode", "write_method"].includes(f.name))
+        if (step.action === "window.write_table" && ["header", "header_row", "x", "y", "target_mode", "write_method"].includes(f.name))
           tablePreviews.delete(step);
         if (step.action === "desktop.find_window")
           document.getElementById("window-check-result")?.replaceChildren();

@@ -164,7 +164,7 @@ def runtime(monkeypatch):
     monkeypatch.setattr(pyperclip, "copy", lambda v: state.__setitem__("clipboard", v))
 
     def current_table():
-        return TEXT.replace("A125\tARIZALILAR", "A125\t" + state["value"])
+        return state.get("prefix", "") + TEXT.replace("A125\tARIZALILAR", "A125\t" + state["value"])
 
     def click(x, y, *, clicks, button):
         state["editor"] = state["editor_opens"] and (clicks == 2 or
@@ -209,6 +209,26 @@ def test_write_checks_editor_pastes_once_and_verifies_new_width(runtime):
     assert state["copied"] == 4
     writes = [c for c in desktop.click.call_args_list if c.kwargs["clicks"] == 2]
     assert len(writes) == 1 and 300 <= writes[0].args[0] <= 370
+
+
+@pytest.mark.parametrize("copy_shape", [None, (2, 3)])
+def test_selected_header_after_empty_export_row_writes_first_record(runtime, copy_shape):
+    service, window, desktop, state, options = runtime
+    state["prefix"] = "\t\t\n"
+    result = screen_table_cell(service, window.result(), desktop, value="YENI", header_row=2,
+                               edit_mode="auto", copy_shape=copy_shape, **options)
+    assert result == {"row": 1, "column": 2, "value": "YENI"}
+    desktop.paste.assert_called_once_with("YENI")
+    assert state["clipboard"] == "previous clipboard"
+
+
+def test_changed_export_prefix_is_not_ignored_during_write_verification(runtime):
+    service, window, desktop, state, options = runtime
+    state["prefix"] = "\t\t\n"
+    state["after_write"] = lambda: state.__setitem__("prefix", "CHANGED\t\t\n")
+    with pytest.raises(WindowError):
+        screen_table_cell(service, window.result(), desktop, value="YENI", header_row=2, **options)
+    desktop.paste.assert_called_once_with("YENI")
 
 
 @pytest.mark.parametrize("failure", [None, "no_response", "lost_focus"])

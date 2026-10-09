@@ -321,6 +321,8 @@ LIBRARY = [
             field("column", "Sütun", required=True, visible_when={"mode": "value"}),
             field("row", "Satır", "number", 1, min=1, max=10000, required=True, visible_when={"mode": "value"}),
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True),
+            field("header_row", "Başlık satırı", "number", 1, min=1, max=10000, omit_default=True,
+                  visible_when={"header": True}, help="Kopyalanan tablodaki başlık satırı. Öncesinde boş satır varsa 2 seçin; veri bu satırdan sonra başlar."),
             output("table_value")]),
     action("window.write_table", "Tabloya değer yaz", "Pencere",
            "Tablonun herhangi bir yerine tıklayarak seçin. Satır, sütun ve yeni değeri girin; hücreyi güncel tablo yapısından bulup yazar.",
@@ -338,8 +340,11 @@ LIBRARY = [
                        "Alan pencereye göre saklanır; hücrelerin güncel yeri bu alan içinde bulunur."),
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True, omit_default=True,
                   visible_when={"write_method": ["screen", "point"]},
-                  help="Kopyalanan ilk satır başlıksa açık, veri kaydıysa kapalı olmalıdır. "
-                       "Satır sayısı eksik veya sütun adları veri gibi görünüyorsa kapatıp Tabloyu seç ile yeniden okuyun."),
+                  help="Başlık varsa açık, kopya yalnız veri içeriyorsa kapalı olmalıdır. "
+                       "Önizlemede Başlık yap veya Başlık yok ile düzeltebilirsiniz."),
+            field("header_row", "Başlık satırı", "number", 1, min=1, max=10000, omit_default=True,
+                  visible_when={"write_method": ["screen", "point"], "header": True},
+                  help="Tablo önizlemesinde Başlık yap ile seçilir. Başlık ve öncesindeki satırlar veri sayılmaz; Satır 1 ilk veri kaydıdır."),
             field("edit_mode", "Hücreyi düzenlemeye aç", "select", "double_click", required=True,
                   new_default="auto", omit_default=True, visible_when={"write_method": ["screen", "point"]},
                   options=[{"value": "auto", "label": "Otomatik doğrula"},

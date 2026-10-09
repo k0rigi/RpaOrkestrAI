@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..desktop.table_columns import column_names, resolve_column
+from ..desktop.table_columns import clipboard_rows, column_names, resolve_column, split_header
 from ..desktop.windows import WindowError, found_window
 from ..errors import WorkflowError
 from . import handler
@@ -59,18 +59,19 @@ def read_field(ctx, p):
         raise WorkflowError("Pano erişimi için masaüstü otomasyon paketleri gerekir.") from exc
 
 
-def table_of(value: Any, *, header: bool) -> tuple[list[str], list[list[str]]]:
+def table_of(value: Any, *, header: bool, header_row: int = 1) -> tuple[list[str], list[list[str]]]:
     """Column names and rows from the text a grid copies out."""
-    lines = [line for line in str(value).replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()]
-    if len(lines) > TABLE_LIMIT:
+    cells = clipboard_rows(value)
+    if len(cells) > TABLE_LIMIT:
         raise WorkflowError(f"Tablodan en fazla {TABLE_LIMIT:,} satır okunabilir.".replace(",", "."))
-    cells = [[cell.strip() for cell in line.split("\t")] for line in lines]
     if not cells:
         return [], []
     width = max(len(row) for row in cells)
-    titles = cells[0] if header else []
+    try:
+        titles, body, _ = split_header(cells, header=header, header_row=header_row)
+    except ValueError as exc:
+        raise WorkflowError(str(exc)) from exc
     names = column_names(titles, width)
-    body = cells[1:] if header else cells
     return names, [[row[index] if index < len(row) else "" for index in range(width)] for row in body]
 
 
@@ -86,7 +87,8 @@ def table_column(names: list[str], column: Any) -> int:
 def read_table(ctx, p):
     """One cell of an ERP grid, or how many rows it holds."""
     header = p.get("header", True) is not False
-    names, rows = table_of(read_field(ctx, p), header=header)
+    header_row = integer(p.get("header_row", 1), "Başlık satırı", 1, TABLE_LIMIT) if header else 1
+    names, rows = table_of(read_field(ctx, p), header=header, header_row=header_row)
     if choice(p.get("mode", "value"), "Ne okunacak", {"value", "count"}) == "count":
         return len(rows)
     if not rows:
@@ -133,6 +135,7 @@ def table_operation(ctx, p, *, value=None):
             raise WorkflowError("Tabloya yazılacak değerin başında veya sonunda boşluk olmamalıdır.")
         edit_mode = choice("auto" if method == "point" else p.get("edit_mode", "double_click"), "Hücreyi düzenlemeye aç",
                            {"auto", "double_click", "single_click", "f2"})
+        header_row = integer(p.get("header_row", 1), "Başlık satırı", 1, TABLE_LIMIT)
 
         def report(info):
             names = "; ".join(f"{i + 1}={name}" for i, name in enumerate(info["columns"]))
@@ -146,7 +149,9 @@ def table_operation(ctx, p, *, value=None):
             if method == "point" else {"region": area}
         return operation(
             _window(p), ctx.desktop(), value=value, selection=selection, **targeting, edit_mode=edit_mode,
-            header=p.get("header", True) is not False, report=report, progress=ctx.log,
+            header=p.get("header", True) is not False,
+            header_row=header_row,
+            report=report, progress=ctx.log,
             ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
                          "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
                          "timeout": ctx.settings.action_timeout})

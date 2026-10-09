@@ -114,7 +114,7 @@ Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne t
 **0.9.11 ile sadeleştirilen kullanım:** tabloyu bir noktadan tanıtın; satır, sütun ve yeni değeri belirtin. Alan çizmek veya okuma adımından ayar aktarmak gerekmez.
 
 1. **Pencereyi tanı** ile pencereyi tanıtın ve **Tabloya değer yaz** ekleyin.
-2. **Tabloyu seç** düğmesine basın. Açılan pencere görüntüsünde tablonun herhangi bir hücresine tıklayın. Windows’ta Ctrl+A/C, macOS’ta Command+A/C ile tablo kopyalanır; doğrudan erişim veren uygulamalarda tablo yapısı da kullanılabilir. Kopyalanan ilk satır veri ise seçim ekranındaki **Kopyalanan ilk satır sütun başlıklarıdır** kutusunu kapatın. Satır sayısı ve sütunlar okununca seçim tamamlanır; pano yolunda ilk veri satırı önizlenir.
+2. **Tabloyu seç** düğmesine basın. Açılan pencere görüntüsünde tablonun herhangi bir hücresine tıklayın. Windows’ta Ctrl+A/C, macOS’ta Command+A/C ile tablo kopyalanır; doğrudan erişim veren uygulamalarda tablo yapısı da kullanılabilir. Kopyalanan ilk satır veri ise seçim ekranındaki **Kopyalanan ilk satır sütun başlıklarıdır** kutusunu kapatın. Satır sayısı ve sütunlar okununca seçim tamamlanır; pano yolunda kopyalanan ilk beş satır önizlenir. **Başlık yap** ile sütun adlarını içeren satırı seçin. Başlık yoksa **Başlık yok** seçin. **Başlık**, **Atlanır** ve **Veri 1** etiketleri hangi satırın nasıl kullanılacağını gösterir. Bu seçim uygulamaya tekrar tıklamaz veya değer yazmaz; önizleme ve kayıtlı ayar güncellenir.
 3. **Satır**, **Yazılacak sütun** ve **Yazılacak değer** girin. Örneğin `1`, `Durum`, `Tamamlandı`. Sütunu önerilen listeden seçebilir, adını veya `sutun_2` / `2` yazabilirsiniz. Değişken kullanılabilir.
 4. **Bu adımı test et → Yeri göster (değer yazmadan)** hedefi kontrol eder. **Gerçekten çalıştır** seçilen hücreyi değiştirir.
 
@@ -122,13 +122,20 @@ Seçilen nokta yalnız tabloyu tanıtır; yazılacak hücrenin sabit X/Y konumu 
 
 Uygulama hücrelerine doğrudan erişim sunuyorsa tablo yapısı kullanılır. Sunmuyorsa tıklanan tablonun tamamı kopyalanır; hedef hücre ve aynı kaydı ayırt eden başka bir görünür değer doğrulanır. Dikdörtgen çizmek gerekmez. Aynı içerikte birden fazla tablo veya belirsiz bir hücre varsa yazılmaz. Bu ikinci yöntemde mevcut değer ve ayırt edici hücre dolu ve görünür olmalıdır; ekran dışındaki/kırpılmış hücrelere tahminle giriş yapılmaz.
 
-**Diğer seçenekler kaldırıldı.** Yeni adımda elle koordinat, alan veya hücre düzenleme yöntemi girilmez. Başlık tercihi tablo seçim ekranındadır. Hücre düzenlemesi tek tıklama, F2 veya çift tıklamayla otomatik kontrol edilir; başka açma yöntemine yalnız kopyalanan tablo hâlâ değişmemişse geçilir. Mevcut hücre metni ve konumu doğrulanmadan değer gönderilmez. Eski benzersiz satır eşleşmesi kullanan adımlarda aranan sütun/değer açıkça görünür.
+**Diğer seçenekler kaldırıldı.** Yeni adımda elle koordinat, alan veya hücre düzenleme yöntemi girilmez. Başlık tercihi önizlemeden düzeltilebilir. Hücre düzenlemesi tek tıklama, F2 veya çift tıklamayla otomatik kontrol edilir; başka açma yöntemine yalnız kopyalanan tablo hâlâ değişmemişse geçilir. Mevcut hücre metni ve konumu doğrulanmadan değer gönderilmez. Eski benzersiz satır eşleşmesi kullanan adımlarda aranan sütun/değer açıkça görünür.
 
 Sütun numarası soldan başlayan tablo sırasıdır; boş/kutucuk sütunları da sayılır. Gerçek başlık aynı adla bulunuyorsa adı önceliklidir. Sütun sırası değişiyorsa gerçek başlığı tercih edin.
 
 Yazma sonrasında yalnız hedef hücrenin değiştiği, tüm tablo yeniden kopyalanarak doğrulanır; yeni metnin ekrana sığması gerekmez. Ayrıntılarda tablo okuma, hedef bulma, hücre açma, yazma ve doğrulama aşamaları izlenebilir. Sonuç belirsizse başka yöntemle yeniden yazılmaz. Pano eski haline getirilir; pencere veya odak değişirse işlem durur. Kaydetme/onay ayrı bir adımdır.
 
 Eski adımlar açılıp kaydedildiğinde otomatik olarak değiştirilmez. **Tabloyu seç** başarılı olunca yeni yönteme geçilir; satır, sütun ve değer korunur. İptal veya tablo okuma hatası eski hedefi değiştirmez. Eski alan/yapı yöntemleri kayıtlı akışlarda çalışmaya devam eder; hedefi değiştirmek için **Tabloyu seç** kullanılır. Noktadan seçilmiş tablolarda düzenleme artık otomatik doğrulanır. Bu sadeleştirilmiş kullanım için **0.9.11 veya üzeri** gerekir.
+
+**0.9.12 başlık düzeltmesi:** Kopyanın başında boş bir satır, ardından sütun adları varsa sütun adlarının bulunduğu ikinci satırda **Başlık yap** seçin. İlk iki satır veri sayılmaz; bir sonraki kayıt Satır 1 olur. Sütun adları ilk veri satırında görünüyorsa da aynı şekilde o satırı başlık seçin. Başlık seçimi, yazılacak sütun/değer değişkenlerini veya mevcut Satır değerini değiştirmez; Satır 1’i önizlemedeki Veri 1 ile karşılaştırın.
+
+**Tablodan değer oku** adımında aynı kopyalama düzeni için **İlk satır sütun başlıklarıdır** açıkken **Başlık satırı** değerini eşitleyin (ilk satır: 1; önünde boş satır varsa: 2). Tamamen boş fakat sütun ayırıcıları içeren gerçek veri satırları korunur; okuma ve yazma satırları aynı sayar. Başlık metninden veya boş hücrelerden otomatik tahmin yapılmaz.
+
+Başlık ilk satırdaysa yeni `header_row` parametresi akış dosyasına eklenmez. Daha sonraki bir başlığı seçen akışlar `header_row` kullanır ve **0.9.12 veya üzeri** gerektirir. Uygulama doğrudan tablo yapısı sunuyorsa kendi başlık/veri ayrımı kullanılır. Bu düzeltme, OCR ile gerçekten boş hedef hücreyi bulma kısıtını kaldırmaz; boş hücreye yazmak için uygulamanın doğrudan hücre erişimi gerekir.
+
 
 ## Metin okunacak bölgeyi çizme
 

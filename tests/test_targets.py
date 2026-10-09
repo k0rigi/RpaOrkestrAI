@@ -116,10 +116,10 @@ def test_table_inspection_guards_stale_window_origin_and_running_flow(tmp_path, 
         manager._active = ("test", threading.Event())
         assert client.post(endpoint, json=body).status_code == 409
         manager._active = None
-        for changed in ({"window_id": 999}, {"pid": 999}, {"width": 999}, {"x": -1}):
+        for changed in ({"window_id": 999}, {"pid": 999}, {"width": 999}, {"x": -1}, {"header_row": 0}, {"header_row": 1.5}):
             assert client.post(endpoint, json={**body, **changed}).status_code == 422
         windows.inspect_table.assert_not_called()
         result = client.post(endpoint, json=body)
         assert result.status_code == 200 and result.json() == windows.inspect_table.return_value
-        assert windows.inspect_table.call_args.kwargs == {"x": 35, "y": 50, "header": True}
+        assert windows.inspect_table.call_args.kwargs == {"x": 35, "y": 50, "header": True, "header_row": 1}
         windows.focus.assert_called_once_with(previous.result())

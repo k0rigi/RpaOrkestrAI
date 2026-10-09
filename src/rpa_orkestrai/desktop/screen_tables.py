@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, replace
 
 from .ocr import OcrUnavailable, read_words
-from .table_columns import column_names, numbered_column, resolve_column
+from .table_columns import clipboard_rows, column_names, numbered_column, resolve_column, split_header
 from .windows import WindowError
 
 
@@ -35,20 +35,41 @@ class TableText:
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
     has_header: bool = True
+    prefix: tuple[tuple[str, ...], ...] = ()
 
     @property
     def names(self):
         return column_names(self.headers, len(self.headers))
 
     @classmethod
-    def parse(cls, text, *, header=True):
-        lines = str(text).replace("\r\n", "\n").replace("\r", "\n").strip("\n").split("\n")
-        cells = tuple(tuple(cell.strip() for cell in line.split("\t")) for line in lines)
-        if (len(cells) < (2 if header else 1) or len(cells) > 10_000 + int(header)
+    def parse(cls, text, *, header=True, header_row=1, allow_empty=False):
+        if type(header_row) is not int or not 1 <= header_row <= 10_000:
+            raise WindowError("Başlık satırı 1–10.000 arasında bir tam sayı olmalıdır.")
+        cells = clipboard_rows(text)
+        if (not cells or len(cells) > 10_000 + (header_row if header else 0)
                 or not 2 <= len(cells[0]) <= 1000 or any(len(row) != len(cells[0]) for row in cells)):
             raise WindowError("Tablo, satır ve sütunlarıyla kopyalanamadı. Yalnız veri kopyalanıyorsa "
                               "İlk satır sütun başlıklarıdır seçeneğini kapatın; okuma adımıyla aynı ayarı kullanın.")
-        return cls(cells[0] if header else ("",) * len(cells[0]), cells[1:] if header else cells, header)
+        try:
+            titles, rows, prefix = split_header(cells, header=header, header_row=header_row)
+        except ValueError as exc:
+            raise WindowError(str(exc)) from exc
+        if not rows and not allow_empty:
+            raise WindowError("Başlık dışında veri satırı bulunamadı. Tablo önizlemesinde başlık satırını kontrol edin.")
+        return cls(titles if header else ("",) * len(cells[0]), rows, header, prefix)
+
+    def preview(self):
+        raw = (*self.prefix, self.headers, *self.rows) if self.has_header else self.rows
+
+        def view(header, header_row=1):
+            titles, rows, _ = split_header(raw, header=header, header_row=header_row)
+            return {"header": header, "header_row": header_row, "rows": len(rows),
+                    "columns": column_names(titles, len(self.headers)),
+                    "sample_rows": [list(r) for r in rows[:3]]}
+
+        selected = view(self.has_header, len(self.prefix) + 1)
+        return {**selected, "source": "clipboard", "raw_sample": [list(r) for r in raw[:5]],
+                "variants": [view(False), *(view(True, i + 1) for i in range(min(5, len(raw))))]}
 
     def column(self, value):
         try:
@@ -461,10 +482,12 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
 
 def screen_table_cell(service, target, desktop, *, region=None, selection, value=None, ocr_options=None,
                       edit_mode="double_click", header=True, report=None, targeting=None, inspect=False,
-                      copy_shape=None, progress=None):
+                      copy_shape=None, progress=None, header_row=1):
     """Copy -> locate -> check editor -> paste once -> verify the full table."""
     import pyperclip
 
+    if type(header_row) is not int or not 1 <= header_row <= 10_000:
+        raise WindowError("Başlık satırı 1–10.000 arasında bir tam sayı olmalıdır.")
     previous = pyperclip.paste()
     attempted = False
     try:
@@ -567,10 +590,12 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
             if copy_shape is not None:
                 raw = TableText.parse(copied, header=False)
                 rows, columns = copy_shape
-                if len(raw.headers) != columns or len(raw.rows) not in {rows, rows + 1}:
+                extra = len(raw.rows) - rows
+                if (len(raw.headers) != columns or extra not in {0, 1, header_row}
+                        or (extra > 1 and not header)):
                     raise WindowError("Kopyalanan içerik tablonun tamamıyla eşleşmedi; yazılmadı.")
-                return TableText.parse(copied, header=len(raw.rows) == rows + 1)
-            return TableText.parse(copied, header=header)
+                return TableText.parse(copied, header=extra > 0, header_row=max(1, extra))
+            return TableText.parse(copied, header=header, header_row=header_row, allow_empty=inspect)
 
         def locate(table, row, col):
             guard()
@@ -665,7 +690,8 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
             if edit_mode != "auto":
                 raise WindowError("Hücre düzenlemeye açılamadı veya mevcut metin doğrulanamadı; yeni değer yazılmadı.")
             try:
-                unchanged = TableText.parse(editor_text, header=table.has_header) == table
+                unchanged = TableText.parse(editor_text, header=table.has_header,
+                                            header_row=len(table.prefix) + 1) == table
             except WindowError:
                 unchanged = False
             if not unchanged or not same_location(location, locate(table, row, col)):
@@ -683,7 +709,7 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
         pause()
         expected_rows = [list(r) for r in table.rows]
         expected_rows[row][col] = value
-        expected = TableText(table.headers, tuple(tuple(r) for r in expected_rows), table.has_header)
+        expected = replace(table, rows=tuple(tuple(r) for r in expected_rows))
         # A long new value can be clipped, or change the column width. Verify
         # the complete clipboard matrix, not OCR visibility of the new text.
         announce("Yazılan değer ve tablonun diğer hücreleri doğrulanıyor.")

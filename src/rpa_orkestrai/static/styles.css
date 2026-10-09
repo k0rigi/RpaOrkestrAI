@@ -5167,3 +5167,7 @@ body.dragging-step .edge-remove {
 
 .table-preview { max-width: 100%; overflow: auto; margin-block: 8px; }
 .table-preview th, .table-preview td { padding: 6px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+.table-preview-header { background: var(--accent-tint); }
+.table-preview-role { position: sticky; left: 0; background: var(--surface); }
+.table-preview-role span { display: block; margin-bottom: 4px; }
