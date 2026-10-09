@@ -520,12 +520,33 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
 
         def copy_table(point):
             guard()
+            before_editor = service.elements.focused_editor(window) if initial_point is not None else None
+            guard()
             desktop.click(*point, clicks=1, button="left")
             pause()
             guard()
             desktop.hotkey("mod", "a")
             guard()
             copied = copy_selection()
+            if initial_point is not None and "\t" not in copied:
+                # Clicking an already selected grid cell can open its editor.
+                # Close only that newly opened, unchanged editor. Never cancel
+                # an editor that was already active (it may contain unsaved input).
+                editor = service.elements.focused_editor(window)
+                if (editor is None or not editor.usable_in(window) or not editor.contains(*point)
+                        or editor.value != copied
+                        or (before_editor is not None and before_editor.bounds == editor.bounds)):
+                    raise WindowError("Tablo yerine hücre metni kopyalandı. Açık hücre düzenlemesini tamamlayıp "
+                                      "tabloyu yeniden seçin; yeni değer yazılmadı.")
+                guard()
+                desktop.press("esc")
+                pause()
+                remaining = service.elements.focused_editor(window)
+                if remaining is not None and remaining.bounds == editor.bounds:
+                    raise WindowError("Hücre düzenlemesinden tabloya dönülemedi; yeni değer yazılmadı.")
+                guard()
+                desktop.hotkey("mod", "a")
+                copied = copy_selection()
             if copy_shape is not None:
                 raw = TableText.parse(copied, header=False)
                 rows, columns = copy_shape

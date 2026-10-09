@@ -277,6 +277,41 @@ def test_point_inspection_reads_all_structure_without_editing(runtime):
     assert desktop.click.call_count == 1 and state["clipboard"] == "previous clipboard"
 
 
+@pytest.mark.parametrize("problem", [None, "existing", "outside", "wrong_value", "unavailable", "stays_open"])
+def test_point_click_opening_cell_editor_returns_to_grid_without_cancelling_prior_input(runtime, problem):
+    service, window, desktop, state, options = runtime
+    original_click, original_press = desktop.click.side_effect, desktop.press.side_effect
+    editor = ElementInfo("Edit", "", "", "", 295, 125, 160, 28, value=state["value"])
+    if problem == "outside":
+        editor = replace(editor, x=700)
+    elif problem == "wrong_value":
+        editor = replace(editor, value="different")
+
+    def click(*args, **kwargs):
+        original_click(*args, **kwargs)
+        if desktop.click.call_count == 1:
+            state["editor"] = True
+
+    def focused(window):
+        return editor if problem != "unavailable" and (state["editor"] or problem == "existing") else None
+
+    desktop.click.side_effect = click
+    service.elements.focused_editor.side_effect = focused
+    desktop.press.side_effect = lambda key: None if key == "esc" and problem == "stays_open" else original_press(key)
+    options = dict(selection=SELECTION, targeting=dict(x=235, y=56))
+    if problem:
+        with pytest.raises(WindowError):
+            screen_table_cell(service, window.result(), desktop, value="YENI", **options)
+        desktop.paste.assert_not_called()
+        if problem != "stays_open":
+            desktop.press.assert_not_called()
+    else:
+        assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["value"] == "YENI"
+        desktop.paste.assert_called_once_with("YENI")
+        assert desktop.press.call_args_list[0].args == ("esc",)
+    assert state["clipboard"] == "previous clipboard"
+
+
 def test_point_does_not_resolve_a_duplicate_table_by_nearness(runtime, monkeypatch):
     service, window, desktop, state, options = runtime
     from rpa_orkestrai.desktop import screen_tables
