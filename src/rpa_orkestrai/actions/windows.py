@@ -131,8 +131,8 @@ def table_operation(ctx, p, *, value=None):
             raise WorkflowError("Tablo alanını çiz ile yalnız bir tablonun başlıklarını ve veri satırlarını seçin.")
         if value is not None and value != value.strip():
             raise WorkflowError("Tabloya yazılacak değerin başında veya sonunda boşluk olmamalıdır.")
-        edit_mode = choice(p.get("edit_mode", "double_click"), "Hücreyi düzenlemeye aç",
-                           {"double_click", "single_click", "f2"})
+        edit_mode = choice("auto" if method == "point" else p.get("edit_mode", "double_click"), "Hücreyi düzenlemeye aç",
+                           {"auto", "double_click", "single_click", "f2"})
 
         def report(info):
             names = "; ".join(f"{i + 1}={name}" for i, name in enumerate(info["columns"]))
@@ -146,7 +146,7 @@ def table_operation(ctx, p, *, value=None):
             if method == "point" else {"region": area}
         return operation(
             _window(p), ctx.desktop(), value=value, selection=selection, **targeting, edit_mode=edit_mode,
-            header=p.get("header", True) is not False, report=report,
+            header=p.get("header", True) is not False, report=report, progress=ctx.log,
             ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
                          "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
                          "timeout": ctx.settings.action_timeout})

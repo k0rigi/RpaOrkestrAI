@@ -211,6 +211,8 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool =
                 for f in active_fields(step.action, parameters):
                     value = parameters.get(f["name"])
                     if f.get("required") and (value is None or value == ""):
+                        if step.action == "window.write_table" and f["name"] in {"x", "y", "region", "template", "element"}:
+                            raise WorkflowError(f"{step.title or 'Tabloya değer yaz'}: Tabloyu seç düğmesiyle tablodaki bir hücreye tıklayın.")
                         raise WorkflowError(f"{step.title or step.action}: {f['label']} gereklidir.")
                     if isinstance(value, str) and REFERENCE.search(value):
                         continue

@@ -262,7 +262,7 @@ GUIDES = {
         "Seçilen nokta tabloyu tanıtır; hedef hücrenin konumu değildir. Satır ve sütunlar seçimde okunur, "
         "çalışırken yeniden bulunur. Sütunu listeden seçebilir, adını, sutun_2 veya 2 yazabilirsiniz. "
         "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. "
-        "Başlık ve düzenleme ayarları Diğer seçenekler altındadır. Kaydetme/onayı ayrıca ekleyin."),
+        "Başlık tercihi tablo seçimindedir; ilk veri satırı önizlemede görünür. Hücre otomatik düzenlemeye açılır; değişkenin değeri yazılıp tüm tablo yeniden okunarak doğrulanır. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",

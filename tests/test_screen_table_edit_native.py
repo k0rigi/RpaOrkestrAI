@@ -20,6 +20,7 @@ pytestmark = pytest.mark.skipif(platform.system() != 'Windows', reason='Real Win
     (True, 140, 'double_click', 'screen'), (True, 280, 'f2', 'screen'),
     (False, 280, 'double_click', 'point'), (False, 140, 'f2', 'point-copy'),
     (True, 140, 'double_click', 'point-copy'), (True, 280, 'double_click', 'point-shape'),
+    (False, 280, 'auto', 'point-copy'), (True, 140, 'auto', 'point-copy'),
 ])
 def test_screen_write_uses_real_grid_clipboard_with_optional_headers(tmp_path, monkeypatch,
                                                                     header, width, edit_mode, method):
@@ -102,14 +103,34 @@ $window.Content = $grid
             x, y = x - window.x, y - window.y
             structure = service.inspect_table(window.result(), DesktopController(), x=x, y=y, header=header)
             assert structure['rows'] == 2 and len(structure['columns']) == 3
-            result = service.point_table_cell(window.result(), DesktopController(), targeting=dict(x=x, y=y), **options)
-        assert result == {'row': 2, 'column': 2, 'value': 'READY'}
-        if method != 'point':
+            if edit_mode == 'auto':
+                import threading
+
+                from rpa_orkestrai.config import Settings
+                from rpa_orkestrai.engine import Executor
+                from rpa_orkestrai.models import Run, Step, Workflow
+                from rpa_orkestrai.storage import Store
+                options['value'] = 'Değişkenden gelen uzun hücre değeri ' * 5 + 'TAMAMLANDI'
+                workflow = Workflow(name='Tablo değişken testi', steps=[Step(action='window.write_table', params={
+                    'window': '${target}', 'write_method': 'point', 'target_mode': 'coordinates',
+                    'x': x, 'y': y, 'row': '${record.row}', 'column': 'sutun_2', 'header': header,
+                    'value': '${record.value}', 'output': 'written'})])
+                run = Run(workflow_id=workflow.id, workflow_name=workflow.name, department=workflow.department)
+                executor = Executor(Settings(tmp_path / 'runtime', dotenv=False), Store(tmp_path / 'runtime'),
+                    run, threading.Event(), lambda: None, variables={'target': window.result(),
+                    'record': {'row': 2, 'value': options['value']}})
+                executor._windows, executor._desktop = service, DesktopController()
+                executor.execute(workflow)
+                result = executor.variables['written']
+            else:
+                result = service.point_table_cell(window.result(), DesktopController(), targeting=dict(x=x, y=y), **options)
+        assert result == {'row': 2, 'column': 2, 'value': options['value']}
+        if method != 'point' and edit_mode != 'auto':
             assert reports[0]['current_value'] == 'OLD' and reports[0]['rows'] == 2
         # Independent native reads prove which real cell changed; the writer
         # itself uses no UIA row/column addressing or accessibility value write.
         assert grids[0].cell(0, 1).read() == 'OLD'
-        assert grids[0].cell(1, 1).read() == 'READY'
+        assert grids[0].cell(1, 1).read() == options['value']
         assert grids[0].cell(1, 0).read() == 'A126'
     finally:
         process.terminate()

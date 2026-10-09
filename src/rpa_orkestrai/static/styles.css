@@ -5165,5 +5165,5 @@ body.dragging-step .edge-remove {
   }
 }
 
-.table-options { margin-top: 16px; }
-.table-options > summary { cursor: pointer; margin-bottom: 12px; font-weight: 600; }
+.table-preview { max-width: 100%; overflow: auto; margin-block: 8px; }
+.table-preview th, .table-preview td { padding: 6px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

@@ -4105,6 +4105,20 @@
         : "Tablonun herhangi bir hücresine bir kez tıklayın; tabloyu bütünüyle tanır."));
       const preview = tablePreviews.get(step);
       if (selected && preview) tools.append(node("p", "help", `${preview.rows} satır · ${preview.columns.length} sütun bulundu.`));
+      if (selected && preview?.sample_rows?.length) {
+        const sample = node("div", "table-preview");
+        sample.append(node("p", "help", "Okunan ilk veri satırı (Satır 1):"));
+        const table = node("table");
+        const headings = node("tr"), values = node("tr");
+        preview.columns.forEach((name, index) => {
+          headings.append(node("th", "", name));
+          values.append(node("td", "", String(preview.sample_rows[0][index] ?? "")));
+        });
+        table.append(headings, values);
+        sample.append(table);
+        tools.append(sample);
+      }
+      tools.append(node("p", "help", "Çalıştırınca: tabloyu oku → satır ve sütunu bul → hücreyi düzenle → değeri yaz ve doğrula."));
       return tools;
     }
     const target = button("Ekranda seç", "desktop", () => pickWindowTarget(step, "native"));
@@ -4172,6 +4186,11 @@
       intro.append(" Bu sürümde uygulama penceresini ana ekranda, tamamı görünür olacak şekilde tutun.");
       if (simpleTable) intro.textContent = "Görüntüde tablonun herhangi bir hücresine tıklayın. Satır ve sütunları tablonun tamamından alır; yazılacak hücreyi daha sonra belirtirsiniz.";
       const toolbar = node("div", "target-picker-toolbar");
+      const tableHeader = node("input");
+      tableHeader.type = "checkbox";
+      tableHeader.checked = parameterValue(step, "header") !== false;
+      if (simpleTable) toolbar.append(field("Kopyalanan ilk satır sütun başlıklarıdır", tableHeader,
+        "Yalnız veri kopyalanıyorsa kapatın. Sütunlar sutun_1, sutun_2… olarak adlandırılır; ilk kayıt atlanmaz."));
       const modeLabel = node("span", "field-label", "Hedef yöntemi");
       const coordinates = button("Konum", "desktop", () => changeMode("coordinates"), "small");
       const visual = button("Görsel referans", "eye", () => changeMode("image"), "small");
@@ -4246,6 +4265,7 @@
         coordinates.setAttribute("aria-pressed", String(mode === "coordinates"));
         visual.setAttribute("aria-pressed", String(mode === "image"));
         coordinates.disabled = visual.disabled = busy;
+        tableHeader.disabled = busy;
         refresh.disabled = repick.disabled = busy;
         repick.hidden = !capture;
         delay.disabled = busy;
@@ -4584,13 +4604,15 @@
               method: "POST", body: JSON.stringify({ ...selector, ...toWindow(point),
                 window_id: capture.window.window_id, pid: capture.window.pid,
                 width: capture.window.width, height: capture.window.height,
-                header: parameterValue(step, "header") !== false }),
+                header: tableHeader.checked }),
             });
             if (!current()) return;
             if (!Array.isArray(preview.columns) || !preview.columns.length || !Number.isInteger(preview.rows))
               throw new Error("Tablonun yapısı okunamadı; yeniden seçin.");
             tablePreviews.set(step, preview);
             values.write_method = "point";
+            values.edit_mode = "auto";
+            values.header = tableHeader.checked;
             for (const name of ["region", "table", "template", "element", "offset_x", "offset_y"])
               delete step.params[name];
           }
@@ -4914,8 +4936,6 @@
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
-    const previousTableOptions = pane.querySelector(".table-options");
-    const tableOptionsOpen = previousTableOptions?.dataset.stepId === state.selected && previousTableOptions.open;
     pane.replaceChildren();
     const located = findStep(state.selected);
     const openNote = !located && findNote(state.selectedNote);
@@ -5027,17 +5047,15 @@
     }
     if (step.action === "sheets.read_column") pane.append(note("B2 başlangıcıyla B2, B3, B4… okunur. Çıktıyı Her satır için adımına bağlayın; ${row.value} o satırdaki hücrenin değeridir."));
     if (step.action === "sheets.read_rows") pane.append(note("Seçtiğiniz sütunlar birlikte okunur. Ana alanı dolu satırlar korunur; diğer sütunlar boş olabilir. Sonraki adımlarda seçtiğiniz değişken adlarını kullanın."));
-    let tableOptions = null;
-    const tableAdvanced = new Set(["write_method", "edit_mode", "header", "region", "table", "target_mode", "x", "y", "template", "element", "row_mode", "match_column", "match_value", "confidence", "timeout", "offset_x", "offset_y", "output"]);
-    if (step.action === "window.write_table") {
-      tableOptions = node("details", "table-options");
-      tableOptions.dataset.stepId = step.id;
-      tableOptions.open = Boolean(tableOptionsOpen);
-      tableOptions.append(node("summary", "", "Diğer seçenekler"));
-    }
+    const tableAutomatic = new Set(["write_method", "edit_mode", "header", "region", "table", "target_mode", "x", "y", "template", "element", "confidence", "timeout", "offset_x", "offset_y", "output"]);
     (spec.fields || []).forEach((f) => {
-      const fieldPane = tableOptions && tableAdvanced.has(f.name) ? tableOptions : pane;
+      const fieldPane = pane;
       const key = `${step.id}:${f.name}`;
+      if (step.action === "window.write_table" && (tableAutomatic.has(f.name)
+          || (f.name === "row_mode" && parameterValue(step, "row_mode") !== "match"))) {
+        state.fieldErrors.delete(key);
+        return;
+      }
       if (!fieldVisible(step, f)) {
         state.fieldErrors.delete(key);
         return;
@@ -5345,7 +5363,6 @@
       );
       fieldPane.append(wrap);
     });
-    if (tableOptions) pane.append(tableOptions);
     if (!spec.fields?.length)
       pane.append(note("Bu adım için ek parametre bulunmuyor."));
     pane.append(node("div", "inspector-divider"));

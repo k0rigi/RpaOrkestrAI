@@ -338,11 +338,12 @@ LIBRARY = [
                        "Alan pencereye göre saklanır; hücrelerin güncel yeri bu alan içinde bulunur."),
             field("header", "İlk satır sütun başlıklarıdır", "boolean", True, omit_default=True,
                   visible_when={"write_method": ["screen", "point"]},
-                  help="Tablodan değer oku ile aynı ayarı kullanın. Yalnız veriler kopyalanıyorsa kapatın: "
-                       "sütunlar sutun_1, sutun_2… olur ve ilk kayıt 1. satırdır. Doğrudan tablo erişiminde bu ayar kullanılmaz."),
+                  help="Kopyalanan ilk satır başlıksa açık, veri kaydıysa kapalı olmalıdır. "
+                       "Satır sayısı eksik veya sütun adları veri gibi görünüyorsa kapatıp Tabloyu seç ile yeniden okuyun."),
             field("edit_mode", "Hücreyi düzenlemeye aç", "select", "double_click", required=True,
-                  omit_default=True, visible_when={"write_method": ["screen", "point"]},
-                  options=[{"value": "double_click", "label": "Çift tıklama"},
+                  new_default="auto", omit_default=True, visible_when={"write_method": ["screen", "point"]},
+                  options=[{"value": "auto", "label": "Otomatik doğrula"},
+                           {"value": "double_click", "label": "Çift tıklama"},
                            {"value": "single_click", "label": "Tek tıklama"},
                            {"value": "f2", "label": "Hücreyi seçip F2"}],
                   help="Hücreyi elle nasıl düzenlemeye açıyorsanız onu seçin. "

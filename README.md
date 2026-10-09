@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.10-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.10-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.11-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.11-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -21,7 +21,7 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.7:** Tabloya yazmada **Ekranda seç** ile referans görsel, konum veya alan kimliği kullanılabilir. Ana form satır, sütun ve değerden oluşur; ayrıntılı ayarlar **Diğer seçenekler** altındadır. 0.9.6 ile kaydedilmiş otomatik/adla tablo seçimi korunur. Adım açıklamaları firma ve uygulamadan bağımsız olacak şekilde genelleştirilmiştir.
 
-**0.9.10:** **Tabloya değer yaz → Tabloyu seç** ile görüntüde tablonun herhangi bir hücresine bir kez tıklayın. Satır sayısı ve sütunlar okunur; yalnız **Satır**, **Yazılacak sütun** ve **Yazılacak değer** alanlarını doldurun. Sütun adları listede önerilir; `sutun_2` veya `2` de kullanılabilir. Alan çizmek ve okuma adımından ayar aktarmak gerekmez. Hedef hücre her çalışmada güncel tablodan bulunur. Eski adımların kayıtlı davranışı korunur; **Tabloyu seç** ile yeni kullanıma geçilir. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
+**0.9.11:** **Tabloya değer yaz** sadeleştirildi: **Tabloyu seç**, ardından satır, sütun ve değer. “Diğer seçenekler” ve elle X/Y girişi kaldırıldı. Hücre düzenlemesi otomatik doğrulanır; değişkenin değeri bir kez yazılır ve tablonun tamamı yeniden okunarak kontrol edilir. Uzun değer ekranda kesilse de pano doğrulaması yapılır. Tablo seçiminde başlık ayarı, seçimden sonra ilk veri satırı görünür. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
 
 Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.
 

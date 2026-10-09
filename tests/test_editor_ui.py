@@ -1822,7 +1822,8 @@ def test_table_one_click_inspects_structure_and_keeps_only_basic_fields(tmp_path
                     if len(inspections) == 1:
                         route.fulfill(status=422, json={"detail": "Tablo henüz hazır değil"})
                     else:
-                        route.fulfill(json={"rows": 12, "columns": ["Kod", "Durum", "Adet"]})
+                        route.fulfill(json={"rows": 12, "columns": ["Kod", "Durum", "Adet"],
+                                            "sample_rows": [["A125", "BEKLİYOR", "2"]], "source": "clipboard"})
                 elif path == "/api/desktop/captures/table-shot":
                     route.fulfill(status=204)
                 else:
@@ -1841,8 +1842,10 @@ def test_table_one_click_inspects_structure_and_keeps_only_basic_fields(tmp_path
                 page.locator(".library-action").filter(has_text="Tabloya değer yaz").click()
             for label in ("Yazılacak sütun", "Yazılacak değer", "Satır"):
                 playwright.expect(page.locator("#inspector").get_by_label(label, exact=False).first).to_be_visible()
-            for label in ("Yazma yöntemi", "İlk satır sütun başlıklarıdır", "Tabloyu bulma yöntemi"):
+            for label in ("Yazma yöntemi", "Tabloyu bulma yöntemi", "Pencere içi X", "Pencere içi Y"):
                 playwright.expect(page.get_by_label(label, exact=False)).not_to_be_visible()
+            playwright.expect(page.locator(".table-options")).to_have_count(0)
+            playwright.expect(page.get_by_text("Diğer seçenekler", exact=True)).to_have_count(0)
             playwright.expect(page.get_by_role("button", name="Tablo alanını çiz", exact=True)).to_have_count(0)
             playwright.expect(page.get_by_role("button", name="Okuma adımından aktar", exact=True)).to_have_count(0)
             # Cancel and failed inspection must not replace the saved target.
@@ -1860,10 +1863,13 @@ def test_table_one_click_inspects_structure_and_keeps_only_basic_fields(tmp_path
                 assert client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"] == original
             page.get_by_role("button", name="Tabloyu seç", exact=True).click()
             playwright.expect(canvas).to_be_visible()
+            page.get_by_label("Kopyalanan ilk satır sütun başlıklarıdır", exact=False).uncheck()
             bounds = canvas.bounding_box()
             page.mouse.click(bounds["x"] + bounds["width"] * .3, bounds["y"] + bounds["height"] * .4)
             playwright.expect(page.locator(".target-picker-dialog")).to_have_count(0)
             playwright.expect(page.locator(".window-target-tools")).to_contain_text("12 satır · 3 sütun")
+            playwright.expect(page.locator(".table-preview")).to_contain_text("A125")
+            playwright.expect(page.locator(".table-preview")).to_contain_text("BEKLİYOR")
             assert page.locator("datalist option").evaluate_all("items => items.map(x => x.value)") == ["Kod", "Durum", "Adet"]
             page.get_by_label("Yazılacak sütun", exact=False).fill("sutun_2")
             page.get_by_label("Yazılacak değer", exact=False).fill("READY")
@@ -1871,10 +1877,12 @@ def test_table_one_click_inspects_structure_and_keeps_only_basic_fields(tmp_path
             playwright.expect(page.locator("#saved-label")).to_contain_text("kaydedildi")
             saved = client.get(f"/api/workflows/{workflow_id}").json()["steps"][1]["params"]
             assert saved["write_method"] == "point" and saved["target_mode"] == "coordinates"
+            assert saved["edit_mode"] == "auto"
+            assert saved["header"] is False and inspections[-1]["header"] is False
             assert saved["x"] == pytest.approx(300, abs=2) and saved["y"] == pytest.approx(240, abs=2)
             assert saved["column"] == "sutun_2" and saved["value"] == "READY"
             assert saved["row"] == (3 if legacy else 1)
-            assert not any(key in saved for key in ("region", "table", "template", "element", "columns"))
+            assert not any(key in saved for key in ("region", "table", "template", "element", "columns", "sample_rows"))
             if legacy:
                 assert saved["header"] is False
             assert inspections[-1]["window_id"] == 11 and inspections[-1]["pid"] == 42

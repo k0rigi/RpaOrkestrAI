@@ -417,6 +417,8 @@ class WindowService:
             table = self.screen_table_cell(target, desktop, targeting=targeting, selection={},
                                            header=header, inspect=True)
             rows, names = len(table.rows), table.names
+            return {"rows": rows, "columns": names, "sample_rows": [list(r) for r in table.rows[:3]],
+                    "header": table.has_header, "source": "clipboard"}
         return {"rows": rows, "columns": names}
 
     def table_cell(self, target: dict, desktop: Any, *, value: str | None = None,

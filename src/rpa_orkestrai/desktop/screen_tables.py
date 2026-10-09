@@ -461,14 +461,14 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
 
 def screen_table_cell(service, target, desktop, *, region=None, selection, value=None, ocr_options=None,
                       edit_mode="double_click", header=True, report=None, targeting=None, inspect=False,
-                      copy_shape=None):
+                      copy_shape=None, progress=None):
     """Copy -> locate -> check editor -> paste once -> verify the full table."""
     import pyperclip
 
     previous = pyperclip.paste()
     attempted = False
     try:
-        if edit_mode not in {"double_click", "single_click", "f2"}:
+        if edit_mode not in {"auto", "double_click", "single_click", "f2"}:
             raise WindowError("Hücre düzenleme yöntemi geçersiz.")
         initial_point = None
         if targeting is not None:
@@ -488,6 +488,10 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
 
         def guard():
             service._guard(target, window)
+
+        def announce(message):
+            if progress:
+                progress(message)
 
         def pause():
             if service.cancel.wait(.15):
@@ -520,15 +524,16 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
 
         def copy_table(point):
             guard()
-            before_editor = service.elements.focused_editor(window) if initial_point is not None else None
-            guard()
-            desktop.click(*point, clicks=1, button="left")
-            pause()
+            before_editor = service.elements.focused_editor(window) if initial_point is not None and point else None
+            if point is not None:
+                guard()
+                desktop.click(*point, clicks=1, button="left")
+                pause()
             guard()
             desktop.hotkey("mod", "a")
             guard()
             copied = copy_selection()
-            if initial_point is not None and "\t" not in copied:
+            if initial_point is not None and point is not None and "\t" not in copied:
                 # Clicking an already selected grid cell can open its editor.
                 # Close only that newly opened, unchanged editor. Never cancel
                 # an editor that was already active (it may contain unsaved input).
@@ -609,6 +614,7 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
             if not (0 <= reference_point[0] < width and 0 <= reference_point[1] < height):
                 raise WindowError("Seçilen nokta tablonun dışında; tabloyu yeniden seçin.")
         guard()
+        announce("Tablo seçiliyor; tüm satır ve sütunlar kopyalanıyor.")
         table = copy_table(table_point)
         if inspect:
             return table
@@ -618,28 +624,47 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
                     "column": col + 1, "current_value": table.rows[row][col], "header": table.has_header})
         location = locate(table, row, col)
         point = service._point_in_window(window, left + location.point[0], top + location.point[1], desktop)
+        announce(f"Hedef bulundu: {row + 1}. satır, {col + 1}. sütun.")
         if value is None:
             return point
         # Check the clipboard snapshot and measured location immediately before
         # opening the editor, including records that moved within one window.
-        if copy_table(point) != table or not same_location(location, locate(table, row, col)):
+        if copy_table(None if initial_point is not None else point) != table or not same_location(location, locate(table, row, col)):
             raise WindowError("Tablonun içeriği veya hücrenin konumu değişti; yazılmadı.")
-        guard()
-        desktop.click(*point, clicks=2 if edit_mode == "double_click" else 1, button="left")
-        pause()
-        if edit_mode == "f2":
-            desktop.press("f2")
-            pause()
-        desktop.hotkey("mod", "a")
-        guard()
-        editor_text = copy_selection()
-        if editor_text != table.rows[row][col]:
-            raise WindowError("Hücre düzenlemeye açılamadı veya mevcut metin doğrulanamadı; yeni değer yazılmadı. "
-                              "Diğer seçenekler altındaki hücre düzenleme yöntemini kontrol edin.")
+        announce("Hücre düzenlemeye açılıyor; mevcut değer kontrol ediliyor.")
+        modes = ("single_click", "f2", "double_click") if edit_mode == "auto" else (edit_mode,)
+        for mode in modes:
+            guard()
+            # After the single click, F2 addresses the same selected cell.
+            # Another click could itself open an editor or a lookup dialog.
+            if mode != "f2" or edit_mode != "auto":
+                desktop.click(*point, clicks=2 if mode == "double_click" else 1, button="left")
+                pause()
+            if mode == "f2":
+                desktop.press("f2")
+                pause()
+            guard()
+            desktop.hotkey("mod", "a")
+            editor_text = copy_selection()
+            if editor_text == table.rows[row][col]:
+                break
+            # Only an unchanged full-table copy proves no editor has opened.
+            # Never try another activation after an unknown/changed selection.
+            if edit_mode != "auto":
+                raise WindowError("Hücre düzenlemeye açılamadı veya mevcut metin doğrulanamadı; yeni değer yazılmadı.")
+            try:
+                unchanged = TableText.parse(editor_text, header=table.has_header) == table
+            except WindowError:
+                unchanged = False
+            if not unchanged or not same_location(location, locate(table, row, col)):
+                raise WindowError("Hücre düzenlemeye açılırken seçim veya tablo değişti; yeni değer yazılmadı.")
+        else:
+            raise WindowError("Tablo ve hedef hücre bulundu ancak uygulama hücreyi düzenlemeye açmadı; yeni değer yazılmadı.")
         # A sort/reflow between the double-click and paste must not redirect input.
         check_editor_location()
         guard()
         attempted = True
+        announce("Hücre doğrulandı; yeni değer yazılıyor.")
         desktop.paste(value)
         pause()
         desktop.press("tab")
@@ -647,19 +672,21 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
         expected_rows = [list(r) for r in table.rows]
         expected_rows[row][col] = value
         expected = TableText(table.headers, tuple(tuple(r) for r in expected_rows), table.has_header)
-        # Pasting may resize columns; locate the new text again before copying.
-        new_location = locate(expected, row, col)
-        new_point = service._point_in_window(window, left + new_location.point[0], top + new_location.point[1], desktop)
-        if copy_table(new_point) != expected:
+        # A long new value can be clipped, or change the column width. Verify
+        # the complete clipboard matrix, not OCR visibility of the new text.
+        announce("Yazılan değer ve tablonun diğer hücreleri doğrulanıyor.")
+        if copy_table(table_point) != expected:
             raise WindowError("Yazma sonrası tablo beklenen değerlerle eşleşmedi.")
         guard()
+        announce("Tabloya yazma doğrulandı.")
         return {"row": row + 1, "column": col + 1, "value": value}
     except InterruptedError:
         raise
     except Exception as exc:
         if attempted:
+            reason = str(exc) if isinstance(exc, (WindowError, OcrUnavailable)) else "Tablo yeniden okunamadı."
             raise WindowError("Hücreye yazma denendi ancak sonuç doğrulanamadı. Uygulamayı kontrol edin; "
-                              "otomatik olarak yeniden yazılmadı.") from exc
+                              f"otomatik olarak yeniden yazılmadı. {reason}") from exc
         if isinstance(exc, (WindowError, OcrUnavailable)):
             raise WindowError(str(exc)) from exc
         raise WindowError("Tablo hücresi doğrulanamadı; yeni değer yazılmadı.") from exc

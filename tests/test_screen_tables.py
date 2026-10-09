@@ -663,3 +663,96 @@ def test_headerless_runtime_pastes_once_and_reports_exact_read_settings(runtime)
     assert reports == [{'rows': 2, 'columns': ['sutun_1', 'sutun_2', 'sutun_3'], 'row': 1,
                         'column': 2, 'current_value': 'ARIZALILAR', 'header': False}]
     assert state['clipboard'] == 'previous clipboard'
+
+
+@pytest.mark.parametrize('activation', ['single_click', 'f2', 'double_click'])
+def test_auto_editor_activation_verifies_before_one_paste(runtime, activation):
+    service, window, desktop, state, options = runtime
+    options.update(targeting=dict(x=35, y=56), edit_mode='auto')
+    state['activation'] = activation
+    original_press = desktop.press.side_effect
+
+    def press(key):
+        if key != 'f2' or activation == 'f2':
+            original_press(key)
+
+    desktop.press.side_effect = press
+    assert screen_table_cell(service, window.result(), desktop, value='YENI', **options)['value'] == 'YENI'
+    desktop.paste.assert_called_once_with('YENI')
+    doubles = [c for c in desktop.click.call_args_list if c.kwargs['clicks'] == 2]
+    assert len(doubles) == int(activation == 'double_click')
+    assert state['clipboard'] == 'previous clipboard'
+
+
+def test_auto_editor_never_continues_after_unexpected_cell_text(runtime):
+    service, window, desktop, state, options = runtime
+    original = desktop.hotkey.side_effect
+
+    def hotkey(*keys):
+        original(*keys)
+        if keys == ('mod', 'c') and state['copied'] == 3:
+            state['clipboard'] = 'DIFFERENT CELL'
+
+    desktop.hotkey.side_effect = hotkey
+    with pytest.raises(WindowError, match='seçim veya tablo değişti'):
+        screen_table_cell(service, window.result(), desktop, value='YENI', edit_mode='auto', **options)
+    desktop.paste.assert_not_called()
+    desktop.press.assert_not_called()
+    assert not any(c.kwargs['clicks'] == 2 for c in desktop.click.call_args_list)
+
+
+def test_written_long_variable_does_not_need_to_fit_onscreen(runtime):
+    service, window, desktop, state, options = runtime
+    state['after_write'] = lambda: state.__setitem__('layout', 890)
+    value = ('Değişkenden gelen uzun açıklama ' * 8).strip()
+    # Intentionally no longer visible to OCR, but copied intact by the table.
+    assert screen_table_cell(service, window.result(), desktop, value=value, **options)['value'] == value
+    desktop.paste.assert_called_once_with(value)
+
+
+def test_point_flow_resolves_variable_then_writes_and_reports_all_phases(runtime, tmp_path, monkeypatch):
+    import threading
+
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.engine import Executor
+    from rpa_orkestrai.models import Run, Step, Workflow
+    from rpa_orkestrai.storage import Store
+
+    service, window, desktop, state, _ = runtime
+    monkeypatch.setattr('rpa_orkestrai.desktop.tables.native_backend',
+                        lambda: SimpleNamespace(tables=lambda *args: []))
+    state['activation'] = 'single_click'
+    workflow = Workflow(name='Değişkeni tabloya yaz', steps=[Step(action='window.write_table', params={
+        'window': '${target}', 'write_method': 'point', 'target_mode': 'coordinates', 'x': 35, 'y': 56,
+        'row': 1, 'column': 'sutun_2', 'value': '${row.deger}', 'output': 'written'})])
+    run = Run(workflow_id=workflow.id, workflow_name=workflow.name, department=workflow.department)
+    executor = Executor(Settings(tmp_path, dotenv=False), Store(tmp_path), run, threading.Event(), lambda: None,
+                        variables={'target': window.result(), 'row': {'deger': 'İŞLENDİ'}})
+    executor._windows, executor._desktop = service, desktop
+    log = Mock(wraps=executor.log)
+    executor.log = log
+    executor.execute(workflow)
+    assert executor.variables['written'] == {'row': 1, 'column': 2, 'value': 'İŞLENDİ'}
+    desktop.paste.assert_called_once_with('İŞLENDİ')
+    messages = [entry.args[0] for entry in log.call_args_list]
+    assert any('Hedef bulundu' in text for text in messages)
+    assert any('Tabloya yazma doğrulandı' in text for text in messages)
+
+
+def test_auto_mode_exhausts_read_only_checks_without_paste(runtime):
+    service, window, desktop, state, options = runtime
+    state['editor_opens'] = False
+    with pytest.raises(WindowError, match='uygulama hücreyi düzenlemeye açmadı'):
+        screen_table_cell(service, window.result(), desktop, value='YENI', edit_mode='auto', **options)
+    desktop.paste.assert_not_called()
+    assert state['value'] == 'ARIZALILAR'
+
+
+def test_missing_table_selection_explains_button_instead_of_hidden_coordinates():
+    from rpa_orkestrai.engine import validate_workflow
+    from rpa_orkestrai.models import Step, Workflow
+
+    flow = Workflow(name='Tablo seçilmedi', steps=[Step(action='window.write_table', params={
+        'write_method': 'point', 'target_mode': 'coordinates', 'column': 'sutun_2', 'value': 'YENI'})])
+    with pytest.raises(WorkflowError, match='Tabloyu seç düğmesi'):
+        validate_workflow(flow)
