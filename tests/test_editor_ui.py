@@ -1160,7 +1160,7 @@ def test_license_screens_sign_in_lock_and_keep_unsaved_work(tmp_path):
         playwright.expect(card).to_contain_text("https://orkestrai.net/rpa adresinden kurun")
         playwright.expect(card).to_contain_text("olduğu gibi kalır")
 
-        # A restart with a remembered session waits for orkestrai.net before anything opens.
+        # Every restart requires credentials and a fresh online license check.
         server.denial, server.offline = None, True
         browser.close()
     reopened = service(settings.data_dir, server, timer)
@@ -1174,12 +1174,18 @@ def test_license_screens_sign_in_lock_and_keep_unsaved_work(tmp_path):
                 headers={"content-type": "application/json"})))
         page.goto("http://127.0.0.1:8765/")
         card = page.locator(".license-card")
-        playwright.expect(card.get_by_role("heading")).to_have_text("Lisans doğrulanamadı")
-        playwright.expect(card).to_contain_text("internet bağlantısı")
-        playwright.expect(card.locator('input[type="password"]')).to_have_count(0)
+        playwright.expect(card.get_by_role("heading")).to_have_text("RpaOrkestrAI")
+        password = card.locator('input[type="password"]')
+        playwright.expect(password).to_be_visible()
+        playwright.expect(password).to_have_value("")
+        assert client.get("/api/bootstrap").status_code == 403
+        card.locator('input[autocomplete="username"]').fill("operator")
+        password.fill("dogru")
+        card.get_by_role("button", name="Giriş yap", exact=True).click()
+        playwright.expect(card.locator(".license-message")).to_contain_text("lisans sunucusuna ulaşılamadı")
         assert client.get("/api/bootstrap").status_code == 403
         server.offline = False
-        card.get_by_role("button", name="Yeniden dene", exact=True).click()
+        card.get_by_role("button", name="Giriş yap", exact=True).click()
         playwright.expect(page.locator(".license-screen")).to_have_count(0)
         playwright.expect(page.get_by_role("button", name="Sipariş girişi", exact=True)).to_be_visible()
         browser.close()
