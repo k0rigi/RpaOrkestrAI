@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.12-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.12-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.13-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.13-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -23,7 +23,7 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.12:** Tablo önizlemesinde **Başlık yap** ile gerçek başlık satırını seçebilirsiniz; başlık yoksa **Başlık yok** seçin. Başlık ve öncesi veri sayılmaz, ilk kayıt **Veri 1 / Satır 1** olur. Başlıktan önce boş satır bulunan kopyalar desteklenir; okuma ve yazma aynı satır ayrımını kullanır. `sutun_7` gibi numaralı sütun adları çalışmaya devam eder.
 
-**Sonraki sürüm (0.9.13):** **Tabloya değer yaz** boş hücreye de yazar. Hücrenin yeri her çalışmada, ekrandaki sütun başlığı ile aynı satırda tabloda tek olan dolu bir hücrenin (ör. kayıt kodu) kesişiminden bulunur; ekran ölçeği veya sütun genişliği değişse de kayıtlı koordinat kullanılmaz. Boş görünmesi gereken yerde metin varsa yazılmaz. Akış dosyası değişmez. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
+**0.9.13:** **Tabloya değer yaz** boş hücreye de yazar. Hücrenin yeri her çalışmada, ekrandaki sütun başlığı ile aynı satırda tabloda tek olan dolu bir hücrenin (ör. kayıt kodu) kesişiminden bulunur; ekran ölçeği veya sütun genişliği değişse de kayıtlı koordinat kullanılmaz. Boş görünmesi gereken yerde metin varsa yazılmaz. Akış dosyası değişmez. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
 
 **0.9.11:** **Tabloya değer yaz** sadeleştirildi: **Tabloyu seç**, ardından satır, sütun ve değer. “Diğer seçenekler” ve elle X/Y girişi kaldırıldı. Hücre düzenlemesi otomatik doğrulanır; değişkenin değeri bir kez yazılır ve tablonun tamamı yeniden okunarak kontrol edilir. Uzun değer ekranda kesilse de pano doğrulaması yapılır. Tablo seçiminde başlık ayarı, seçimden sonra ilk veri satırı görünür. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
 
