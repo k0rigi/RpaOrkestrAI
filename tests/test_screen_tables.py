@@ -13,6 +13,7 @@ from rpa_orkestrai.desktop.screen_tables import (
     AmbiguousTable,
     Phrases,
     TableText,
+    header_groups,
     locate_cell,
     locate_empty,
     locate_image,
@@ -873,3 +874,42 @@ def test_empty_cell_is_not_written_when_screen_shows_text_there(runtime, monkeyp
     desktop.paste.assert_not_called()
     assert not any(c.kwargs["clicks"] == 2 for c in desktop.click.call_args_list)
     assert state["clipboard"] == "previous clipboard"
+
+
+WIDE = TableText.parse("Kod\tMiktar\tİade Sonrası\tOnaylanan Miktar\tNot\nA125\t3\t\t2\tACIL")
+
+
+def wide_words(*, target_heading="İade Sonrası"):
+    words = [word("Kod", 20, 20), word("Miktar", 100, 20), word("Onaylanan", 420, 20), word("Miktar", 490, 20),
+             word("Not", 620, 20), word("A125", 20, 50), word("3", 100, 50), word("2", 420, 50),
+             word("ACIL", 620, 50)]
+    if target_heading:
+        first, *rest = target_heading.split()
+        words += [word(first, 200, 20), *(word(w, 235, 20) for w in rest)]
+    return words
+
+
+def test_heading_inside_longer_heading_does_not_split_the_band():
+    groups = header_groups(Phrases(wide_words()), WIDE)
+    assert len(groups) == 1
+    assert [index for index, _ in groups[0]] == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("reference_x", [25, 425, 625])
+def test_selected_point_may_be_in_any_column_of_a_wide_table(reference_x):
+    cell = locate_empty(wide_words(), WIDE, 0, 2, reference_point=(reference_x, 55))
+    assert 200 <= cell.point[0] <= 284 and cell.point[1] == 56
+
+
+def test_side_by_side_tables_still_need_the_selected_side():
+    left = grid_words(120, old="")
+    right = grid_words(120, offset=450, old="")
+    assert locate_empty(left + right, EMPTY, 0, 1, reference_point=(30, 55)).point[0] < 400
+    assert locate_empty(left + right, EMPTY, 0, 1, reference_point=(480, 55)).point[0] > 400
+    with pytest.raises(WindowError):
+        locate_empty(left + right, EMPTY, 0, 1, reference_point=(380, 55))
+
+
+def test_unread_target_heading_names_what_was_read():
+    with pytest.raises(WindowError, match="'İade Sonrası' sütun başlığı ekranda okunamadı.*Kod, Miktar"):
+        locate_empty(wide_words(target_heading="İade Sonr..."), WIDE, 0, 2, reference_point=(25, 55))

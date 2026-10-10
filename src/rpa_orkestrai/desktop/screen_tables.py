@@ -191,6 +191,12 @@ def header_groups(phrases, table):
         if not title or sum(header_key(h) == header_key(title) for h in table.headers) != 1:
             continue
         entries.extend((index, box) for box in phrases.find(title, heading=True))
+    # "Miktar" is also read inside "Onaylanan Miktar". A match lying within a
+    # longer heading's match on the same line is part of that heading.
+    size = {i: len(header_key(t)) for i, t in enumerate(table.headers)}
+    entries = [(index, box) for index, box in entries
+               if not any(other_index != index and size[other_index] > size[index] and same_line(box, other)
+                          and other.x <= box.x and box.right <= other.right for other_index, other in entries)]
     bands = []
     for item in sorted(entries, key=lambda e: (e[1].y, e[1].x)):
         matches = [band for band in bands if all(same_line(item[1], entry[1]) for entry in band)]
@@ -227,14 +233,26 @@ def table_scopes(phrases, table, column, reference_point):
                    if min(b.y for _, b in other) > bottom
                    and max(b.right for _, b in other) > left and min(b.x for _, b in other) < right),
                   default=float("inf"))
-        if reference_point is None or (left <= reference_point[0] <= right
-                                       and bottom <= reference_point[1] < end):
-            scopes.append((dict(group), bottom, end))
-    if reference_point is not None and len(scopes) != 1:
-        error = AmbiguousTable if len(scopes) > 1 else WindowError
+        scopes.append((dict(group), bottom, end, left, right))
+    if reference_point is None:
+        return [scope[:3] for scope in scopes]
+    if not scopes:
+        heading = table.headers[column]
+        seen = [title for title in table.headers if title and phrases.find(title, heading=True)]
+        raise WindowError(f"'{heading}' sütun başlığı ekranda okunamadı; başlığı tam görünür yapın (gerekirse "
+                          f"tabloyu yatay kaydırın veya sütunu genişletin). Okunan başlıklar: "
+                          f"{', '.join(seen[:40]) or 'yok'}.")
+    # The selected point is in the table's data rows: below this heading band
+    # and above the next table. Its column may be any other visible column, so
+    # the horizontal position only separates tables placed side by side.
+    below = [scope for scope in scopes if scope[1] <= reference_point[1] < scope[2]]
+    if len(below) > 1:
+        below = [scope for scope in below if scope[3] <= reference_point[0] <= scope[4]]
+    if len(below) != 1:
+        error = AmbiguousTable if len(below) > 1 else WindowError
         raise error("Tablo içeriği ile sütun başlıkları aynı tabloda doğrulanamadı. "
                     "Tabloyu seç ile hedef tablonun bir veri hücresini yeniden seçin.")
-    return scopes
+    return [below[0][:3]]
 
 
 def heading_owns(headings, box, index, *, witness=False):
@@ -522,6 +540,7 @@ def table_focus_point(image, column, *, ocr_options=None, header=True):
 
 def locate_image(image, table, row, column, *, reference_point, ocr_options=None):
     """Bounded OCR preparations; each must independently prove the whole cell."""
+    first = None
     for preparation in range(3):
         words = measured_words(image, preparation, vocabulary=(*table.headers, *table.rows[row]),
                                ocr_options=ocr_options)
@@ -538,9 +557,12 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
                 return locate_cell(words, table, row, column, reference_point=reference_point)
         except AmbiguousTable:
             raise
-        except WindowError:
+        except WindowError as exc:
+            # Report the plain capture's reason; thresholded or inverted
+            # variants usually read fewer headings and explain less.
+            first = first or exc
             if preparation == 2:
-                raise
+                raise first
 
 
 def screen_table_cell(service, target, desktop, *, region=None, selection, value=None, ocr_options=None,

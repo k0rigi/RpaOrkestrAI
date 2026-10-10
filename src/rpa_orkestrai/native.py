@@ -24,6 +24,59 @@ CLOSE_TEXTS = {
 
 GUARD_INTERVAL = 3.0
 MINIMIZE_TIMEOUT = 5.0
+# The Studio sidebar (--nav-bg / --nav-ink) continues into the native title bar.
+TITLE_BAR = (0x15, 0x1A, 0x26)
+TITLE_TEXT = (0xF2, 0xEF, 0xE7)
+
+
+def style_title_bar(window) -> None:
+    """Paint the title bar like the sidebar; any failure keeps the system title bar."""
+    try:
+        if platform.system() == "Windows":
+            windows_title_bar(int(window.native.Handle.ToInt64()))
+        elif platform.system() == "Darwin":
+            macos_title_bar(window.native)
+    except Exception:
+        pass
+
+
+def windows_title_bar(hwnd: int) -> int:
+    """Return the caption color HRESULT (0 on Windows 11)."""
+    import ctypes
+    from ctypes import wintypes
+
+    def set_attribute(attribute: int, value: int) -> int:
+        data = wintypes.DWORD(value)
+        return ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            wintypes.HWND(hwnd), wintypes.DWORD(attribute), ctypes.byref(data), ctypes.sizeof(data))
+
+    def colorref(red: int, green: int, blue: int) -> int:
+        return red | green << 8 | blue << 16
+
+    # Windows 10 1809+: dark caption (attribute 19 before 20H1, 20 afterwards).
+    if set_attribute(20, 1) != 0:
+        set_attribute(19, 1)
+    # Windows 11 22000+: exact border, caption and text colors; Windows 10 ignores them.
+    set_attribute(34, colorref(*TITLE_BAR))
+    result = set_attribute(35, colorref(*TITLE_BAR))
+    set_attribute(36, colorref(*TITLE_TEXT))
+    # Redraw the non-client area: SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED.
+    ctypes.windll.user32.SetWindowPos(wintypes.HWND(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0020)
+    return result
+
+
+def macos_title_bar(ns_window) -> None:
+    from AppKit import NSAppearance, NSColor
+    from PyObjCTools import AppHelper
+
+    def apply() -> None:
+        # AppKit objects belong to the main thread.
+        ns_window.setAppearance_(NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua"))
+        ns_window.setTitlebarAppearsTransparent_(True)
+        ns_window.setBackgroundColor_(NSColor.colorWithSRGBRed_green_blue_alpha_(
+            *(channel / 255 for channel in TITLE_BAR), 1.0))
+
+    AppHelper.callAfter(apply)
 
 
 def minimize_for_run(window, minimized: threading.Event, cancel: threading.Event) -> None:
@@ -84,7 +137,7 @@ def open_window(webview, url: str, *, minimized: bool = False, settings: Setting
     webview.settings["ALLOW_DOWNLOADS"] = True
     window = webview.create_window(
         "RpaOrkestrAI Studio", url, width=1440, height=940, min_size=(980, 680),
-        background_color="#F5F7F3", minimized=minimized, localization=CLOSE_TEXTS,
+        background_color="#EDEAE1", minimized=minimized, localization=CLOSE_TEXTS,
     )
     if settings is not None:
         watch_schedules(window, settings)
@@ -102,6 +155,7 @@ def open_window(webview, url: str, *, minimized: bool = False, settings: Setting
         print("Masaüstü penceresi hazır.", flush=True)
 
     window.events.loaded += on_loaded
+    window.events.shown += lambda: style_title_bar(window)
     from .desktop.picker import register_native_host, unregister_native_host
 
     register_native_host(webview, window)

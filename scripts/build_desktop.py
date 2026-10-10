@@ -40,11 +40,11 @@ def make_icon(folder: Path) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     image = Image.new("RGBA", (1024, 1024))
     draw = ImageDraw.Draw(image)
-    # The Studio's existing mint/dark O mark, rendered at app-icon sizes.
-    draw.rounded_rectangle((48, 48, 976, 976), radius=230, fill="#ACD6B5")
-    draw.ellipse((245, 280, 710, 800), fill="#173237")
-    draw.ellipse((375, 420, 580, 660), fill="#ACD6B5")
-    draw.ellipse((705, 220, 835, 350), fill="#173237")
+    # The Studio's sidebar mark (--mark / --mark-ink): yellow tile, black O, square dot.
+    draw.rounded_rectangle((48, 48, 976, 976), radius=150, fill="#FFD23F")
+    draw.ellipse((250, 270, 730, 810), fill="#151A26")
+    draw.ellipse((375, 405, 605, 675), fill="#FFD23F")
+    draw.rectangle((760, 200, 860, 300), fill="#151A26")
     icon = folder / ("studio.icns" if platform.system() == "Darwin" else "studio.ico")
     image.save(icon)
     return icon
