@@ -145,3 +145,21 @@ def test_native_ocr_addresses_empty_cell_from_heading_and_record(target_x, row_c
     assert 72 <= y <= 99, cell
     # "Motor" repeats in the two-record table and cannot identify the row.
     assert table.rows[0][cell.witness_column] in ({"A125", "1"} if row_count == 2 else {"A125", "Motor", "1"})
+
+
+@pytest.mark.parametrize("target_x", [330, 490])
+@pytest.mark.parametrize("selected", [False, True], ids=["normal", "selected-blue"])
+def test_native_ocr_text_step_finds_empty_cell_and_text(target_x, selected):
+    from rpa_orkestrai.desktop.text_target import locate_text
+
+    image, _, _, first_row_bounds = table_image(target_x=target_x, font_size=14, row_count=2,
+                                                selected=selected, empty_first=True)
+    options = {"engine": "system", "language": "tur+eng"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        x, y = pool.submit(locate_text, image, mode="cross", column_text="İade Sonrası", row_text="A125",
+                           ocr_options=options).result(timeout=45)
+        code = pool.submit(locate_text, image, mode="text", text="A126", ocr_options=options).result(timeout=45)
+    # Between the drawn column lines, on the first record's row band.
+    assert target_x - 10 < x < target_x + 135 and 72 <= y <= 99, (x, y)
+    left, top, right, bottom = first_row_bounds[0]
+    assert left <= code[0] <= right and top + 28 - 2 <= code[1] <= bottom + 28 + 2, code

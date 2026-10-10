@@ -371,6 +371,34 @@ LIBRARY = [
             field("value", "Yazılacak değer", required=True,
                   help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.deger}. Boş değer, Tab ve satır sonu kabul edilmez."),
             output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),
+    action("window.text_write", "Metni bul, tıkla ve yaz", "Pencere",
+           "Çizdiğiniz alanda ekrandaki metni okuyarak tıklanacak yeri her çalışmada yeniden bulur, tıklar ve "
+           "değeri yazar. Metin bulunamazsa veya birden fazla yerde görünürse tıklamaz.",
+           [WINDOW,
+            field("region", "Arama alanı", "json", None,
+                  help="Bölge çiz ile pencerenin görüntüsünde aranacak alanı seçin. Boşsa pencerenin tamamında aranır. "
+                       "Alan pencereye göre saklanır."),
+            field("position", "Nereye tıklansın?", "select", "text", required=True,
+                  options=[{"value": "text", "label": "Bulunan metnin üzerine"},
+                           {"value": "cross", "label": "Sütun ve satır kesişimine (boş hücre için)"}],
+                  help="Kesişim: sütun başlığının altına, satırdaki metnin hizasına tıklar; hücre boş olabilir."),
+            field("text", "Aranacak metin", required=True, visible_when={"position": "text"},
+                  help="Ekranda görünen metin; büyük/küçük harf fark etmez. Değişken kullanılabilir: ${row.kod}."),
+            field("column_text", "Sütun metni", required=True, visible_when={"position": "cross"},
+                  help="Yazılacak sütunun ekrandaki başlığı (ör. Miktar)."),
+            field("row_text", "Satır metni", required=True, visible_when={"position": "cross"},
+                  help="Aynı satırda başka bir sütunda görünen, satırı ayırt eden değer (ör. kayıt kodu)."),
+            field("value", "Yazılacak değer", required=True,
+                  help="Değişken kullanılabilir: ${row.deger}. Enter veya Tab için aşağıdaki seçeneği kullanın."),
+            field("clicks", "Tıklama", "select", 1,
+                  options=[{"value": 1, "label": "Tek tık"}, {"value": 2, "label": "Çift tık (hücreyi düzenlemeye açar)"}]),
+            field("clear", "Önce mevcut değeri temizle", "boolean", False,
+                  help="Tümünü seçip siler. Yalnız tıklama yazı alanını veya hücre düzenlemesini açıyorsa kullanın; "
+                       "aksi halde tablodaki tüm satırlar seçilebilir."),
+            field("after", "Yazdıktan sonra", "select", "none",
+                  options=[{"value": "none", "label": "Hiçbir şey"}, {"value": "tab", "label": "Tab'a bas"},
+                           {"value": "enter", "label": "Enter'a bas"}])],
+           region=True),
     action("window.state", "Pencereyi büyüt / küçült", "Pencere",
            "Pencereyi tam ekran yapar, simge durumuna küçültür veya geri yükler.",
            [WINDOW, field("state", "İşlem", "select", "maximize", required=True,
@@ -766,7 +794,7 @@ TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read", "database.query"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
-LOCATABLE = {"window.write_table", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
+LOCATABLE = {"window.write_table", "window.text_write", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
              "input.mouse_click",
              "input.mouse_move", "screen.click_image"}
 

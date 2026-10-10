@@ -164,3 +164,33 @@ def write_table(ctx, p):
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise WorkflowError("Tablo hücresine yazılacak değer satır sonu, Tab veya kontrol karakteri içeremez.")
     return table_operation(ctx, p, value=value)
+
+
+def text_operation(ctx, p, *, value=None):
+    """Shared by running the step and by Yeri göster (value None: nothing is clicked)."""
+    from ..desktop.text_target import text_write as write
+
+    mode = choice(p.get("position", "text"), "Tıklama konumu", {"text", "cross"})
+    fields = {"text": ("text", "Aranacak metin")} if mode == "text" else {
+        "column_text": ("column_text", "Sütun metni"), "row_text": ("row_text", "Satır metni")}
+    texts = {name: text(p.get(key), label, limit=500).strip() for name, (key, label) in fields.items()}
+    clicks = p.get("clicks", 1)
+    if type(clicks) is str and clicks in {"1", "2"}:
+        clicks = int(clicks)
+    try:
+        return write(ctx.windows(), _window(p), ctx.desktop(), region=region(p.get("region")), mode=mode,
+                     value=value, clicks=clicks, clear=p.get("clear", False) is True,
+                     after=choice(p.get("after", "none"), "Yazdıktan sonra", {"none", "tab", "enter"}),
+                     ocr_options={"language": ctx.config.get("ocr_language") or "tur+eng",
+                                  "tesseract_cmd": ctx.config.get("tesseract_cmd") or None,
+                                  "timeout": ctx.settings.action_timeout}, **texts)
+    except WindowError as exc:
+        raise WorkflowError(str(exc)) from exc
+
+
+@handler("window.text_write")
+def text_write(ctx, p):
+    value = p.get("value")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = str(value)
+    return text_operation(ctx, p, value=text(value, "Yazılacak değer", limit=10_000))

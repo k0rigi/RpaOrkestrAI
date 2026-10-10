@@ -54,6 +54,8 @@ FIELD_HELP = {
 }
 
 STEP_FIELD_HELP = {
+    ("window.text_write", "after"): "Tab sonraki alana geçer, Enter değeri onaylar. Uygulamanız hücreyi nasıl "
+                                    "onaylıyorsa onu seçin.",
     ("desktop.find_window", "match"): "Başlık her açılışta aynıysa Tam eşleşme; içinde değişen numara, tarih veya "
                                       "ekran adı varsa İçerir.",
     ("desktop.find_window", "timeout"): "Pencere henüz açılmadıysa bu kadar saniye beklenir.",
@@ -264,6 +266,16 @@ GUIDES = {
         "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. Boş hücre, sütun başlığı ile "
         "aynı satırdaki tek olan dolu bir değerin kesişiminden bulunur; ikisi de ekranda görünmelidir. "
         "Önizlemede başlık satırında Başlık yap seçin; başlık yoksa Başlık yok seçin. Veri 1, Satır 1’dir. Hücre otomatik düzenlemeye açılır; değişkenin değeri yazılıp tüm tablo yeniden okunarak doğrulanır. Kaydetme/onayı ayrıca ekleyin."),
+    "window.text_write": guide(
+        [WINDOW_FIRST,
+         "Bölge çiz ile pencere görüntüsünde aranacak alanı seçin (ör. yalnız tablo).",
+         "Nereye tıklansın? Dolu bir alan için Bulunan metnin üzerine; boş hücre için Sütun ve satır kesişimi.",
+         "Kesişimde Sütun metni başlık (ör. Miktar), Satır metni o satırdaki başka bir değerdir (ör. A125).",
+         "Bu adımı test et → Yeri göster ile noktayı kontrol edin; Gerçekten çalıştır ile yazın."],
+        "Tıklanan nokta ve yazılan değer test günlüğünde görünür.",
+        "Konum her çalışmada ekrandaki metinden ölçülür; ekran ölçeği veya sütun genişliği değişse de "
+        "kaydedilmiş koordinat kullanılmaz. Metin bulunamazsa veya alanda birden fazla yerde görünürse tıklanmaz; "
+        "alanı daraltın. Satır kaydırılıp görünmez olduysa önce kaydırın. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",

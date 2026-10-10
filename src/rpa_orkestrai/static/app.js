@@ -3353,7 +3353,8 @@
   function pickScreenTemplate(step, regionOnly = false) {
     const clickable = !regionOnly && step.action === "screen.click_image";
     const tableRegion = regionOnly && step.action === "window.write_table";
-    const windowRegion = regionOnly && (tableRegion || parameterValue(step, "relative_to") === "window");
+    const windowRegion = regionOnly && (tableRegion || step.action === "window.text_write"
+      || parameterValue(step, "relative_to") === "window");
     dialog(tableRegion ? "Tablo alanını çiz" : regionOnly ? "Okunacak bölgeyi çiz" : "Ekrandan görsel seç", (body, d) => {
       d.classList.add("target-picker-dialog");
       let capture = null, image = null, rect = null, point = null, drag = null, saved = false;

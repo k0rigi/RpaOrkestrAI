@@ -484,6 +484,10 @@ class Executor:
             from .actions.windows import table_operation
 
             x, y = table_operation(self, p)
+        elif action == "window.text_write":
+            from .actions.windows import text_operation
+
+            x, y = text_operation(self, p)
         elif action == "screen.click_image":
             from .actions.screen import search
 
