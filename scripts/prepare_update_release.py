@@ -73,21 +73,21 @@ def _download_page(version: str, assets: dict) -> str:
 <meta name="description" content="RpaOrkestrAI Studio için Windows ve macOS masaüstü uygulamasını indirin.">
 <title>RpaOrkestrAI Studio · İndir</title>
 <style>
-:root{{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#173237;background:#f6f8f4}}
+:root{{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#151a26;background:#edeae1}}
 *{{box-sizing:border-box}}body{{margin:0}}main{{max-width:1080px;margin:auto;padding:56px 24px 72px}}
-header{{background:#173237;color:white;border-radius:24px;padding:40px;margin-bottom:28px}}
-.brand{{font-weight:750;letter-spacing:-.6px;font-size:22px}}.mark{{color:#ACD6B5}}h1{{font-size:clamp(32px,5vw,54px);
-line-height:1.08;max-width:720px;letter-spacing:-1.8px;margin:32px 0 20px}}header p{{max-width:680px;color:#d7e5df}}
-p{{line-height:1.65}}.version{{display:inline-block;border:1px solid #70918c;border-radius:30px;padding:6px 14px;
+header{{background:#151a26;color:white;border-radius:24px;padding:40px;margin-bottom:28px}}
+.brand{{font-weight:750;letter-spacing:-.6px;font-size:22px}}.mark{{display:inline-grid;place-items:center;width:30px;height:30px;margin-right:8px;border-radius:6px;background:#ffd23f;color:#151a26;font-weight:800;vertical-align:middle}}h1{{font-size:clamp(32px,5vw,54px);
+line-height:1.08;max-width:720px;letter-spacing:-1.8px;margin:32px 0 20px}}header p{{max-width:680px;color:#d4d6dc}}
+p{{line-height:1.65}}.version{{display:inline-block;border:1px solid #4a5368;border-radius:30px;padding:6px 14px;
 font-size:14px;margin-top:12px}}.downloads{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
-gap:20px}}article{{border:1px solid #dce5de;border-radius:18px;background:white;padding:28px;display:flex;
-flex-direction:column}}article h2{{margin:8px 0;font-size:25px}}article p{{color:#536b6d}}.platform{{font-size:13px;
-font-weight:600;margin:0}}.download{{display:block;background:#ACD6B5;color:#173237;padding:15px 18px;border-radius:10px;
+gap:20px}}article{{border:1px solid #d8d3c4;border-radius:18px;background:white;padding:28px;display:flex;
+flex-direction:column}}article h2{{margin:8px 0;font-size:25px}}article p{{color:#5d6270}}.platform{{font-size:13px;
+font-weight:600;margin:0}}.download{{display:block;background:#ffd23f;color:#151a26;padding:15px 18px;border-radius:10px;
 font-weight:700;text-align:center;text-decoration:none;margin-top:auto}}.download:focus-visible{{outline:3px solid
-#173237;outline-offset:4px}}.download:hover{{background:#95c9a2}}.note{{max-width:850px;margin:30px 0 0;color:#536b6d;
-font-size:14px}}footer{{border-top:1px solid #dce5de;margin-top:36px;padding-top:20px;font-size:13px;color:#536b6d}}
+#151a26;outline-offset:4px}}.download:hover{{background:#f2c21a}}.note{{max-width:850px;margin:30px 0 0;color:#5d6270;
+font-size:14px}}footer{{border-top:1px solid #d8d3c4;margin-top:36px;padding-top:20px;font-size:13px;color:#5d6270}}
 @media(max-width:540px){{main{{padding:20px 16px 40px}}header{{padding:26px}}}}
-</style></head><body><main><header><div class="brand"><span class="mark">●</span> RpaOrkestrAI Studio</div>
+</style></head><body><main><header><div class="brand"><span class="mark" aria-hidden="true">O</span>RpaOrkestrAI Studio</div>
 <h1>İşlerinize akış kazandırın.</h1><p>Masaüstü uygulamanızı bir kez kurun. Akışlarınızı bilgisayarınızda oluşturun;
 yayımlanan yeni sürümler uygulama açıldığında otomatik kontrol edilsin.</p>
 <span class="version">Sürüm {html.escape(version)}</span></header>

@@ -19,6 +19,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
+; Shell icon refresh: an updated EXE icon replaces the cached one on existing shortcuts.
+ChangesAssociations=yes
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
