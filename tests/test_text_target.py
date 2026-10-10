@@ -27,6 +27,27 @@ def test_text_mode_clicks_the_centre_of_the_one_matching_phrase():
     assert text_point(GRID, mode="text", text="B999") is None
 
 
+@pytest.mark.parametrize("wanted", ["İad", "iad", "IAD", "ade"])
+def test_part_of_a_word_is_enough_and_clicks_that_word_centre(wanted):
+    assert text_point(GRID, mode="text", text=wanted) == (214, 26)  # Centre of the word "İade".
+
+
+def test_part_spanning_words_clicks_the_centre_of_both():
+    assert text_point(GRID, mode="text", text="ade Son") == (242, 26)
+    assert text_point(GRID, mode="text", text="125") == (34, 56)
+
+
+def test_part_in_two_places_is_ambiguous_and_never_joins_distant_cells():
+    with pytest.raises(WindowError, match="2 yerde"):
+        text_point(GRID, mode="text", text="A12")  # A125 and A126.
+    assert text_point(GRID, mode="text", text="Kod İade") is None  # Separate cells on one line.
+
+
+def test_cross_accepts_truncated_heading_and_part_of_row_value():
+    x, y = text_point(GRID, mode="cross", column_text="İade Sonr", row_text="126")
+    assert 200 <= x <= 284 and y == 86
+
+
 @pytest.mark.parametrize("row_text,y", [("A125", 56), ("A126", 86)])
 def test_cross_mode_is_heading_column_on_row_line_even_for_an_empty_cell(row_text, y):
     x, found_y = text_point(GRID, mode="cross", column_text="İade Sonrası", row_text=row_text)

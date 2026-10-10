@@ -146,12 +146,12 @@ Tablo veya form, uygulamanın kopyalama/erişilebilirlik desteğinden bağımsı
 1. **Pencereyi tanı** ile pencereyi tanıtın ve **Metni bul, tıkla ve yaz** ekleyin.
 2. **Bölge çiz** ile pencere görüntüsünde aranacak alanı seçin (ör. yalnız tablo). Alan pencereye göre saklanır; boş bırakılırsa pencerenin tamamında aranır.
 3. **Nereye tıklansın?**
-   - **Bulunan metnin üzerine:** **Aranacak metin** alanda bulunur ve merkezine tıklanır.
+   - **Bulunan metnin üzerine:** **Aranacak metin**i içeren yazı alanda bulunur ve ortasına tıklanır. Bir parça yeterlidir: `İad` yazınca `İade` bulunur.
    - **Sütun ve satır kesişimine:** **Sütun metni** (ör. `Miktar` başlığı) ile **Satır metni** (aynı satırda başka bir sütundaki değer, ör. kayıt kodu `${row.kod}`) bulunur; başlığın altına, o satırın hizasına tıklanır. Hücre boş olabilir.
 4. **Yazılacak değer**, gerekirse **Çift tık** (hücreyi düzenlemeye açar), **Önce mevcut değeri temizle** ve **Yazdıktan sonra** Tab/Enter seçin.
 5. **Bu adımı test et → Yeri göster** ile noktayı kontrol edin, sonra **Gerçekten çalıştır**.
 
-Konum her çalışmada yeni bir ekran görüntüsünden ölçülür; ekran ölçeği, pencere boyutu veya sütun genişliği değişse de kaydedilmiş koordinat kullanılmaz. Büyük/küçük harf fark etmez; sütun başlığında OCR'ın İ/ı/l karışıklığı tolere edilir, satır metni birebir eşleşmelidir.
+Konum her çalışmada yeni bir ekran görüntüsünden ölçülür; ekran ölçeği, pencere boyutu veya sütun genişliği değişse de kaydedilmiş koordinat kullanılmaz. Üç metin alanında da yazdığınız parçayı içeren yazı aranır; tamamının eşleşmesi gerekmez. Büyük/küçük harf fark etmez; sütun başlığında OCR'ın İ/ı/l karışıklığı da tolere edilir. Tıklama, parçanın geçtiği kelimenin (birden fazla kelimeye yayılıyorsa hepsinin) ortasına yapılır. Yan yana farklı hücrelerdeki metinler birleştirilmez. Parça alanda birden fazla ayrı yazıda geçiyorsa (ör. `A12` hem `A125` hem `A126` içinde) tıklanmaz; daha uzun bir parça yazın veya alanı daraltın.
 
 Şu durumlarda tıklanmaz ve yazılmaz: metin alanda okunamazsa, alanda birden fazla yerde görünürse (alanı daraltın; ör. `Miktar` başlığı `Onaylanan Miktar` içinde de geçer), satır metni başlığın üstündeyse veya yazılacak sütunun içindeyse, pencere/odak değişirse. Satır kaydırılıp görünmez olduysa önce kaydırın. **Önce mevcut değeri temizle** tümünü seçip siler; yalnız tıklama bir yazı alanını veya hücre düzenlemesini açıyorsa kullanın. Yazma sonrası tablo doğrulaması yapılmaz; kaydetme/onayı ayrıca ekleyin, gerekirse **Ekrandan metin oku** ile sonucu kontrol edin.
 

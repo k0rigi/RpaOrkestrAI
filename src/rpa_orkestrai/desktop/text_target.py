@@ -7,12 +7,49 @@ is saved as a screen coordinate; missing or repeated text never clicks.
 from __future__ import annotations
 
 from .ocr import OcrUnavailable
-from .screen_tables import Box, Phrases, measured_words, overlap_x
+from .screen_tables import Box, Phrases, header_key, measured_words, normalized, overlap_x
 from .windows import WindowError
 
 
+def containing(phrases, text, *, heading=False):
+    """Boxes of the visible phrases containing *text*; a part such as "İad" is enough.
+
+    Words are joined only within one cell-like segment of a line (no wide gap),
+    and each match is the box of the words that the found part touches.
+    """
+    key = header_key if heading else normalized
+    wanted = key(text)
+    if not wanted:
+        return []
+    found = []
+    for line in phrases.lines:
+        segments, segment = [], []
+        for word, box in line:
+            if segment and box.x - segment[-1][1].right > 4 * max(box.height, segment[-1][1].height):
+                segments.append(segment)
+                segment = []
+            segment.append((key(word), box))
+        segments.append(segment)
+        for segment in segments:
+            joined, spans = "", []
+            for word, box in segment:
+                start = len(joined) + (1 if joined else 0)
+                joined = f"{joined} {word}" if joined else word
+                spans.append((start, len(joined), box))
+            start = joined.find(wanted)
+            while start >= 0:
+                end = start + len(wanted)
+                boxes = [box for begin, finish, box in spans if begin < end and start < finish]
+                x, y = min(b.x for b in boxes), min(b.y for b in boxes)
+                match = Box(x, y, max(b.right for b in boxes) - x, max(b.bottom for b in boxes) - y, len(boxes))
+                if match not in found:
+                    found.append(match)
+                start = joined.find(wanted, start + 1)
+    return found
+
+
 def single(phrases, text, label, *, heading=False):
-    found = phrases.find(text, heading=heading)
+    found = containing(phrases, text, heading=heading)
     if len(found) > 1:
         raise WindowError(f"{label} “{text}” alanda {len(found)} yerde bulundu; tıklanmadı. "
                           "Alanı daraltın veya daha ayırt edici bir metin yazın.")

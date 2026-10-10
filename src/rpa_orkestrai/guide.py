@@ -273,6 +273,7 @@ GUIDES = {
          "Kesişimde Sütun metni başlık (ör. Miktar), Satır metni o satırdaki başka bir değerdir (ör. A125).",
          "Bu adımı test et → Yeri göster ile noktayı kontrol edin; Gerçekten çalıştır ile yazın."],
         "Tıklanan nokta ve yazılan değer test günlüğünde görünür.",
+        "Metnin bir parçasını yazmak yeterlidir (İad → İade); tıklama o yazının ortasına yapılır. "
         "Konum her çalışmada ekrandaki metinden ölçülür; ekran ölçeği veya sütun genişliği değişse de "
         "kaydedilmiş koordinat kullanılmaz. Metin bulunamazsa veya alanda birden fazla yerde görünürse tıklanmaz; "
         "alanı daraltın. Satır kaydırılıp görünmez olduysa önce kaydırın. Kaydetme/onayı ayrıca ekleyin."),

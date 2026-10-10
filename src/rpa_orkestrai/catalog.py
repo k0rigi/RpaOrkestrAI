@@ -372,7 +372,7 @@ LIBRARY = [
                   help="Hücrenin yeni değeri; değişken kullanılabilir: ${row.deger}. Boş değer, Tab ve satır sonu kabul edilmez."),
             output("table_write", "Doğrulanan hücre: ${table_write.row}, ${table_write.column}, ${table_write.value}.")]),
     action("window.text_write", "Metni bul, tıkla ve yaz", "Pencere",
-           "Çizdiğiniz alanda ekrandaki metni okuyarak tıklanacak yeri her çalışmada yeniden bulur, tıklar ve "
+           "Çizdiğiniz alanda, yazdığınız metni içeren yazıyı her çalışmada OCR ile yeniden bulur, ortasına tıklar ve "
            "değeri yazar. Metin bulunamazsa veya birden fazla yerde görünürse tıklamaz.",
            [WINDOW,
             field("region", "Arama alanı", "json", None,
@@ -383,11 +383,12 @@ LIBRARY = [
                            {"value": "cross", "label": "Sütun ve satır kesişimine (boş hücre için)"}],
                   help="Kesişim: sütun başlığının altına, satırdaki metnin hizasına tıklar; hücre boş olabilir."),
             field("text", "Aranacak metin", required=True, visible_when={"position": "text"},
-                  help="Ekranda görünen metin; büyük/küçük harf fark etmez. Değişken kullanılabilir: ${row.kod}."),
+                  help="Ekranda görünen metnin bir parçası yeterlidir (ör. İad → İade); büyük/küçük harf fark etmez. "
+                       "Bu parça alanda tek bir yerde geçmelidir. Değişken kullanılabilir: ${row.kod}."),
             field("column_text", "Sütun metni", required=True, visible_when={"position": "cross"},
-                  help="Yazılacak sütunun ekrandaki başlığı (ör. Miktar)."),
+                  help="Yazılacak sütunun ekrandaki başlığı veya bir parçası (ör. Miktar; kısaltılmış başlıkta İade Sonr)."),
             field("row_text", "Satır metni", required=True, visible_when={"position": "cross"},
-                  help="Aynı satırda başka bir sütunda görünen, satırı ayırt eden değer (ör. kayıt kodu)."),
+                  help="Aynı satırda başka bir sütunda görünen, satırı ayırt eden değer veya bir parçası (ör. kayıt kodu)."),
             field("value", "Yazılacak değer", required=True,
                   help="Değişken kullanılabilir: ${row.deger}. Enter veya Tab için aşağıdaki seçeneği kullanın."),
             field("clicks", "Tıklama", "select", 1,

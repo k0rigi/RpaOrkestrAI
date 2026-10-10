@@ -158,7 +158,7 @@ def test_native_ocr_text_step_finds_empty_cell_and_text(target_x, selected):
     with ThreadPoolExecutor(max_workers=1) as pool:
         x, y = pool.submit(locate_text, image, mode="cross", column_text="İade Sonrası", row_text="A125",
                            ocr_options=options).result(timeout=45)
-        code = pool.submit(locate_text, image, mode="text", text="A126", ocr_options=options).result(timeout=45)
+        code = pool.submit(locate_text, image, mode="text", text="126", ocr_options=options).result(timeout=45)
     # Between the drawn column lines, on the first record's row band.
     assert target_x - 10 < x < target_x + 135 and 72 <= y <= 99, (x, y)
     left, top, right, bottom = first_row_bounds[0]
