@@ -44,7 +44,7 @@ def _failure_diagnostics(image):
     return details
 
 
-def table_image(*, target_x, font_size, row_count, selected=False):
+def table_image(*, target_x, font_size, row_count, selected=False, empty_first=False):
     path = "/System/Library/Fonts/Supplemental/Arial.ttf" if platform.system() == "Darwin" else "arial.ttf"
     font = ImageFont.truetype(path, font_size)
     image = Image.new("RGB", (900, 210), "#f7f7f7")
@@ -52,7 +52,7 @@ def table_image(*, target_x, font_size, row_count, selected=False):
     columns = [38, 140, target_x, target_x + 145]
     header_y, first_row_y, row_height = 45, 75, 28
     titles = ("Kod", "Açıklama", "İade Sonrası", "Miktar")
-    rows = [("A125", "Motor", "ARIZALILAR", "1")]
+    rows = [("A125", "Motor", "" if empty_first else "ARIZALILAR", "1")]
     if row_count == 2:
         rows.append(("A126", "Motor", "ARIZALILAR", "1"))
     right = columns[-1] + 105
@@ -126,3 +126,22 @@ def test_native_ocr_locates_by_alias_without_any_visible_or_copied_headings(targ
                                ocr_options={'engine': 'system'}).result(timeout=45)
             assert left <= cell.point[0] <= right
             assert top - 2 <= cell.point[1] <= bottom + 2
+
+
+@pytest.mark.parametrize("target_x", [330, 490])
+@pytest.mark.parametrize("row_count", [1, 2])
+@pytest.mark.parametrize("selected", [False, True], ids=["normal", "selected-blue"])
+def test_native_ocr_addresses_empty_cell_from_heading_and_record(target_x, row_count, selected):
+    image, table, _, _ = table_image(target_x=target_x, font_size=14, row_count=row_count,
+                                     selected=selected, empty_first=True)
+    options = {"engine": "system", "language": "tur+eng"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        focus = pool.submit(table_focus_point, image, "İade Sonrası", ocr_options=options).result(timeout=45)
+        cell = pool.submit(locate_image, image, table, 0, 2, reference_point=focus,
+                           ocr_options=options).result(timeout=45)
+    x, y = cell.point
+    # Inside the drawn column lines and the first record's row band.
+    assert target_x - 10 < x < target_x + 135, cell
+    assert 72 <= y <= 99, cell
+    # "Motor" repeats in the two-record table and cannot identify the row.
+    assert table.rows[0][cell.witness_column] in ({"A125", "1"} if row_count == 2 else {"A125", "Motor", "1"})

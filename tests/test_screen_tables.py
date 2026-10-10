@@ -14,6 +14,7 @@ from rpa_orkestrai.desktop.screen_tables import (
     Phrases,
     TableText,
     locate_cell,
+    locate_empty,
     locate_image,
     screen_table_cell,
     table_focus_point,
@@ -143,8 +144,8 @@ def test_selection_uses_copied_column_names_and_unique_row_key():
     assert TABLE.select(**{**SELECTION, "column": "İADE SONRASI"}) == (0, 1)
     with pytest.raises(WindowError):
         TABLE.select(**{**SELECTION, "row_mode": "match", "match_column": "İade Sonrası", "match_value": "ARIZALILAR"})
-    with pytest.raises(WindowError):
-        TableText.parse("Kod\tDurum\nA1\t").select(**{**SELECTION, "column": "Durum"})
+    # An empty destination is selected; locating it on screen is a separate proof.
+    assert TableText.parse("Kod\tDurum\nA1\t").select(**{**SELECTION, "column": "Durum"}) == (0, 1)
 
 
 @pytest.fixture
@@ -801,3 +802,74 @@ def test_post_write_focus_transition_retries_only_editor_read(runtime, settles):
         assert len(reads) == 3
     desktop.paste.assert_called_once_with('YENI')
     assert [c.args for c in desktop.press.call_args_list] == [('tab',)]
+
+
+EMPTY = TableText.parse(TEXT.replace("A125\tARIZALILAR", "A125\t"))
+
+
+@pytest.mark.parametrize("column_x", [120, 250, 500])
+def test_empty_cell_is_heading_span_on_unique_record_line(column_x):
+    cell = locate_empty(grid_words(column_x, old=""), EMPTY, 0, 1, reference_point=(30, 55))
+    assert column_x <= cell.point[0] <= column_x + 70
+    assert cell.point[1] == 56
+    assert cell.witness_column == 0
+
+
+@pytest.mark.parametrize("problem", ["visible_text", "offscreen", "no_heading", "same_record", "clipped_witness"])
+def test_uncertain_empty_cell_is_rejected(problem):
+    words, table = grid_words(old=""), EMPTY
+    if problem == "visible_text":
+        # The copy says empty, the screen shows text there: another row/column.
+        words = grid_words(old="X")
+    elif problem == "offscreen":
+        words = [w for w in words if w.y != 50]
+    elif problem == "no_heading":
+        words = [w for w in words if w.text != "Sonrası"]
+    elif problem == "same_record":
+        table = TableText.parse("Kod\tİade Sonrası\tMiktar\nA125\t\t1\nA125\t\t1")
+    else:
+        # A125 may be the visible part of A1250; it cannot identify the row.
+        table = TableText.parse("Kod\tİade Sonrası\tMiktar\nA125\t\t1\nA1250\tX\t1")
+    with pytest.raises(WindowError):
+        locate_empty(words, table, 0, 1, reference_point=(30, 55))
+
+
+def test_empty_cell_needs_column_heading():
+    table = TableText.parse("A125\t\t1\nA126\tX\t2", header=False)
+    with pytest.raises(WindowError, match="başlığı"):
+        locate_empty(grid_words(old=""), table, 0, 1)
+
+
+@pytest.mark.parametrize("clipboard", ["empty", "unchanged"])
+def test_write_into_empty_cell_verifies_whole_table(runtime, clipboard):
+    service, window, desktop, state, options = runtime
+    state["value"] = ""
+    if clipboard == "unchanged":
+        # Many editors leave the clipboard untouched when nothing is selected.
+        original = desktop.hotkey.side_effect
+
+        def hotkey(*keys):
+            if keys == ("mod", "c") and state["editor"] and not state["value"]:
+                state["copied"] += 1
+                return
+            original(*keys)
+
+        desktop.hotkey.side_effect = hotkey
+    result = screen_table_cell(service, window.result(), desktop, value="YENI", edit_mode="auto", **options)
+    assert result == {"row": 1, "column": 2, "value": "YENI"}
+    desktop.paste.assert_called_once_with("YENI")
+    clicks = [c for c in desktop.click.call_args_list if c.args[0] >= window.x + 200]
+    assert clicks and all(window.x + 200 <= c.args[0] <= window.x + 270 for c in clicks)
+    assert state["clipboard"] == "previous clipboard"
+
+
+def test_empty_cell_is_not_written_when_screen_shows_text_there(runtime, monkeypatch):
+    service, window, desktop, state, options = runtime
+    state["value"] = ""
+    monkeypatch.setattr("rpa_orkestrai.desktop.screen_tables.read_words", lambda image, **kw: [
+        replace(w, x=w.x * 2, y=w.y * 2, width=w.width * 2, height=w.height * 2) for w in grid_words(old="ESKI")])
+    with pytest.raises(WindowError, match="metin görünüyor"):
+        screen_table_cell(service, window.result(), desktop, value="YENI", edit_mode="auto", **options)
+    desktop.paste.assert_not_called()
+    assert not any(c.kwargs["clicks"] == 2 for c in desktop.click.call_args_list)
+    assert state["clipboard"] == "previous clipboard"

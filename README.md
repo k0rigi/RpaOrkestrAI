@@ -23,6 +23,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.12:** Tablo önizlemesinde **Başlık yap** ile gerçek başlık satırını seçebilirsiniz; başlık yoksa **Başlık yok** seçin. Başlık ve öncesi veri sayılmaz, ilk kayıt **Veri 1 / Satır 1** olur. Başlıktan önce boş satır bulunan kopyalar desteklenir; okuma ve yazma aynı satır ayrımını kullanır. `sutun_7` gibi numaralı sütun adları çalışmaya devam eder.
 
+**Sonraki sürüm (0.9.13):** **Tabloya değer yaz** boş hücreye de yazar. Hücrenin yeri her çalışmada, ekrandaki sütun başlığı ile aynı satırda tabloda tek olan dolu bir hücrenin (ör. kayıt kodu) kesişiminden bulunur; ekran ölçeği veya sütun genişliği değişse de kayıtlı koordinat kullanılmaz. Boş görünmesi gereken yerde metin varsa yazılmaz. Akış dosyası değişmez. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
+
 **0.9.11:** **Tabloya değer yaz** sadeleştirildi: **Tabloyu seç**, ardından satır, sütun ve değer. “Diğer seçenekler” ve elle X/Y girişi kaldırıldı. Hücre düzenlemesi otomatik doğrulanır; değişkenin değeri bir kez yazılır ve tablonun tamamı yeniden okunarak kontrol edilir. Uzun değer ekranda kesilse de pano doğrulaması yapılır. Tablo seçiminde başlık ayarı, seçimden sonra ilk veri satırı görünür. [Ayrıntılı kullanım](docs/pencere-tanitma.md#tabloya-değer-yaz-096).
 
 Bu test dağıtımı Apple noter onayı ve Windows yayıncı sertifikası olmadan hazırlanır; ilk kurulumda sistemin veya şirketinizin gerektirdiği onaylar çıkabilir.

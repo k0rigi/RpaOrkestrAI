@@ -1,7 +1,8 @@
 """Address visible table text from fresh clipboard data and measured OCR boxes.
 
 The saved rectangle bounds one table, including its headings. Both the initial
-copy point and the write point are found anew inside it. Empty, clipped or
+copy point and the write point are found anew inside it. An empty cell is the
+measured heading span on the line of a record-identifying cell. Clipped or
 ambiguous cells are rejected; no column widths or row heights are estimated.
 """
 from __future__ import annotations
@@ -89,9 +90,6 @@ class TableText:
             index = row - 1
             if not 0 <= index < len(self.rows):
                 raise WindowError(f"Tabloda {len(self.rows)} satır var; {row}. satır bulunamadı.")
-        if not self.rows[index][col]:
-            raise WindowError("Ekrandan bulmada mevcut hücre metni görünür ve dolu olmalıdır. "
-                              "Boş hücre için uygulamanın tablo yapısı yöntemini kullanın.")
         return index, col
 
 
@@ -214,25 +212,8 @@ def header_groups(phrases, table):
     return groups
 
 
-def locate_cell(words, table, row, column, *, reference_point=None):
-    phrases = Phrases(words)
-    value = table.rows[row][column]
-    heading = table.headers[column]
-    if sum(header_key(h) == header_key(heading) for h in table.headers) != 1:
-        raise AmbiguousTable("Tabloda aynı veya optik olarak ayırt edilemeyen sütun başlıkları var; yazılmadı.")
-    # A second cell in the same row must distinguish this record in the full
-    # clipboard table. Counting OCR lines would confuse scrolling with row index.
-    witnesses = []
-    for index, current in enumerate(table.rows[row]):
-        title = table.headers[index]
-        if index == column or not current or not title or sum(header_key(h) == header_key(title)
-                                                             for h in table.headers) != 1:
-            continue
-        signature = (normalized(value), normalized(current))
-        if sum((normalized(r[column]), normalized(r[index])) == signature for r in table.rows) == 1:
-            witnesses.append(index)
-    if not witnesses:
-        raise WindowError("Satır, görünür diğer hücre değerleriyle ayırt edilemiyor; yazılmadı.")
+def table_scopes(phrases, table, column, reference_point):
+    """Measured heading bands containing *column*, bounded by the next table below."""
     groups = header_groups(phrases, table)
     scopes = []
     for group in groups:
@@ -253,19 +234,45 @@ def locate_cell(words, table, row, column, *, reference_point=None):
         error = AmbiguousTable if len(scopes) > 1 else WindowError
         raise error("Tablo içeriği ile sütun başlıkları aynı tabloda doğrulanamadı. "
                     "Tabloyu seç ile hedef tablonun bir veri hücresini yeniden seçin.")
+    return scopes
+
+
+def heading_owns(headings, box, index, *, witness=False):
+    own = headings[index]
+    if overlap_x(own, box) < 2:
+        return False
+    if any(overlap_x(box, other) > 0 for i, other in headings.items() if i != index):
+        return False
+    # OCR can join text from adjacent cells into one phrase. A phrase
+    # used as a row witness must fit the measured heading's span.
+    return not witness or box.words == 1 or (own.x <= box.x and box.right <= own.right)
+
+
+def locate_cell(words, table, row, column, *, reference_point=None):
+    phrases = Phrases(words)
+    value = table.rows[row][column]
+    heading = table.headers[column]
+    if sum(header_key(h) == header_key(heading) for h in table.headers) != 1:
+        raise AmbiguousTable("Tabloda aynı veya optik olarak ayırt edilemeyen sütun başlıkları var; yazılmadı.")
+    # A second cell in the same row must distinguish this record in the full
+    # clipboard table. Counting OCR lines would confuse scrolling with row index.
+    witnesses = []
+    for index, current in enumerate(table.rows[row]):
+        title = table.headers[index]
+        if index == column or not current or not title or sum(header_key(h) == header_key(title)
+                                                             for h in table.headers) != 1:
+            continue
+        signature = (normalized(value), normalized(current))
+        if sum((normalized(r[column]), normalized(r[index])) == signature for r in table.rows) == 1:
+            witnesses.append(index)
+    if not witnesses:
+        raise WindowError("Satır, görünür diğer hücre değerleriyle ayırt edilemiyor; yazılmadı.")
     found = {}
-    for headings, bottom, end in scopes:
+    for headings, bottom, end in table_scopes(phrases, table, column, reference_point):
         header = headings[column]
 
         def belongs(box, index, *, witness=False):
-            own = headings[index]
-            if overlap_x(own, box) < 2:
-                return False
-            if any(overlap_x(box, other) > 0 for i, other in headings.items() if i != index):
-                return False
-            # OCR can join text from adjacent cells into one phrase. A phrase
-            # used as a row witness must fit the measured heading's span.
-            return not witness or box.words == 1 or (own.x <= box.x and box.right <= own.right)
+            return heading_owns(headings, box, index, witness=witness)
 
         for cell in phrases.find(value):
             if cell.y < bottom or cell.bottom >= end or not belongs(cell, column):
@@ -286,6 +293,60 @@ def locate_cell(words, table, row, column, *, reference_point=None):
         raise error("Sütun başlığı ve satırdaki mevcut değer ekranda tek bir hücreyle eşleştirilemedi. "
                     "Başlığı ve hücre metnini tam görünür yapın; kaydırılmış, kırpılmış veya belirsiz hücreye yazılmaz.")
     return next(iter(found.values()))
+
+
+def locate_empty(words, table, row, column, *, reference_point=None):
+    """Address an empty cell by its measured heading and its record's line.
+
+    The heading text lies inside its column and a witness text inside the
+    record's row; their intersection is evidence, not an estimated width or
+    row height. The witness alone must identify the record in the copied
+    table, and visible text at the intersection contradicts the empty value.
+    """
+    heading = table.headers[column] if table.has_header else ""
+    if not heading:
+        raise WindowError("Boş hücreye yazmak için hedef sütunun başlığı tabloda ve ekranda görünmelidir. "
+                          "İlk satır sütun başlıklarıdır ve Başlık satırı ayarını kontrol edin; yazılmadı.")
+    if sum(header_key(h) == header_key(heading) for h in table.headers) != 1:
+        raise AmbiguousTable("Tabloda aynı veya optik olarak ayırt edilemeyen sütun başlıkları var; yazılmadı.")
+    contents = [normalized(text) for record in table.rows for text in record if text]
+    contents.extend(normalized(text) for text in table.headers if text)
+    witnesses = []
+    for index, text in enumerate(table.rows[row]):
+        key, title = normalized(text), table.headers[index]
+        if (index == column or not key or not title
+                or sum(header_key(h) == header_key(title) for h in table.headers) != 1):
+            continue
+        # A clipped cell can show part of another value (A125 inside A12599),
+        # so the witness must not occur inside any other cell or heading.
+        if sum(key in content for content in contents) == 1:
+            witnesses.append(index)
+    if not witnesses:
+        raise WindowError("Boş hücrenin satırı, tabloda tek olan başka bir hücre değeriyle ayırt edilemiyor; yazılmadı.")
+    phrases = Phrases(words)
+    found = []
+    for headings, bottom, end in table_scopes(phrases, table, column, reference_point):
+        header = headings[column]
+        for index in sorted(witnesses, key=lambda i: abs(i - column)):
+            own = headings.get(index)
+            if (own is None or not same_line(header, own) or overlap_x(header, own) > 0
+                    or (index - column) * (own.x - header.x) <= 0):
+                continue
+            for box in phrases.find(table.rows[row][index]):
+                if (bottom <= box.y and box.bottom < end and heading_owns(headings, box, index, witness=True)
+                        and (index - column) * (box.x - header.x) > 0):
+                    found.append(LocatedCell(header, Box(header.x, box.y, header.width, box.height),
+                                             own, box, witness_column=index))
+    if not found:
+        raise WindowError("Boş hücrenin satırı ekranda bulunamadı. Hedef sütunun başlığını ve aynı satırdaki "
+                          "dolu bir hücreyi görünür yapın; kaydırılmış veya kırpılmış satıra yazılmaz.")
+    # Every witness of the record must report the same line in one table.
+    if any(not same_line(found[0].text, other.text) or other.header != found[0].header for other in found):
+        raise AmbiguousTable("Boş hücrenin satırı ekranda birden fazla yerde eşleşti; yazılmadı.")
+    cell = found[0].text
+    if any(same_line(box, cell) and overlap_x(box, cell) > 0 for line in phrases.lines for _, box in line):
+        raise WindowError("Tabloda boş olan hücrede ekranda metin görünüyor; satır veya sütun doğrulanamadı, yazılmadı.")
+    return found[0]
 
 
 def locate_by_values(words, table, row, column):
@@ -465,6 +526,8 @@ def locate_image(image, table, row, column, *, reference_point, ocr_options=None
         words = measured_words(image, preparation, vocabulary=(*table.headers, *table.rows[row]),
                                ocr_options=ocr_options)
         try:
+            if not table.rows[row][column]:
+                return locate_empty(words, table, row, column, reference_point=reference_point)
             try:
                 return locate_by_values(words, table, row, column)
             except AmbiguousTable:
@@ -521,7 +584,7 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
                 service._check()
             guard()
 
-        def copy_selection():
+        def copy_selection(empty_editor=False):
             marker = f"rpa-table-{time.monotonic_ns()}"
             pyperclip.copy(marker)
             guard()
@@ -534,6 +597,10 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
                 if copied != marker:
                     return str(copied)
                 if time.monotonic() >= deadline:
+                    if empty_editor:
+                        # An empty editor has nothing to copy. The full-table
+                        # copy that preceded it proves Copy itself works here.
+                        return ""
                     raise WindowError("Tablo veya hücre metni kopyalanamadı; yazılmadı.")
                 # A newly opened application may ignore Copy while processing
                 # selection or initializing clipboard support. Retry only this
@@ -682,7 +749,7 @@ def screen_table_cell(service, target, desktop, *, region=None, selection, value
                 pause()
             guard()
             desktop.hotkey("mod", "a")
-            editor_text = copy_selection()
+            editor_text = copy_selection(empty_editor=not table.rows[row][col])
             if editor_text == table.rows[row][col]:
                 break
             # Only an unchanged full-table copy proves no editor has opened.

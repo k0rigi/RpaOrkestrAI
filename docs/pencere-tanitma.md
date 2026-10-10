@@ -120,7 +120,9 @@ Kütüphanedeki adımları yıldızlayarak **Sık kullanılanlar** bölümüne t
 
 Seçilen nokta yalnız tabloyu tanıtır; yazılacak hücrenin sabit X/Y konumu değildir. Sütun genişliği değiştiğinde hücre güncel yapıdan yeniden bulunur. Pencere içindeki tablo bütünüyle başka yere taşınırsa **Tabloyu seç** ile yeniden tanıtın.
 
-Uygulama hücrelerine doğrudan erişim sunuyorsa tablo yapısı kullanılır. Sunmuyorsa tıklanan tablonun tamamı kopyalanır; hedef hücre ve aynı kaydı ayırt eden başka bir görünür değer doğrulanır. Dikdörtgen çizmek gerekmez. Aynı içerikte birden fazla tablo veya belirsiz bir hücre varsa yazılmaz. Bu ikinci yöntemde mevcut değer ve ayırt edici hücre dolu ve görünür olmalıdır; ekran dışındaki/kırpılmış hücrelere tahminle giriş yapılmaz.
+Uygulama hücrelerine doğrudan erişim sunuyorsa tablo yapısı kullanılır. Sunmuyorsa tıklanan tablonun tamamı kopyalanır; hedef hücre ve aynı kaydı ayırt eden başka bir görünür değer doğrulanır. Dikdörtgen çizmek gerekmez. Aynı içerikte birden fazla tablo veya belirsiz bir hücre varsa yazılmaz. Bu ikinci yöntemde ayırt edici hücre dolu ve görünür olmalıdır; ekran dışındaki/kırpılmış hücrelere tahminle giriş yapılmaz.
+
+**Boş hücreye yazma (0.9.13+):** Kopyalanan tabloda hedef hücre boşsa yeri iki ölçümün kesişiminden bulunur: hedef sütunun ekrandaki başlığı (yatay) ve aynı satırda, tablonun hiçbir başka hücresinde geçmeyen dolu bir değer (dikey; ör. kayıt veya fatura kodu). Sütun genişliği, satır yüksekliği veya ekran ölçeği tahmin edilmez ve kaydedilmez; her çalışmada yeniden ölçülür. Şu durumlarda yazılmaz: hedef sütunun başlığı görünmüyorsa, satırı ayırt eden değer yoksa veya ekranda değilse (satır kaydırılmışsa), tabloda boş olan yerde ekranda metin görünüyorsa, aynı satır birden fazla yerde eşleşiyorsa. Hücre düzenlemeye açıldığında içinin boş olduğu kontrol edilir; yazma sonrasında tablonun tamamı yeniden kopyalanıp yalnız hedef hücrenin değiştiği doğrulanır. Bu özellik akış dosyasına yeni alan eklemez; akışlar eski sürümlerde de açılır, ancak boş hücreye yazma 0.9.13 veya üzeri gerektirir.
 
 **Diğer seçenekler kaldırıldı.** Yeni adımda elle koordinat, alan veya hücre düzenleme yöntemi girilmez. Başlık tercihi önizlemeden düzeltilebilir. Hücre düzenlemesi tek tıklama, F2 veya çift tıklamayla otomatik kontrol edilir; başka açma yöntemine yalnız kopyalanan tablo hâlâ değişmemişse geçilir. Mevcut hücre metni ve konumu doğrulanmadan değer gönderilmez. Eski benzersiz satır eşleşmesi kullanan adımlarda aranan sütun/değer açıkça görünür.
 
@@ -134,7 +136,7 @@ Eski adımlar açılıp kaydedildiğinde otomatik olarak değiştirilmez. **Tabl
 
 **Tablodan değer oku** adımında aynı kopyalama düzeni için **İlk satır sütun başlıklarıdır** açıkken **Başlık satırı** değerini eşitleyin (ilk satır: 1; önünde boş satır varsa: 2). Tamamen boş fakat sütun ayırıcıları içeren gerçek veri satırları korunur; okuma ve yazma satırları aynı sayar. Başlık metninden veya boş hücrelerden otomatik tahmin yapılmaz.
 
-Başlık ilk satırdaysa yeni `header_row` parametresi akış dosyasına eklenmez. Daha sonraki bir başlığı seçen akışlar `header_row` kullanır ve **0.9.12 veya üzeri** gerektirir. Uygulama doğrudan tablo yapısı sunuyorsa kendi başlık/veri ayrımı kullanılır. Bu düzeltme, OCR ile gerçekten boş hedef hücreyi bulma kısıtını kaldırmaz; boş hücreye yazmak için uygulamanın doğrudan hücre erişimi gerekir.
+Başlık ilk satırdaysa yeni `header_row` parametresi akış dosyasına eklenmez. Daha sonraki bir başlığı seçen akışlar `header_row` kullanır ve **0.9.12 veya üzeri** gerektirir. Uygulama doğrudan tablo yapısı sunuyorsa kendi başlık/veri ayrımı kullanılır. Boş hedef hücreler için yukarıdaki **Boş hücreye yazma** bölümüne bakın.
 
 
 ## Metin okunacak bölgeyi çizme

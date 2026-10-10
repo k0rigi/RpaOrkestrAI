@@ -261,7 +261,8 @@ GUIDES = {
         "Seçilen hücreye yazılan değer kontrol edilir.",
         "Seçilen nokta tabloyu tanıtır; hedef hücrenin konumu değildir. Satır ve sütunlar seçimde okunur, "
         "çalışırken yeniden bulunur. Sütunu listeden seçebilir, adını, sutun_2 veya 2 yazabilirsiniz. "
-        "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. "
+        "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. Boş hücre, sütun başlığı ile "
+        "aynı satırdaki tek olan dolu bir değerin kesişiminden bulunur; ikisi de ekranda görünmelidir. "
         "Önizlemede başlık satırında Başlık yap seçin; başlık yoksa Başlık yok seçin. Veri 1, Satır 1’dir. Hücre otomatik düzenlemeye açılır; değişkenin değeri yazılıp tüm tablo yeniden okunarak doğrulanır. Kaydetme/onayı ayrıca ekleyin."),
     "window.read_table": guide(
         [WINDOW_FIRST,
