@@ -58,10 +58,10 @@ Lisanslar orkestrai.net veritabanındaki mevcut modül tablolarıyla yönetilir.
 | --- | --- |
 | `SYS_Moduller` | `ModulKodu = 'MOD_RPA'` (API ilk açılışta kendisi oluşturur) |
 | `SYS_FirmaModulleri` | Firmanın MOD_RPA satırı; `BitisTarihi` lisansın son günüdür, boş ise süresizdir |
-| `SYS_KullaniciModulleri` | Uygulamayı kullanacak her kullanıcı için MOD_RPA satırı |
+| `SYS_KullaniciModulleri` | Uygulamayı kullanacak her kullanıcı için MOD_RPA satırı; isteğe bağlı `BitisTarihi` yalnız o kullanıcının son günüdür (boş = firma süresi kadar). Firma ve kullanıcı tarihinden erken olanı geçerlidir |
 | `SYS_RpaOturumlari` | Açık ve kapanmış uygulama oturumları (API kendisi oluşturur ve yazar; elle kayıt eklenmez) |
 
-Modül kaydı ilk oluşturulduğunda ilk müşteri firmaya bir yıllık lisans verildi ve belirlenen kullanıcıya modül atandı. Başka bir firmaya veya kullanıcıya yetki vermek için ilgili satırları ekleyin. Süreyi uzatmak için firmanın `BitisTarihi` değerini güncelleyin. `Admin` rolündeki orkestrai.net hesapları, web modüllerinde olduğu gibi tüm modüllere erişir.
+Modül kaydı ilk oluşturulduğunda ilk müşteri firmaya bir yıllık lisans verildi ve belirlenen kullanıcıya modül atandı. Başka bir firmaya veya kullanıcıya yetki vermek için ilgili satırları ekleyin. Süreyi uzatmak için firmanın `BitisTarihi` değerini güncelleyin. Tek bir kullanıcıya daha kısa süre (ör. deneme için 1 ay) vermek için firmanın tarihine dokunmadan o kullanıcının `SYS_KullaniciModulleri.BitisTarihi` değerini yazın. `Admin` rolündeki orkestrai.net hesapları, web modüllerinde olduğu gibi tüm modüllere erişir.
 
 Yetki değişikliği açık uygulamalara **en geç 10 dakika içinde** yansır. Kapalı uygulama bir sonraki açılışında onay alamaz ve açılmaz. Yetkiyi geri verdiğinizde kullanıcı **Yeniden kontrol et** ile ya da en geç 10 dakika içinde şifre girmeden devam eder.
 

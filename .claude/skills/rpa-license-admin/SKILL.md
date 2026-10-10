@@ -5,7 +5,7 @@ description: RpaOrkestrAI (MOD_RPA) lisansını bir firmaya veya kullanıcıya v
 
 # RpaOrkestrAI lisans yönetimi
 
-Kural: Kullanıcı ancak **firmasında** (`SYS_FirmaModulleri`) ve **kendi hesabında** (`SYS_KullaniciModulleri`) `MOD_RPA` açıksa ve firma satırındaki `BitisTarihi` bugünden önce değilse (boş = süresiz) uygulamayı açabilir. `Admin` rolü tüm modüllere erişir. Uygulama (0.8.0+) her açılışta ve 10 dakikada bir orkestrai.net'ten onay alır; bir hesap aynı anda tek bilgisayarda çalışır. Ayrıntılar: `docs/lisans.md`.
+Kural: Kullanıcı ancak **firmasında** (`SYS_FirmaModulleri`) ve **kendi hesabında** (`SYS_KullaniciModulleri`) `MOD_RPA` açıksa ve firma satırındaki `BitisTarihi` ile kullanıcı satırındaki isteğe bağlı `BitisTarihi` bugünden önce değilse (boş = süresiz / firma süresi kadar; erken olan geçerlidir) uygulamayı açabilir. `Admin` rolü tüm modüllere erişir. Uygulama (0.8.0+) her açılışta ve 10 dakikada bir orkestrai.net'ten onay alır; bir hesap aynı anda tek bilgisayarda çalışır. Ayrıntılar: `docs/lisans.md`.
 
 ## Önce sor
 
@@ -29,6 +29,8 @@ UPDATE SYS_FirmaModulleri SET BitisTarihi = '2028-09-27' WHERE FirmaID = <FirmaI
 
 -- Kullanıcıya modül ata / kaldır
 INSERT INTO SYS_KullaniciModulleri (KullaniciID, ModulID) VALUES (<KullaniciID>, <ModulID>);
+-- Yalnız bu kullanıcıya daha kısa süre (firma tarihine dokunmaz; NULL = firma süresi kadar)
+UPDATE SYS_KullaniciModulleri SET BitisTarihi = '2026-11-10' WHERE KullaniciID = <KullaniciID> AND ModulID = <ModulID>;
 DELETE FROM SYS_KullaniciModulleri WHERE KullaniciID = <KullaniciID> AND ModulID = <ModulID>;
 ```
 
@@ -67,7 +69,7 @@ Eş zamanlı bilgisayar sayısı (`rpa_lisans.RPA_ES_ZAMANLI_OTURUM = 1`), doğr
 | Kullanıcı adı veya şifre hatalı | Hesap `Aktif` değil, yanlış şifre. 15 dakikada 10 hatalı denemeden sonra geçici kilit uygulanır. |
 | Birden fazla hesapla eşleşiyor | Aynı kullanıcı adı ve şifre farklı firmalarda var; e-postanın tamamı yazılmalı. |
 | Lisans tanımlı değil | Firmada veya kullanıcıda MOD_RPA satırı yok. |
-| Kullanım süreniz dolmuştur | Firma `BitisTarihi` geçmiş. |
+| Kullanım süreniz dolmuştur | Firma veya kullanıcı (`SYS_KullaniciModulleri`) `BitisTarihi` geçmiş. |
 | Lisans doğrulanamadı | Bilgisayar `https://orkestrai.net` adresine ulaşamıyor (internet, proxy/güvenlik duvarı) ya da sunucu yanıt vermiyor. Açılışta onay şarttır; açık uygulama bağlantısız en fazla 60 dakika çalışır. |
 | Bu hesap başka bir bilgisayarda açıldı | Aynı hesapla başka bilgisayarda giriş yapıldı (`BASKA_CIHAZ`). Hesap paylaşılıyorsa ayrı hesap gerekir. |
 | Oturum birden fazla yerde kullanıldı | Aynı oturum kaydı iki yerde çalıştırıldı (`KOPYA`); yeniden giriş yeterlidir. |
