@@ -42,7 +42,7 @@ Adım kütüphanesi 65 adımdır ve hareketleriniz kaydedilip adımlara çevrile
   - **Sonraki adım:** Yalnız sıradaki adımı çalıştırır ve bir sonraki adımdan önce yeniden durur. Döngü ve koşul bloklarında içteki adımlara da tek tek girer.
   - **Devam et:** Akışı, seçtiğiniz adıma yeniden gelinceye (ör. döngünün sonraki turu) veya akış bitene kadar sürdürür.
   - **Sonuna kadar:** Bir daha durmadan akışı bitirir. **Durdur** çalışmayı adım çalışmadan keser.
-  - Her adımdan önce Studio yeniden küçültülür; böylece klavye ve fare adımları Studio'ya değil hedef uygulamaya gider. Duraklama bir süre sınırı içermez; işiniz bitince **Durdur** veya **Sonuna kadar** seçin. Akış duraklatılmışken zamanlanmış akışlar başlamaz; sırasını bekler ve zamanlamadaki en fazla gecikme süresi geçerse o çalışma atlanır. Önizleme açıksa aynı duraklama önizlemede yapılır. Durma noktası akış dosyasına kaydedilmez.
+  - Her adımdan önce Studio yeniden küçültülür; böylece klavye ve fare adımları Studio'ya değil hedef uygulamaya gider. Duraklama panelinde uzun değerlerin (ör. tüm Sheets satırları) yalnız başı ve toplam uzunluğu gösterilir. Duraklama bir süre sınırı içermez; işiniz bitince **Durdur** veya **Sonuna kadar** seçin. Akış duraklatılmışken zamanlanmış akışlar başlamaz; sırasını bekler ve zamanlamadaki en fazla gecikme süresi geçerse o çalışma atlanır. Önizleme açıksa aynı duraklama önizlemede yapılır. Durma noktası akış dosyasına kaydedilmez.
 - **Acil durdurma:** Fareyi ekranın bir köşesine hızla götürmek çalışan akışı durdurur. Çalışma sayfasındaki **Durdur** düğmesi de bir sonraki adımda durdurur.
 
 ## Hareketleri kaydet

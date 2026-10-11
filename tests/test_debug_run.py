@@ -123,3 +123,16 @@ def test_api_starts_a_paused_run_and_accepts_commands(tmp_path):
         assert client.post(f"/api/runs/{run['id']}/debug", json={"action": "finish"}).status_code == 200
         assert done(Api, run["id"]).status == "succeeded"
         assert client.post(f"/api/runs/{run['id']}/debug", json={"action": "step"}).status_code == 409
+
+
+def test_paused_values_stay_small_even_for_a_long_list(runtime):
+    manager, store, _ = runtime
+    rows = [{"kod": f"A{i}", "aciklama": "x" * 40} for i in range(2000)]
+    first, second = setter("sheet_rows", rows), setter("b", 2)
+    run = manager.start(Workflow(steps=[first, second]), pause_at=second.id)
+    state = paused(store, run.id, second.id)
+    shown = state.variables["sheet_rows"]
+    # The run file is read on every poll while paused: a long value is shortened, not copied whole.
+    assert isinstance(shown, str) and shown.endswith(" …") and len(shown) < 2100
+    manager.debug(run.id, "finish")
+    assert done(store, run.id).status == "succeeded"

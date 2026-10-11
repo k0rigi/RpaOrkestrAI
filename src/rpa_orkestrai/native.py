@@ -79,12 +79,38 @@ def macos_title_bar(ns_window) -> None:
     AppHelper.callAfter(apply)
 
 
+def on_form_thread(form, action) -> None:
+    """Run action on the WinForms window's own thread and wait for it (as pywebview's restore does)."""
+    from System import Func, Type
+
+    def call():
+        action()
+
+    if form.InvokeRequired:
+        form.Invoke(Func[Type](call))
+    else:
+        call()
+
+
+def set_on_top(window, value: bool) -> None:
+    """Always-on-top from any thread.
+
+    On Windows pywebview 6 sets Form.TopMost from the calling thread (the run worker or a timer);
+    a WebView2 window changed off its own thread can stop responding. macOS already uses the main thread.
+    """
+    form = getattr(window, "native", None) if platform.system() == "Windows" else None
+    if form is None:
+        window.on_top = value
+    else:
+        on_form_thread(form, lambda: setattr(form, "TopMost", value))
+
+
 def minimize_for_run(window, minimized: threading.Event, cancel: threading.Event) -> None:
     """Wait for the native minimize event before the worker can touch the screen."""
     if cancel.is_set():
         raise Cancelled()
     try:
-        window.on_top = False
+        set_on_top(window, False)
         window.minimize()
     except Exception as exc:
         raise WorkflowError("Studio küçültülemedi; ekran adımlarına başlanmadı. "
@@ -126,8 +152,15 @@ def bring_to_front(window, minimized: bool) -> None:
     if minimized:
         window.restore()
     window.show()
-    window.on_top = True
-    timer = threading.Timer(2.0, lambda: setattr(window, "on_top", False))
+    set_on_top(window, True)
+
+    def release():
+        try:
+            set_on_top(window, False)
+        except Exception:
+            pass  # the window may have closed meanwhile
+
+    timer = threading.Timer(2.0, release)
     timer.daemon = True
     timer.start()
 

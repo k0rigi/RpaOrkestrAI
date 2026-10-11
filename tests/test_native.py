@@ -106,6 +106,7 @@ def test_startup_failure_is_reported_without_waiting_full_deadline(monkeypatch, 
     server = SimpleNamespace(started=False, should_exit=False, run=Mock(side_effect=SystemExit(1)))
     monkeypatch.setattr("uvicorn.Server", Mock(return_value=server))
     window = Mock()
+    window.native = None
     monkeypatch.setattr("rpa_orkestrai.native.open_window", window)
     with pytest.raises(StartupError, match="Sunucu başlatılamadı"):
         serve_native(Settings(tmp_path, dotenv=False))
@@ -144,6 +145,7 @@ def test_window_asks_before_closing_only_while_a_schedule_is_on(monkeypatch, tmp
 
     monkeypatch.setattr(native, "GUARD_INTERVAL", 0.02)
     window = MagicMock()
+    window.native = None  # no WinForms form: on_top is set through pywebview
     for name in ("closed", "loaded", "minimized", "restored", "maximized"):
         setattr(window.events, name, Hook())
     gui = SimpleNamespace(settings={}, create_window=MagicMock(return_value=window), start=Mock())
@@ -184,6 +186,7 @@ def test_run_minimizing_waits_for_native_event(monkeypatch):
     minimized, cancel = threading.Event(), threading.Event()
     calls = []
     window = Mock()
+    window.native = None
     window.minimize.side_effect = lambda: calls.append("minimize")
 
     def wait(seconds):
@@ -209,6 +212,7 @@ def test_minimize_failure_or_cancellation_never_continues(monkeypatch, failure):
 
     minimized, cancel = threading.Event(), threading.Event()
     window = Mock()
+    window.native = None
     monkeypatch.setattr(native, "MINIMIZE_TIMEOUT", 0)
     if failure == "error":
         window.minimize.side_effect = RuntimeError("native failure")
@@ -230,6 +234,7 @@ def test_already_minimized_studio_can_start_without_another_native_event(monkeyp
     minimized.set()
     monkeypatch.setattr(cancel, "wait", lambda seconds: False)
     window = Mock()
+    window.native = None
     native.minimize_for_run(window, minimized, cancel)
     window.minimize.assert_called_once()
 

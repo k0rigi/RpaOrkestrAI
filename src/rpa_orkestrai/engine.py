@@ -627,9 +627,9 @@ class Executor:
         self.pause_after(step)
         return "ok"
 
-    def variables_snapshot(self) -> dict[str, Any]:
+    def variables_snapshot(self, limit: int = 200_000) -> dict[str, Any]:
         try:
-            return json.loads(self.mask(json.dumps(snapshot(self.variables), ensure_ascii=False)))
+            return json.loads(self.mask(json.dumps(snapshot(self.variables, limit), ensure_ascii=False)))
         except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
             return {}
 
@@ -639,7 +639,8 @@ class Executor:
             return
         label = step.title or BY_TYPE[step.action]["label"]
         self.run.paused = {"step_id": step.id, "title": label}
-        self.run.variables = self.variables_snapshot()
+        # Smaller than a step test's: the run file is saved and read again while the run waits.
+        self.run.variables = self.variables_snapshot(limit=20_000)
         self.log(f"Duraklatıldı: «{label}» adımından önce. Studio'da Sonraki adım, Devam et veya "
                  "Sonuna kadar seçin.", level="warning", step_id=step.id)
         attention = getattr(self.settings, "bring_to_front", None)

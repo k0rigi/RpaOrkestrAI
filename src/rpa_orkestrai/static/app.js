@@ -5819,6 +5819,12 @@
       active ? 2500 : 10000,
     );
   }
+  // What the run page shows; an unchanged run is not drawn again (a paused run stays still).
+  function runSignature(run) {
+    const last = run.events?.[run.events.length - 1];
+    return JSON.stringify([run.status, run.error, run.paused?.step_id, run.events?.length,
+      last?.timestamp, last?.message, run.artifacts?.length, run.finished_at]);
+  }
   function pollRun() {
     clearTimeout(state.poll);
     if (
@@ -5838,12 +5844,17 @@
           state.pollEpoch !== epoch
         )
           return;
+        const unchanged = runSignature(run) === runSignature(state.run);
+        state.run = run;
+        upsert(state.runs, run);
+        if (unchanged) {
+          pollRun();
+          return;
+        }
         const list = document.getElementById("run-log-list");
         const atBottom =
           !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 40;
         const scroll = list?.scrollTop || 0;
-        state.run = run;
-        upsert(state.runs, run);
         renderPage();
         const newList = document.getElementById("run-log-list");
         if (newList)
@@ -5860,7 +5871,7 @@
         if (state.page === "run" && state.run?.id === id)
           state.poll = setTimeout(pollRun, 5000);
       }
-    }, 1200);
+    }, state.run.paused ? 2500 : 1200);
   }
   // ----- Buraya kadar çalıştır: the run waits before a step until one of these is chosen -----------
   function debugPanel(run) {
@@ -5890,8 +5901,10 @@
       const list = node("dl", "step-test-values");
       names.forEach((name) => {
         const value = values[name];
-        list.append(node("dt", "mono", "${" + name + "}"),
-          node("dd", "mono", typeof value === "string" ? value : JSON.stringify(value, null, 2)));
+        let text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        // A long list (e.g. every Sheets row) would make the page heavy: show its start and size.
+        if (text.length > 1500) text = `${text.slice(0, 1500)} … (toplam ${text.length.toLocaleString("tr-TR")} karakter)`;
+        list.append(node("dt", "mono", "${" + name + "}"), node("dd", "mono", text));
       });
       panel.append(list);
     }

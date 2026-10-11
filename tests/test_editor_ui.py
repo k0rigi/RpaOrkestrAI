@@ -2008,6 +2008,10 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             playwright.expect(panel.locator("dt")).to_have_text(["${a}"])
             assert panel.bounding_box()["width"] <= size["width"]
             page.screenshot(path=str(tmp_path / "paused.png"), full_page=True)
+            # While paused nothing changes: the page is not drawn again on every poll.
+            panel.evaluate("element => element.dataset.kept = 'yes'")
+            page.wait_for_timeout(6000)
+            assert page.locator(".debug-pause[data-kept='yes']").count() == 1
             panel.get_by_role("button", name="Sonraki adım").click()
             playwright.expect(panel).to_contain_text("Sıradaki adım: Üçüncü", timeout=10_000)
             playwright.expect(panel.locator("dt")).to_have_text(["${a}", "${b}"])
