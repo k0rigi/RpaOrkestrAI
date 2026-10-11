@@ -5,7 +5,7 @@ import pytest
 
 from rpa_orkestrai.config import Settings
 from rpa_orkestrai.engine import RunManager, WorkflowError
-from rpa_orkestrai.models import Step, Workflow
+from rpa_orkestrai.models import Run, Step, Workflow
 from rpa_orkestrai.storage import Store
 
 
@@ -99,7 +99,7 @@ def test_commands_need_a_paused_run_and_a_known_step(runtime):
     done(store, run.id)
 
 
-def test_api_starts_a_paused_run_and_accepts_commands(tmp_path, monkeypatch):
+def test_api_starts_a_paused_run_and_accepts_commands(tmp_path):
     from fastapi.testclient import TestClient
 
     from rpa_orkestrai.app import create_app
@@ -111,9 +111,15 @@ def test_api_starts_a_paused_run_and_accepts_commands(tmp_path, monkeypatch):
         workflow = client.post("/api/workflows", json={"name": "Hata ayıklama", "steps": [
             first.model_dump(), second.model_dump()]}).json()
         run = client.post(f"/api/workflows/{workflow['id']}/run", json={"pause_at": second.id}).json()
-        store = Store(tmp_path)
-        paused(store, run["id"], second.id)
+
+        class Api:
+            # Read through the app (its store lock): Windows refuses to open a file being replaced.
+            @staticmethod
+            def run(run_id):
+                return Run.model_validate(client.get(f"/api/runs/{run_id}").json())
+
+        paused(Api, run["id"], second.id)
         assert client.post(f"/api/runs/{run['id']}/debug", json={"action": "jump"}).status_code == 422
         assert client.post(f"/api/runs/{run['id']}/debug", json={"action": "finish"}).status_code == 200
-        assert done(store, run["id"]).status == "succeeded"
+        assert done(Api, run["id"]).status == "succeeded"
         assert client.post(f"/api/runs/{run['id']}/debug", json={"action": "step"}).status_code == 409
