@@ -459,3 +459,14 @@ def test_a_due_schedule_runs_the_saved_flow_and_the_history_says_so(tmp_path):
         assert (saved["id"], saved["last_status"], saved["last_run_id"]) == (schedule["id"], "started", runs[0]["id"])
         manual = client.post(f"/api/workflows/{flow['id']}/run", json={}).json()
         assert manual["trigger"] == "manual"
+
+
+def test_countdown_starts_at_its_full_length_despite_float_rounding(tmp_path, monkeypatch):
+    # For this clock value (t + 30) - t is 30.000000000003; the countdown must still say 30, not 31.
+    clock = 4090.833771576286
+    monkeypatch.setattr("rpa_orkestrai.scheduler.time.monotonic", lambda: clock)
+    desk = Desk(tmp_path, countdown=30)
+    desk.add(kind="daily", time="09:00")
+    desk.now = at(0, "09:00")
+    desk.scheduler.check()
+    assert desk.scheduler.pending()["seconds_left"] == 30

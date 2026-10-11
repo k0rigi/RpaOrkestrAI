@@ -282,7 +282,8 @@ class Scheduler:
         with self._lock:
             if not self._pending:
                 return None
-            left = max(0, math.ceil(self._pending["deadline"] - time.monotonic()))
+            # Round first: (t + 30) - t can be 30.000000000003 for a large t, which ceil makes 31.
+            left = max(0, math.ceil(round(self._pending["deadline"] - time.monotonic(), 3)))
             return {key: value for key, value in self._pending.items() if key != "deadline"} | {"seconds_left": left}
 
     def answer(self, choice: str) -> bool:
