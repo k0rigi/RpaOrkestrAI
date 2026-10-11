@@ -3663,19 +3663,36 @@
     }
     return raw;
   }
-  async function openStepTest(step) {
+  async function openStepTest(step, conditionOnly = step.action === "control.if") {
     if (!(await requireSaved())) return;
     if (!stepExists(step)) return;
     const workflowId = state.workflow.id;
     const spec = specFor(step.action);
     const base = `/api/workflows/${encodeURIComponent(workflowId)}/steps/${encodeURIComponent(step.id)}`;
     // The Studio works out what the step needs from earlier steps, so nothing has to be typed.
-    const plan = await attempt(() => api(`${base}/test-plan`));
+    const plan = await attempt(() => api(`${base}/test-plan${conditionOnly ? "?condition_only=true" : ""}`));
     if (!plan || !stepExists(step)) return;
     dialog(`Adımı test et: ${step.title || spec.label}`, (body, d) => {
       d.classList.add("step-test-dialog");
       const inputs = new Map();
-      body.append(note(plan.external
+      if (step.action === "control.if") {
+        // A condition is usually tested for its answer alone; its branches may click and type.
+        const onlyLabel = node("label", "checkbox-label");
+        const only = node("input");
+        only.type = "checkbox";
+        only.checked = plan.condition_only;
+        only.addEventListener("change", () => {
+          d.close();
+          openStepTest(step, only.checked);
+        });
+        onlyLabel.append(only, node("span", "", "Yalnız koşulu kontrol et (Evet/Değilse dallarındaki adımlar çalışmaz)"));
+        body.append(onlyLabel);
+      }
+      body.append(note(plan.condition_only
+        ? (plan.external || plan.prepare.some((entry) => /^(desktop|window|screen|input|browser|sheets|database|system)\./.test(entry.action))
+          ? "Yalnız koşul hesaplanır; gereken değer için aşağıdaki okuma adımı ekranda çalışır. Değeri kendiniz yazarsanız ekrana dokunulmaz."
+          : "Yalnız koşul hesaplanır; ekrana ve dosyalara dokunulmaz. Sonuçta Evet/Değilse ve karşılaştırılan değerler görünür.")
+        : plan.external
         ? "Yalnız bu adım çalışır ve gerçek işlem yapar (tıklar, yazar veya kaydeder). Hedef uygulamayı hazırlayın."
         : "Yalnız bu adım çalışır; ekrana ve dosyalara dokunmaz.", plan.external ? "warning" : "info"));
       const sourceText = (entry) =>
@@ -3777,7 +3794,8 @@
         result.replaceChildren(node("p", "help", "Test başlatılıyor…"));
         try {
           const started = await api(`${base}/test`, {
-            method: "POST", body: JSON.stringify({ variables, dry_run: preview.checked && !locate, locate }),
+            method: "POST", body: JSON.stringify({ variables, dry_run: preview.checked && !locate, locate,
+              condition_only: Boolean(plan.condition_only) }),
           });
           current = started.id;
           cancelButton.hidden = false;

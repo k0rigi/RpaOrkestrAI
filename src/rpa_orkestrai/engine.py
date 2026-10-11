@@ -258,6 +258,19 @@ def validate_workflow(workflow: Workflow, *, ready: bool = True, in_loop: bool =
         raise WorkflowError("Çalıştırmadan önce akışa en az bir adım ekleyin.")
 
 
+def describe_condition(step: Step, p: dict) -> str:
+    """The compared values as the log shows them: why a Koşul went to Evet or Değilse."""
+    def short(value: Any) -> str:
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        text = " ".join(text.split())
+        return f"“{text[:160]}{' …' if len(text) > 160 else ''}”"
+
+    field = next((f for f in BY_TYPE[step.action]["fields"] if f["name"] == "operator"), {})
+    label = next((o["label"] for o in field.get("options", []) if o["value"] == p.get("operator")), p.get("operator"))
+    unary = p.get("operator") in {"truthy", "empty", "not_empty"}
+    return f"sol değer {short(p.get('left'))} · {label}" + ("" if unary else f" · sağ değer {short(p.get('right'))}")
+
+
 def compare(left: Any, op: str, right: Any) -> bool:
     if not isinstance(op, str):
         raise WorkflowError("Karşılaştırma işleci geçerli bir metin olmalıdır.")
@@ -691,7 +704,8 @@ class Executor:
             self.attempt(step, p)
         elif step.action == "control.if":
             verdict = compare(p["left"], p["operator"], p.get("right"))
-            self.log("Koşul: " + ("Evet" if verdict else "Değilse"), step_id=step.id)
+            self.log("Koşul: " + ("Evet" if verdict else "Değilse") + " · " + describe_condition(step, p),
+                     step_id=step.id)
             self.steps(step.children if verdict else step.otherwise)
         elif step.action == "control.break":
             self.log("Döngüden çıkılıyor.", step_id=step.id)
@@ -1237,7 +1251,7 @@ def step_reads(step: Step, *, nested: bool = True) -> tuple[list[str], set[str]]
     return list(dict.fromkeys(name for name in found if name not in scoped)), assigned
 
 
-def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict:
+def step_test_plan(workflow: Workflow, step_id: str, provided: Any = (), *, condition_only: bool = False) -> dict:
     """What a single-step test prepares by itself, and what only the user can supply.
 
     Earlier steps that only read or compute (the window lookup, constants, a Sheets read,
@@ -1286,6 +1300,10 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict
     if target_frames is None:
         raise KeyError(step_id)
     target = target_frames[-1][0][target_frames[-1][1]]
+    # Yalnız koşulu kontrol et: a Koşul test evaluates its own values; its branches neither run nor need values.
+    condition_only = condition_only and target.action == "control.if"
+    if condition_only:
+        target = target.model_copy(update={"children": [], "otherwise": []})
     provided, entries, manual, details, planned = set(provided), [], [], [], set()
     flat = [item for top in workflow.steps for item in descendants(top)]
     earlier = flat[:next(index for index, item in enumerate(flat) if item.id == step_id)]
@@ -1359,7 +1377,7 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = ()) -> dict
     chain = levels(target_frames)
     return {"step": target, "prepare": entries, "manual": manual, "manual_details": details,
             "in_loop": any(owner is not None and owner.action in LOOPS for _, _, owner, _ in chain),
-            "locatable": target.action in LOCATABLE,
+            "locatable": target.action in LOCATABLE, "condition_only": condition_only,
             "external": any(item.action.startswith(EXTERNAL_PREFIXES) for item in descendants(target))}
 
 
@@ -1401,13 +1419,13 @@ class RunManager:
             self.release_desktop(token)
 
     def start_step(self, workflow: Workflow, step_id: str, variables: dict[str, Any], *,
-                   dry_run: bool = False, locate: bool = False) -> Run:
+                   dry_run: bool = False, locate: bool = False, condition_only: bool = False) -> Run:
         """Test one step (with its inner steps); what it needs from earlier steps is prepared first."""
         if not isinstance(variables, dict) or len(variables) > 100:
             raise WorkflowError("Test değişkenleri en fazla 100 alanlı bir nesne olmalıdır.")
         for name in variables:
             variable_name(name)
-        plan = step_test_plan(workflow, step_id, variables)
+        plan = step_test_plan(workflow, step_id, variables, condition_only=condition_only)
         plan["titles"] = step_titles(workflow.steps)
         if locate and not plan["locatable"]:
             raise WorkflowError("Yeri göster yalnız tıklama ve alan doldurma adımlarında kullanılabilir.")
@@ -1459,7 +1477,10 @@ class RunManager:
                        else "Akış çalıştırılıyor.")
             runner.check_cancelled()
             prepare_run = getattr(self.settings, "prepare_run", None)
-            if not run.dry_run and prepare_run is not None:
+            # Only a condition with values that need no screen: nothing to clear the screen for.
+            screenless = bool(plan and plan.get("condition_only") and not any(
+                entry["step"].action.startswith(EXTERNAL_PREFIXES) for entry in plan["prepare"]))
+            if not run.dry_run and prepare_run is not None and not screenless:
                 runner.log("Ekranın önünü açmak için Studio küçültülüyor.")
                 prepare_run(cancel)
                 runner.check_cancelled()

@@ -745,22 +745,22 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/workflows/{workflow_id}/steps/{step_id}/test-plan")
-    def step_test_plan(workflow_id: str, step_id: str):
+    def step_test_plan(workflow_id: str, step_id: str, condition_only: bool = False):
         """What the test obtains by itself from earlier steps, and what the user has to enter."""
         from .engine import step_test_plan
 
-        plan = step_test_plan(store.workflow(workflow_id), step_id)
+        plan = step_test_plan(store.workflow(workflow_id), step_id, condition_only=condition_only)
         return {"prepare": [{"variable": entry["variable"], "kind": entry["kind"], "title": entry["title"],
                              "action": entry["step"].action} for entry in plan["prepare"]],
                 "manual": plan["manual"], "manual_details": plan["manual_details"],
                 "locatable": plan["locatable"], "external": plan["external"],
-                "in_loop": plan["in_loop"]}
+                "in_loop": plan["in_loop"], "condition_only": plan["condition_only"]}
 
     @app.post("/api/workflows/{workflow_id}/steps/{step_id}/test", status_code=202)
     def test_step(workflow_id: str, step_id: str, body: StepTestRequest):
         try:
             return manager.start_step(store.workflow(workflow_id), step_id, body.variables, dry_run=body.dry_run,
-                                      locate=body.locate)
+                                      locate=body.locate, condition_only=body.condition_only)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 

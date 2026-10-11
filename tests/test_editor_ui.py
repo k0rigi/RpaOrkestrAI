@@ -2016,3 +2016,57 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=10_000)
             browser.close()
     assert not errors
+
+
+def test_condition_test_checks_only_the_condition_by_default(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Koşul testi", "steps": [
+            {"id": "pencere", "action": "desktop.find_window", "params": {"application": "", "title": "ERP",
+                                                                         "output": "erp"}},
+            {"id": "durum", "action": "core.set", "params": {"name": "islem_durumu", "value": "Fatura 1069"}},
+            {"id": "kosul", "action": "control.if", "title": "69 var mı", "params": {
+                "left": "${islem_durumu}", "operator": "contains", "right": "69"}, "children": [
+                    {"id": "tikla", "action": "desktop.window_click", "params": {
+                        "window": "${erp}", "target_mode": "coordinates", "x": 5, "y": 5}}]},
+        ]})
+        assert response.status_code == 201, response.text
+
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                url = urlsplit(request.url)
+                path = url.path + (f"?{url.query}" if url.query else "")
+                result = client.request(request.method, path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Koşul testi", exact=True).click()
+            page.locator('[data-step-id="kosul"]').first.click()
+            page.locator(".step-test-actions").get_by_role("button", name="Bu adımı test et").click()
+            dialog = page.locator(".step-test-dialog")
+            only = dialog.get_by_label("Yalnız koşulu kontrol et", exact=False)
+            playwright.expect(only).to_be_checked()
+            playwright.expect(dialog.locator(".step-test-sources code")).to_have_text(["${islem_durumu}"])
+            dialog.get_by_role("button", name="Testi çalıştır").click()
+            playwright.expect(dialog).to_contain_text("Koşul: Evet · sol değer “Fatura 1069”", timeout=10_000)
+            # Unchecked: the branches run again, and their window value is prepared too.
+            only.uncheck()
+            dialog = page.locator(".step-test-dialog")
+            playwright.expect(dialog.get_by_label("Yalnız koşulu kontrol et", exact=False)).not_to_be_checked()
+            playwright.expect(dialog.locator(".step-test-sources code")).to_have_text(["${islem_durumu}", "${erp}"])
+            browser.close()
+    assert not errors

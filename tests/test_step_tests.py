@@ -196,3 +196,48 @@ def test_every_color_in_the_stylesheet_is_a_theme_token():
         rest = rest.replace(block, "")
     assert not re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", rest)
     assert not re.findall(r":\s*(?:white|black)\s*;", rest)
+
+
+def condition_flow():
+    find = Step(action="desktop.find_window", title="Pencereyi tanı",
+                params={"application": "", "title": "ERP", "output": "erp"})
+    ocr = step("screen.read_text", title="Ekrandan metin oku", relative_to="window", window="${erp}",
+               output="islem_durumu")
+    rows = step("core.set", title="Satırlar", name="sheet_rows", value=[{"kod": "A1"}])
+    click = step("desktop.window_click", title="Tıkla", window="${erp}", target_mode="coordinates", x=5, y=5)
+    branch = step("control.for_each", [step("core.set", name="dal", value="${row.kod}"), click],
+                  items="${sheet_rows}", item_name="row")
+    condition = step("control.if", [branch], [step("core.set", name="degil", value=1)], title="69 var mı",
+                     left="${islem_durumu}", operator="contains", right="69")
+    return Workflow(steps=[find, ocr, rows, condition]), condition
+
+
+def test_condition_only_plan_needs_just_the_condition_values():
+    workflow, condition = condition_flow()
+    full = plan_for(workflow, condition.id)
+    assert {e["variable"] for e in full["prepare"]} == {"erp", "islem_durumu", "sheet_rows"} and full["external"]
+    only = plan_for(workflow, condition.id, condition_only=True)
+    assert [e["variable"] for e in only["prepare"]] == ["erp", "islem_durumu"]
+    assert only["condition_only"] and not only["external"] and only["step"].children == []
+    # A typed value replaces the screen reading; other steps ignore the option.
+    assert plan_for(workflow, condition.id, {"islem_durumu"}, condition_only=True)["prepare"] == []
+    assert not plan_for(workflow, workflow.steps[1].id, condition_only=True)["condition_only"]
+
+
+@pytest.mark.parametrize("value,verdict", [("Fatura 1069 kaydedildi", "Evet"), ("Fatura kaydedildi", "Değilse")])
+def test_condition_only_test_shows_answer_and_values_without_running_branches(tmp_path, value, verdict):
+    workflow, condition = condition_flow()
+    settings, store = Settings(tmp_path, dotenv=False), Store(tmp_path)
+    minimized = []
+    settings.prepare_run = lambda cancel: minimized.append(True)
+    manager = RunManager(settings, store)
+    try:
+        run = finished(store, manager.start_step(workflow, condition.id, {"islem_durumu": value},
+                                                 condition_only=True).id)
+    finally:
+        manager.close()
+    assert run.status == "succeeded", run.error
+    messages = [event.message for event in run.events]
+    assert f"Koşul: {verdict} · sol değer “{value}” · İçerir (harf duyarsız) · sağ değer “69”" in messages
+    assert "dal" not in run.variables and "degil" not in run.variables
+    assert not minimized  # nothing on screen is read or touched

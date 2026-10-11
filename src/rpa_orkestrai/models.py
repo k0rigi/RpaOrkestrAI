@@ -281,6 +281,8 @@ class StepTestRequest(Model):
     dry_run: bool = False
     # Only move the pointer to the step's target; nothing is clicked or typed.
     locate: bool = False
+    # Koşul: evaluate the condition only; the Evet/Değilse steps do not run.
+    condition_only: bool = False
 
 
 class LicenseLoginRequest(Model):
