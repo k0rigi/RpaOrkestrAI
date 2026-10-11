@@ -134,3 +134,32 @@ def test_the_editor_refuses_the_nesting_the_server_refuses(tmp_path):
         response = client.post("/api/workflows", json={"name": "Çok derin", "steps": nested(models.MAX_DEPTH + 1)})
         assert response.status_code == 422
         assert f"en fazla {models.MAX_DEPTH} seviyede" in response.text
+
+
+def test_deep_conditions_and_long_flows_run(tmp_path):
+    """Up to MAX_DEPTH nested conditions and well over the old 200 steps are saved and run."""
+    import time
+
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.engine import RunManager
+    from rpa_orkestrai.models import Step, Workflow
+    from rpa_orkestrai.storage import Store
+
+    inner = Step(action="core.set", params={"name": "en_ic", "value": "ulaşıldı"})
+    for _ in range(models.MAX_DEPTH - 1):
+        inner = Step(action="control.if", params={"left": "1", "operator": "eq", "right": "1"}, children=[inner])
+    long = [Step(action="core.set", params={"name": f"d{i}", "value": i}) for i in range(1000)]
+    settings, store = Settings(tmp_path, dotenv=False), Store(tmp_path)
+    manager = RunManager(settings, store)
+    try:
+        for steps in ([inner], long):
+            saved = store.save_workflow(Workflow(steps=steps))
+            # The deepest flow is read back from its file and listed like any other.
+            assert store.workflow(saved.id) == saved and saved.id in {w.id for w in store.workflows()}
+            run = manager.start(saved)
+            deadline = time.monotonic() + 20
+            while store.run(run.id).status in {"queued", "running"} and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert store.run(run.id).status == "succeeded", store.run(run.id).error
+    finally:
+        manager.close()

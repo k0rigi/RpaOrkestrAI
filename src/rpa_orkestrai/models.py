@@ -70,8 +70,11 @@ def walk_steps(steps: list[Step]):
 
 
 # The editor checks the same nesting limit before a step is placed (MAX_DEPTH in static/app.js).
-MAX_DEPTH = 8
-MAX_STEPS = 200
+# Not a design limit, only a guard: each level is two JSON levels in the saved file, and the JSON
+# reader stops near 200 (about 99 steps deep), which would hide every flow. Flows beyond 0.9.16's
+# 8 levels / 200 steps need 0.9.17+.
+MAX_DEPTH = 50
+MAX_STEPS = 10_000
 
 
 class Note(Model):

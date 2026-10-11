@@ -242,7 +242,7 @@ Eski akışlardaki **Tablo oku** adımı çalışmaya devam eder; yeni akışlar
 | Akışı bitir | Başarıyla veya hata mesajıyla sonlandırır. |
 | Bekle / Çalışma notu | Sabit bekleme; günlüğe değer yazma. Bir adımdan sonra beklemek için o adımın **Sonraki adıma geçmeden bekle** alanı da kullanılabilir. |
 
-Bir akış en fazla 200 adım ve 8 seviye iç içe blok içerebilir; Studio bir adımı daha derine bırakmanıza izin vermez. Bir çalışma en fazla 1.000.000 adım çalıştırır.
+Bir akış 10.000 adıma ve 50 seviye iç içe bloğa (koşul, döngü, hata olursa) kadar içerebilir (0.9.17+; önceki sürümlerde 200 adım ve 8 seviye); Studio bir adımı daha derine bırakmanıza izin vermez. Bir çalışma en fazla 1.000.000 adım çalıştırır.
 
 ## Kullanıcı etkileşimi ve web
 

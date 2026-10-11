@@ -58,7 +58,7 @@ Bir yol başka bir adımdan devam edebilir: `control.goto` adımı (**Adıma git
 
 Operatörler: `eq` (eşit), `ne` (eşit değil), `contains` (harf duyarsız metin içerir), `gt` / `gte` (büyük / büyük veya eşit), `lt` / `lte` (küçük / küçük veya eşit), `truthy` (dolu/doğru). Sayısal karşılaştırmada sağ değeri JSON sayısı olarak, örneğin `1000` yazın; `"1000"` bir metindir.
 
-Akış yapısı en fazla 200 adım ve 8 iç içe seviye kabul eder; editör bir adımı daha derine bırakmanıza izin vermez. Bir döngü en fazla 100.000 öğe, bir çalışma toplam en fazla 1.000.000 adım yürütür. Aynı akış içindeki adım kimlikleri benzersizdir. JSON'u elle düzenlediğinizde yapı sınırları da doğrulanır.
+Akış yapısı 10.000 adıma ve 50 iç içe seviyeye kadar kabul eder (0.9.17+; önceki sürümlerde 200 adım ve 8 seviye). Bunlar tasarım sınırı değil, kayıt dosyasının güvenle okunabilmesi için konmuş koruma sınırlarıdır; editör bir adımı daha derine bırakmanıza izin vermez. 8 seviyeden derin veya 200 adımdan uzun akışlar 0.9.17 öncesi sürümlerde açılmaz. Bir döngü en fazla 100.000 öğe, bir çalışma toplam en fazla 1.000.000 adım yürütür. Aynı akış içindeki adım kimlikleri benzersizdir. JSON'u elle düzenlediğinizde yapı sınırları da doğrulanır.
 
 ## ERP dropdown akışı
 

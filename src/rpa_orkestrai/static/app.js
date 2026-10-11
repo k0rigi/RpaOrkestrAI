@@ -1559,7 +1559,7 @@
   // ----- drag and drop -------------------------------------------------------
   // The server accepts steps this many levels deep (MAX_DEPTH in models.py); the editor refuses
   // a placement beyond it instead of letting the save fail.
-  const MAX_DEPTH = 8;
+  const MAX_DEPTH = 50;
   function fitsDepth(ownerId, height = 1) {
     // height: the levels the placed step brings, 1 unless it already holds inner steps.
     // enclosingSteps lists the owner itself too, so its length is the owner's own level.
