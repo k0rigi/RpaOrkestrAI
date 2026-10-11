@@ -2644,7 +2644,7 @@
       bar.append(iconButton("Bu adımı test et", "play", () => {
         select();
         openStepTest(step);
-      }));
+      }), iconButton("Buraya kadar çalıştır", "target", () => runWorkflow(step.id)));
     bar.append(
       iconButton("Adımı çoğalt", "copy", () => duplicateStep(step.id)),
       iconButton("Adımı sil", "trash", () => removeStep(step.id), "danger"),
@@ -5027,7 +5027,11 @@
     if (!["control.break", "control.continue"].includes(step.action)) {
       const tester = button("Bu adımı test et", "play", () => openStepTest(step), "small step-test-button");
       tester.title = "Yalnız bu adımı (iç adımlarıyla) çalıştırır; gereken değerleri önceki adımlardan kendisi alır.";
-      pane.append(tester);
+      const runTo = button("Buraya kadar çalıştır", "target", () => runWorkflow(step.id), "small step-test-button");
+      runTo.title = "Akışı baştan çalıştırır ve bu adımdan hemen önce durur; sonra adım adım ilerleyebilirsiniz.";
+      const testers = node("div", "step-test-actions");
+      testers.append(tester, runTo);
+      pane.append(testers);
     }
     pane.append(node("div", "inspector-divider"));
     step.params ||= {};
@@ -5511,7 +5515,7 @@
     a.click();
     a.remove();
   }
-  async function runWorkflow() {
+  async function runWorkflow(pauseAt = null) {
     if (state.starting) return;
     const id = state.workflow?.id;
     const dryRun = state.dryRun;
@@ -5526,7 +5530,7 @@
       await attempt(async () => {
         const run = await api(`/api/workflows/${encodeURIComponent(id)}/run`, {
           method: "POST",
-          body: JSON.stringify({ dry_run: dryRun }),
+          body: JSON.stringify(pauseAt ? { dry_run: dryRun, pause_at: pauseAt } : { dry_run: dryRun }),
         });
         upsert(state.runs, run);
         if (state.page !== "editor" || state.workflow?.id !== id) {
@@ -5676,6 +5680,7 @@
       err.classList.add("run-error-note");
       page.append(err);
     }
+    if (run.paused && run.status === "running") page.append(debugPanel(run));
     const layout = node("div", "run-layout");
     const logs = node("section", "panel");
     const summary = node("div", "run-summary");
@@ -5838,6 +5843,59 @@
           state.poll = setTimeout(pollRun, 5000);
       }
     }, 1200);
+  }
+  // ----- Buraya kadar çalıştır: the run waits before a step until one of these is chosen -----------
+  function debugPanel(run) {
+    const panel = node("section", "panel debug-pause");
+    panel.setAttribute("role", "status");
+    const head = node("div", "debug-pause-head");
+    head.append(
+      node("span", "debug-pause-badge", "Duraklatıldı"),
+      node("h2", "", `Sıradaki adım: ${run.paused.title}`),
+    );
+    panel.append(head, node("p", "help",
+      "Akış bu adımdan hemen önce bekliyor; adım henüz çalışmadı. Sonraki adım yalnız bunu çalıştırıp yeniden durur. " +
+      "Devam et, akışı bu adıma yeniden gelinceye (ör. döngünün sonraki turu) veya sona kadar sürdürür. " +
+      "Studio, adım çalışmadan önce yine küçültülür."));
+    const actions = node("div", "actions");
+    const choices = [
+      ["step", "Sonraki adım", "arrow", "primary"],
+      ["continue", "Devam et", "play", ""],
+      ["finish", "Sonuna kadar", "check", ""],
+    ].map(([action, label, glyph, kind]) => button(label, glyph, () => debugRun(action, choices), kind));
+    actions.append(...choices);
+    panel.append(actions);
+    const values = run.variables || {};
+    const names = Object.keys(values);
+    if (names.length) {
+      panel.append(node("h3", "", "Şu anki değerler"));
+      const list = node("dl", "step-test-values");
+      names.forEach((name) => {
+        const value = values[name];
+        list.append(node("dt", "mono", "${" + name + "}"),
+          node("dd", "mono", typeof value === "string" ? value : JSON.stringify(value, null, 2)));
+      });
+      panel.append(list);
+    }
+    return panel;
+  }
+  async function debugRun(action, buttons) {
+    const id = state.run?.id;
+    if (!id) return;
+    buttons.forEach((item) => { item.disabled = true; });
+    await attempt(async () => {
+      const run = await api(`/api/runs/${encodeURIComponent(id)}/debug`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      if (state.page === "run" && state.run?.id === id) {
+        // The worker leaves the pause at once; hide the buttons until it waits again.
+        state.run = { ...run, paused: null };
+        renderPage();
+        pollRun();
+      }
+    });
+    buttons.forEach((item) => { item.disabled = false; });
   }
   async function cancelRun() {
     const id = state.run?.id;

@@ -181,6 +181,9 @@ class Run(Model):
     step_stats: dict[str, dict[str, int]] = Field(default_factory=dict)
     # Who started it: a person in the Studio or the scheduler.
     trigger: Literal["manual", "schedule"] = "manual"
+    # Buraya kadar çalıştır: {"step_id", "title"} of the step the run waits before; variables hold
+    # the values at that moment. None while the run is moving.
+    paused: dict[str, str] | None = None
 
 
 HOUR_MINUTE = r"^([01]\d|2[0-3]):[0-5]\d$"
@@ -248,6 +251,14 @@ class SecretRequest(Model):
 
 class RunRequest(Model):
     dry_run: bool = False
+    # Buraya kadar çalıştır: wait before this step; then continue one step at a time from the Studio.
+    pause_at: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{1,80}$")
+
+
+class DebugRequest(Model):
+    # step: run the next step and wait again; continue: run to the pause step again (next loop turn)
+    # or the end; finish: run to the end without waiting.
+    action: Literal["step", "continue", "finish"]
 
 
 class PointerRequest(Model):

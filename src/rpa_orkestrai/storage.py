@@ -74,7 +74,8 @@ class Store:
 
     def save_run(self, run: Run) -> None:
         with self._lock:
-            atomic_json(self.path("runs", run.id), run.model_dump())
+            # paused exists only while a run waits: earlier versions (extra="forbid") still read the history.
+            atomic_json(self.path("runs", run.id), run.model_dump(exclude={"paused"} if run.paused is None else None))
 
     def run(self, key: str) -> Run:
         with self._lock:

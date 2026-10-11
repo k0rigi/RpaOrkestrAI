@@ -27,6 +27,7 @@ from .licensing import OPEN_PATHS, LicenseError, LicenseService, LicenseUnavaila
 from .locking import WorkspaceLock
 from .models import (
     AutostartRequest,
+    DebugRequest,
     DesktopPickRequest,
     FavoriteRequest,
     LicenseLoginRequest,
@@ -739,7 +740,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.post("/api/workflows/{workflow_id}/run", status_code=202)
     def start_run(workflow_id: str, body: RunRequest):
         try:
-            return manager.start(store.workflow(workflow_id), dry_run=body.dry_run)
+            return manager.start(store.workflow(workflow_id), dry_run=body.dry_run, pause_at=body.pause_at)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -774,6 +775,13 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel_run(run_id: str):
         return manager.cancel(run_id)
+
+    @app.post("/api/runs/{run_id}/debug")
+    def debug_run(run_id: str, body: DebugRequest):
+        try:
+            return manager.debug(run_id, body.action)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}")
     def download_artifact(run_id: str, artifact_id: str):

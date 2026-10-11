@@ -1967,3 +1967,52 @@ def test_table_header_selection_corrects_rows_and_persists_without_second_copy(t
             assert saved["header"] is False and "header_row" not in saved
             assert len(inspections) == 1 and not errors
             browser.close()
+
+
+@pytest.mark.parametrize("size", [{"width": 980, "height": 720}, {"width": 390, "height": 844}], ids=["desktop", "phone"])
+def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        response = client.post("/api/workflows", json={"name": "Hata ayıklama", "steps": [
+            {"id": "one", "action": "core.set", "params": {"name": "a", "value": "ilk"}},
+            {"id": "two", "action": "core.set", "title": "İkinci", "params": {"name": "b", "value": 2}},
+            {"id": "three", "action": "core.set", "title": "Üçüncü", "params": {"name": "c", "value": 3}},
+        ]})
+        assert response.status_code == 201, response.text
+
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport=size)
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                result = client.request(request.method, urlsplit(request.url).path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Hata ayıklama", exact=True).click()
+            page.locator('[data-step-id="two"]').first.click()
+            page.locator(".step-test-actions").get_by_role("button", name="Buraya kadar çalıştır").click()
+            panel = page.locator(".debug-pause")
+            playwright.expect(panel).to_contain_text("Sıradaki adım: İkinci", timeout=10_000)
+            playwright.expect(panel.locator("dt")).to_have_text(["${a}"])
+            assert panel.bounding_box()["width"] <= size["width"]
+            page.screenshot(path=str(tmp_path / "paused.png"), full_page=True)
+            panel.get_by_role("button", name="Sonraki adım").click()
+            playwright.expect(panel).to_contain_text("Sıradaki adım: Üçüncü", timeout=10_000)
+            playwright.expect(panel.locator("dt")).to_have_text(["${a}", "${b}"])
+            panel.get_by_role("button", name="Sonuna kadar").click()
+            playwright.expect(page.locator(".debug-pause")).to_have_count(0, timeout=10_000)
+            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=10_000)
+            browser.close()
+    assert not errors

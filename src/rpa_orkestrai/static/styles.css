@@ -1777,6 +1777,47 @@ label.field-label {
 .run-error-note {
   margin-top: 16px;
 }
+.panel.debug-pause {
+  margin-top: 16px;
+  padding: 18px 20px;
+  border-color: var(--warn-line);
+  background: var(--warn-tint);
+}
+.debug-pause h3 {
+  margin: 4px 0 8px;
+  font-size: 14px;
+}
+.debug-pause .help {
+  margin: 10px 0 0;
+}
+.debug-pause-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.debug-pause-head h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.debug-pause-badge {
+  border: 1px solid var(--warn-line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 700;
+}
+.debug-pause .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.debug-pause .step-test-values {
+  max-height: 320px;
+  overflow: auto;
+}
 .artifact-note {
   margin-top: 15px;
 }
@@ -2698,6 +2739,10 @@ textarea:disabled {
   margin-top: 8px;
   width: 100%;
   justify-content: center;
+}
+.step-test-actions {
+  display: grid;
+  gap: 0;
 }
 .step-extra-tools {
   display: grid;

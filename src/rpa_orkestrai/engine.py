@@ -341,6 +341,45 @@ class SecretVariables(dict):
         return "<kayıtlı şifreler>"
 
 
+class Debugger:
+    """Buraya kadar çalıştır: the worker waits before a step until the Studio says how to go on."""
+
+    MODES = {"step": "step", "continue": "run", "finish": "finish"}
+
+    def __init__(self, pause_at: str):
+        self.pause_at = pause_at
+        self.mode = "run"  # run: wait at pause_at; step: wait before every step; finish: never wait
+        self._command: str | None = None
+        self._waiting = False
+        self._condition = threading.Condition()
+
+    def should_pause(self, step: Step) -> bool:
+        return self.mode == "step" or (self.mode == "run" and step.id == self.pause_at)
+
+    def command(self, action: str) -> None:
+        if action not in self.MODES:
+            raise WorkflowError("Hata ayıklama komutu Sonraki adım, Devam et veya Sonuna kadar olmalıdır.")
+        with self._condition:
+            if not self._waiting:
+                raise RuntimeError("Akış şu an duraklatılmış değil; adım çalışırken bekleyin.")
+            self._command = action
+            self._condition.notify_all()
+
+    def wait(self, cancel: threading.Event) -> str:
+        with self._condition:
+            self._command, self._waiting = None, True
+            try:
+                while self._command is None:
+                    if cancel.is_set():
+                        raise Cancelled()
+                    self._condition.wait(0.2)
+                action = self._command
+            finally:
+                self._waiting = False
+        self.mode = self.MODES[action]
+        return action
+
+
 class Executor:
     def __init__(self, settings: Settings, store: Store, run: Run, cancel: threading.Event,
                  save: Callable[[], None], variables: dict[str, Any] | None = None):
@@ -355,6 +394,7 @@ class Executor:
         self.held_keys: set[str] = set()
         self.call_stack: list[str] = []
         self.locate = False  # a test that only shows where the step points
+        self.debugger: Debugger | None = None
         from .connections import Connections
 
         self.connections = Connections(settings.data_dir, settings)
@@ -574,10 +614,44 @@ class Executor:
         self.pause_after(step)
         return "ok"
 
+    def variables_snapshot(self) -> dict[str, Any]:
+        try:
+            return json.loads(self.mask(json.dumps(snapshot(self.variables), ensure_ascii=False)))
+        except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
+            return {}
+
+    def debug_gate(self, step: Step) -> None:
+        """Wait before this step when Buraya kadar çalıştır or Sonraki adım asks for it."""
+        if self.debugger is None or not self.debugger.should_pause(step):
+            return
+        label = step.title or BY_TYPE[step.action]["label"]
+        self.run.paused = {"step_id": step.id, "title": label}
+        self.run.variables = self.variables_snapshot()
+        self.log(f"Duraklatıldı: «{label}» adımından önce. Studio'da Sonraki adım, Devam et veya "
+                 "Sonuna kadar seçin.", level="warning", step_id=step.id)
+        attention = getattr(self.settings, "bring_to_front", None)
+        if attention is not None:
+            try:
+                attention()
+            except Exception:
+                pass  # the run page still shows the pause; the window is only a convenience
+        try:
+            action = self.debugger.wait(self.cancel)
+        finally:
+            self.run.paused, self.run.variables = None, None
+        self.log({"step": "Sonraki adım çalıştırılıyor.", "continue": "Devam ediliyor.",
+                  "finish": "Akış sonuna kadar duraklamadan çalıştırılıyor."}[action], step_id=step.id)
+        # The Studio is in front after the pause: free the screen again before the step acts.
+        prepare_run = getattr(self.settings, "prepare_run", None)
+        if not self.run.dry_run and prepare_run is not None:
+            prepare_run(self.cancel)
+        self.check_cancelled()
+
     def step(self, step: Step, entry: list[tuple[str | None, int]] | None = None) -> str:
         if entry:
             return self.enter(step, entry)
         self.check_cancelled()
+        self.debug_gate(step)
         self.count_step()
         self.run.step_stats[step.id]["runs"] += 1
         raw = {**defaults(step.action), **step.params}
@@ -1302,6 +1376,7 @@ class RunManager:
         # The Studio sets this to its license check; nothing starts while it answers False.
         self.gate: Callable[[], bool] | None = None
         self._stop_reason: str | None = None
+        self._debugger: Debugger | None = None
 
     def reserve_desktop(self, cancel: threading.Event | None = None) -> threading.Event:
         with self._lock:
@@ -1347,9 +1422,11 @@ class RunManager:
 
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
               test_step_id: str | None = None, plan: dict | None = None, locate: bool = False,
-              trigger: str = "manual") -> Run:
+              trigger: str = "manual", pause_at: str | None = None) -> Run:
         # A tested step runs alone: its Adıma git target lies outside the copy that is run.
         validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]), jumps=plan is None)
+        if pause_at is not None and (plan is not None or pause_at not in step_titles(workflow.steps)):
+            raise WorkflowError("Buraya kadar çalıştır için akıştaki bir adımı seçin; adım bulunamadı.")
         if self.gate is not None and not self.gate():
             raise RuntimeError("Lisans doğrulanamadığı için akış başlatılamadı.")
         with self._lock:
@@ -1362,13 +1439,16 @@ class RunManager:
             cancel = threading.Event()
             self.store.save_run(run)
             self._active = (run.id, cancel)
+            self._debugger = Debugger(pause_at) if pause_at is not None else None
             self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel, dict(variables or {}),
-                             plan, locate)
+                             plan, locate, self._debugger)
             return run.model_copy(deep=True)
 
     def _work(self, workflow: Workflow, run: Run, cancel: threading.Event,
-              variables: dict[str, Any] | None = None, plan: dict | None = None, locate: bool = False) -> None:
+              variables: dict[str, Any] | None = None, plan: dict | None = None, locate: bool = False,
+              debugger: Debugger | None = None) -> None:
         runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables)
+        runner.debugger = debugger
         if plan:
             runner.titles = dict(plan.get("titles") or {})
         try:
@@ -1432,17 +1512,24 @@ class RunManager:
         finally:
             if run.error:
                 run.error = runner.mask(run.error)
+            run.paused = None
             if run.test_step_id:
-                try:
-                    run.variables = json.loads(runner.mask(json.dumps(snapshot(runner.variables), ensure_ascii=False)))
-                except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
-                    run.variables = {}
+                run.variables = runner.variables_snapshot()
             run.finished_at = now()
             # Free the worker before the result becomes visible: whoever sees the finished run can
             # start the next one at once. The single worker thread still writes this file first.
             with self._lock:
-                self._active, self._stop_reason = None, None
+                self._active, self._stop_reason, self._debugger = None, None, None
             self.store.save_run(run)
+
+    def debug(self, run_id: str, action: str) -> Run:
+        """Sonraki adım / Devam et / Sonuna kadar for the run waiting at a pause."""
+        with self._lock:
+            if not self._active or self._active[0] != run_id or self._debugger is None:
+                raise RuntimeError("Bu çalışma duraklatılmış değil.")
+            debugger = self._debugger
+        debugger.command(action)
+        return self.store.run(run_id)
 
     def cancel(self, run_id: str) -> Run:
         with self._lock:
