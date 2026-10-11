@@ -2001,6 +2001,11 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.route("http://127.0.0.1:8765/**", handle)
             page.goto("http://127.0.0.1:8765/")
             page.get_by_role("button", name="Hata ayıklama", exact=True).click()
+            # The toolbar's Çalıştır runs the whole flow without pausing (0.9.16–0.9.18 sent its click event).
+            page.locator(".page-actions, header, main").get_by_role("button", name="Çalıştır", exact=True).first.click()
+            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=10_000)
+            playwright.expect(page.locator(".debug-pause")).to_have_count(0)
+            page.get_by_role("button", name="Akışı aç").click()
             page.locator('[data-step-id="two"]').first.click()
             page.locator(".step-test-actions").get_by_role("button", name="Buraya kadar çalıştır").click()
             panel = page.locator(".debug-pause")

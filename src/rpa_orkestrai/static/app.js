@@ -1160,7 +1160,7 @@
       schedule,
       iconButton("Akışı JSON olarak dışa aktar", "download", exportWorkflow),
       button("Kaydet", "save", saveWorkflow),
-      button("Çalıştır", "play", runWorkflow, "primary"),
+      button("Çalıştır", "play", () => runWorkflow(), "primary"),
     );
     head.append(title, actions);
     wrapper.append(head);
@@ -5534,6 +5534,8 @@
     a.remove();
   }
   async function runWorkflow(pauseAt = null) {
+    // Only a step id pauses; anything else (e.g. a click event passed by a handler) runs normally.
+    if (typeof pauseAt !== "string") pauseAt = null;
     if (state.starting) return;
     const id = state.workflow?.id;
     const dryRun = state.dryRun;
