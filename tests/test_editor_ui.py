@@ -1302,7 +1302,7 @@ def test_connections_are_drawn_cut_and_chosen_without_copying_steps(tmp_path):
             # Inside the loop is not offered from here; the loop box and the steps outside are.
             playwright.expect(target.locator("option", has_text="Ara")).to_be_disabled()
             target.select_option(label=next(text for text in target.locator("option").all_inner_texts()
-                                            if text.startswith("1. Hazırlık")))
+                                            if text.startswith("1 Hazırlık")))
             flow = saved()
             assert [(item["action"], item["params"].get("target")) for item in flow["steps"]][-1] == (
                 "control.goto", "first")
@@ -2009,7 +2009,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.locator('[data-step-id="two"]').first.click()
             page.locator(".step-test-actions").get_by_role("button", name="Buraya kadar çalıştır").click()
             panel = page.locator(".debug-pause")
-            playwright.expect(panel).to_contain_text("Sıradaki adım: İkinci", timeout=10_000)
+            playwright.expect(panel).to_contain_text("Sıradaki adım: 2 İkinci", timeout=10_000)
             playwright.expect(panel.locator("dt")).to_have_text(["${a}"])
             assert panel.bounding_box()["width"] <= size["width"]
             page.screenshot(path=str(tmp_path / "paused.png"), full_page=True)
@@ -2018,7 +2018,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.wait_for_timeout(6000)
             assert page.locator(".debug-pause[data-kept='yes']").count() == 1
             panel.get_by_role("button", name="Sonraki adım").click()
-            playwright.expect(panel).to_contain_text("Sıradaki adım: Üçüncü", timeout=10_000)
+            playwright.expect(panel).to_contain_text("Sıradaki adım: 3 Üçüncü", timeout=10_000)
             playwright.expect(panel.locator("dt")).to_have_text(["${a}", "${b}"])
             panel.get_by_role("button", name="Sonuna kadar").click()
             playwright.expect(page.locator(".debug-pause")).to_have_count(0, timeout=10_000)
@@ -2141,4 +2141,51 @@ def test_new_steps_render_and_smtp_connection_is_created(tmp_path):
         smtp = [item for item in profiles if item["type"] == "smtp"]
         assert len(smtp) == 1 and smtp[0]["has_password"] and smtp[0]["port"] == "587" and smtp[0]["ready"]
         assert "gizli-sifre" not in json.dumps(profiles)
+    assert not errors
+
+
+def test_steps_are_numbered_and_web_targets_can_be_picked(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    steps = [
+        {"id": "ac", "action": "web.open", "params": {"url": "https://example.com"}},
+        {"id": "kosul", "action": "control.if", "params": {"left": "1", "operator": "eq", "right": "1"},
+         "children": [{"id": "tikla", "action": "web.click", "params": {"by": "text", "target": "Kaydet"}}],
+         "otherwise": [{"id": "not", "action": "core.log", "params": {"message": "yok"}}]},
+        {"id": "son", "action": "core.log", "params": {"message": "bitti"}},
+    ]
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        assert client.post("/api/workflows", json={"name": "Numaralar", "steps": steps}).status_code == 201
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                result = client.request(request.method, urlsplit(request.url).path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Numaralar", exact=True).click()
+            playwright.expect(page.locator(".step-card .step-number")).to_have_text(["1", "2", "2.1", "2.2", "3"])
+            page.get_by_role("button", name="Diyagram").click()
+            badges = page.locator("#diagram-viewport .dnode-number")
+            playwright.expect(badges).to_have_text(["1", "2", "2.1", "2.2", "3"], timeout=10_000)
+            page.screenshot(path=str(tmp_path / "diagram.png"))
+            page.locator('[data-step-id="tikla"]').first.click()
+            playwright.expect(page.get_by_text("ADIM 2.1 · AYARLAR")).to_be_visible()
+            playwright.expect(page.get_by_role("button", name="Tarayıcıda seç")).to_be_visible()
+            page.locator('[data-step-id="ac"]').first.click()
+            playwright.expect(page.get_by_text("ADIM 1 · AYARLAR")).to_be_visible()
+            playwright.expect(page.get_by_role("button", name="Tarayıcıda seç")).to_have_count(0)
+            browser.close()
     assert not errors

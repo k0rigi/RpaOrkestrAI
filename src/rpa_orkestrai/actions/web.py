@@ -60,47 +60,158 @@ def request(ctx, p):
 
 
 # ----- Web sayfası adımları (the computer's own Edge or Chrome) -----------------------------
-def web_target(p) -> dict:
-    from ..integrations.web_session import TARGETS
+def web_target(p, *, required: bool = True):
+    from ..integrations.web_session import TARGETS, Target
 
-    return {"by": choice(p.get("by", "text"), "Hedefi bulma yöntemi", TARGETS),
-            "value": text(p.get("target"), "Hedef", limit=4096),
-            "exact": p.get("exact") is True,
-            "timeout_ms": int(number(p.get("timeout", 15), "En fazla bekle", 0.5, 300) * 1000)}
+    if not required and not str(p.get("target") or "").strip():
+        return None
+    return Target(by=choice(p.get("by", "text"), "Hedefi bulma yöntemi", TARGETS),
+                  value=text(p.get("target"), "Hedef", limit=4096),
+                  exact=p.get("exact") is True,
+                  frame=text(p.get("frame"), "Çerçeve", required=False, limit=1000).strip(),
+                  timeout_ms=int(number(p.get("timeout", 15), "En fazla bekle", 0.5, 300) * 1000))
+
+
+def session(ctx):
+    """The run's web session; tab changes it made on its own are written to the log."""
+    web = ctx.web()
+    return web
+
+
+def report(ctx, web):
+    while web.notices:
+        ctx.log(web.notices.pop(0))
+
+
+def act(ctx, work):
+    web = session(ctx)
+    try:
+        return work(web)
+    finally:
+        report(ctx, web)
 
 
 @handler("web.open")
 def web_open(ctx, p):
     url = text(p.get("url"), "Adres", limit=4096).strip()
     browser = choice(p.get("browser", "auto"), "Tarayıcı", {"auto", "msedge", "chrome"})
-    session = ctx.web()
-    final = session.open(url, browser=browser, headless=p.get("headless") is True)
-    ctx.log(f"Sayfa açıldı ({session.channel}): {final}")
+    web = session(ctx)
+    final = act(ctx, lambda web: web.open(url, browser=browser, headless=p.get("headless") is True))
+    ctx.log(f"Sayfa açıldı ({web.channel}): {final}")
     return final
 
 
 @handler("web.click")
 def web_click(ctx, p):
     target = web_target(p)
-    ctx.web().click(target["by"], target["value"], exact=target["exact"], timeout_ms=target["timeout_ms"])
+    act(ctx, lambda web: web.click(target))
 
 
 @handler("web.fill")
 def web_fill(ctx, p):
     target = web_target(p)
     value = text(p.get("text"), "Yazılacak değer", required=False, limit=100_000)
-    ctx.web().fill(target["by"], target["value"], value, exact=target["exact"], timeout_ms=target["timeout_ms"])
+    act(ctx, lambda web: web.fill(target, value))
 
 
 @handler("web.read")
 def web_read(ctx, p):
     target = web_target(p)
-    return ctx.web().read(target["by"], target["value"], exact=target["exact"], timeout_ms=target["timeout_ms"])
+    return act(ctx, lambda web: web.read(target))
 
 
 @handler("web.select")
 def web_select(ctx, p):
     target = web_target(p)
     option = text(p.get("option"), "Seçilecek seçenek", limit=1000)
-    return ctx.web().select(target["by"], target["value"], option, exact=target["exact"],
-                            timeout_ms=target["timeout_ms"])
+    return act(ctx, lambda web: web.select(target, option))
+
+
+@handler("web.wait")
+def web_wait(ctx, p):
+    condition = choice(p.get("condition", "visible"), "Ne beklensin", {"visible", "hidden", "url"})
+    target = None if condition == "url" else web_target(p)
+    wanted = text(p.get("url_text"), "Adreste geçecek metin", limit=2000) if condition == "url" else ""
+    timeout = int(number(p.get("wait", 30), "En fazla bekle", 0.5, 600) * 1000)
+    met = act(ctx, lambda web: web.wait(condition, target=target, text=wanted, timeout_ms=timeout))
+    if not met and p.get("on_missing", "stop") == "stop":
+        raise WorkflowError({"visible": "Beklenen öğe süre içinde görünmedi.",
+                             "hidden": "Öğe süre içinde kaybolmadı.",
+                             "url": "Sayfa adresi süre içinde beklenen metni içermedi."}[condition])
+    return met
+
+
+@handler("web.press")
+def web_press(ctx, p):
+    from ..integrations.web_session import KEYS, MODIFIERS
+
+    key = choice(p.get("key", "Enter"), "Tuş", KEYS)
+    modifier = choice(p.get("modifier", ""), "Birlikte basılacak tuş", MODIFIERS)
+    target = web_target(p, required=False)
+    act(ctx, lambda web: web.press(key, modifier, target))
+
+
+@handler("web.navigate")
+def web_navigate(ctx, p):
+    action = choice(p.get("action", "back"), "Gezinme", {"back", "forward", "reload"})
+    return act(ctx, lambda web: web.navigate(action))
+
+
+@handler("web.tab")
+def web_tab(ctx, p):
+    action = choice(p.get("action", "last"), "Sekme", {"last", "first", "title", "url", "close"})
+    wanted = text(p.get("match"), "Aranacak metin", required=action in {"title", "url"}, limit=1000)
+    url = act(ctx, lambda web: web.tab(action, wanted))
+    ctx.log(f"Etkin sekme: {url}")
+    return url
+
+
+@handler("web.read_table")
+def web_read_table(ctx, p):
+    target = web_target(p)
+    rows = act(ctx, lambda web: web.read_table(target, p.get("header", True) is not False))
+    ctx.log(f"Web tablosundan {len(rows)} satır okundu.")
+    return rows
+
+
+@handler("web.download")
+def web_download(ctx, p):
+    from .common import path
+
+    target = web_target(p)
+    folder = path(p.get("folder"), "Kaydedilecek klasör")
+    saved = act(ctx, lambda web: web.download(target, folder, p.get("overwrite") is True))
+    ctx.log(f"Dosya indirildi: {saved}")
+    return str(saved)
+
+
+@handler("web.upload")
+def web_upload(ctx, p):
+    from .common import path
+
+    target = web_target(p)
+    raw = p.get("files")
+    items = raw if isinstance(raw, list) else str(raw or "").splitlines()
+    files = [path(item, "Yüklenecek dosya") for item in items if str(item).strip()]
+    if not files:
+        raise WorkflowError("Yüklenecek dosyanın yolunu yazın (her satıra bir dosya).")
+    missing = [str(item) for item in files if not item.is_file()]
+    if missing:
+        raise WorkflowError(f"Yüklenecek dosya bulunamadı: {missing[0]}. Hiçbir dosya yüklenmedi.")
+    act(ctx, lambda web: web.upload(target, files))
+    return [str(item) for item in files]
+
+
+@handler("web.screenshot")
+def web_screenshot(ctx, p):
+    name = text(p.get("filename") or "web-sayfasi.png", "Dosya adı", limit=120).strip()
+    if not name.lower().endswith(".png"):
+        name += ".png"
+    image = act(ctx, lambda web: web.screenshot(p.get("full_page", True) is not False))
+    return str(ctx.save_artifact(name, image))
+
+
+@handler("web.script")
+def web_script(ctx, p):
+    code = text(p.get("code"), "JavaScript", limit=200_000)
+    return act(ctx, lambda web: web.script(code, p.get("input")))

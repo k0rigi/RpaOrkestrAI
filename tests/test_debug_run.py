@@ -48,7 +48,7 @@ def test_runs_to_the_step_then_steps_one_at_a_time(runtime):
     run = manager.start(Workflow(steps=[first, second, third]), pause_at=second.id)
     state = paused(store, run.id, second.id)
     # Earlier steps ran; the paused step did not. Its values are shown, the Studio comes forward.
-    assert state.paused == {"step_id": second.id, "title": "İkinci"}
+    assert state.paused == {"step_id": second.id, "title": "İkinci", "number": "2"}
     assert state.variables["a"] == 1 and "b" not in state.variables
     assert state.step_stats[first.id]["ok"] == 1 and state.step_stats[second.id]["runs"] == 0
     assert calls == ["minimize", "front"]

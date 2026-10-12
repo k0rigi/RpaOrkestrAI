@@ -145,6 +145,23 @@ def step_titles(steps: list[Step]) -> dict[str, str]:
     return titles
 
 
+def step_numbers(steps: list[Step]) -> dict[str, str]:
+    """1, 2, 3.1, 3.2 …: a block's inner steps (both branches, in order) under its number.
+
+    Computed from the order, never stored, so flow files stay unchanged.
+    """
+    numbers: dict[str, str] = {}
+
+    def walk(items: list[Step], prefix: str) -> None:
+        for index, item in enumerate(items, 1):
+            number = f"{prefix}.{index}" if prefix else str(index)
+            numbers[item.id] = number
+            walk([*item.children, *item.otherwise], number)
+
+    walk(steps, "")
+    return numbers
+
+
 def step_places(steps: list[Step]) -> dict[str, list[tuple[Step, str]]]:
     """For every step: the blocks around it, outermost first, as (block step, branch)."""
     places: dict[str, list[tuple[Step, str]]] = {}
@@ -430,6 +447,7 @@ class Executor:
         # Adıma git: step names for messages, the loops now running with their turn, and how often
         # each jump was used in the current turn.
         self.titles: dict[str, str] = {}
+        self.numbers: dict[str, str] = {}
         self.turns: list[list] = []
         self.jumps: dict[str, tuple[tuple, int]] = {}
 
@@ -487,6 +505,7 @@ class Executor:
 
     def execute(self, workflow: Workflow) -> None:
         self.titles = {**step_titles(workflow.steps), **self.titles}
+        self.numbers = {**step_numbers(workflow.steps), **self.numbers}
         self.call_stack.append(workflow.id)
         try:
             with self.resources:
@@ -638,12 +657,19 @@ class Executor:
         except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
             return {}
 
+    def numbered(self, step: Step) -> str:
+        """The step as the log and the pause panel name it: 3.2 Pencerede tıkla."""
+        label = step.title or BY_TYPE[step.action]["label"]
+        number = self.numbers.get(step.id)
+        return f"{number} {label}" if number else label
+
     def debug_gate(self, step: Step) -> None:
         """Wait before this step when Buraya kadar çalıştır or Sonraki adım asks for it."""
         if self.debugger is None or not self.debugger.should_pause(step):
             return
-        label = step.title or BY_TYPE[step.action]["label"]
-        self.run.paused = {"step_id": step.id, "title": label}
+        label = self.numbered(step)
+        self.run.paused = {"step_id": step.id, "title": step.title or BY_TYPE[step.action]["label"],
+                           "number": self.numbers.get(step.id, "")}
         # Smaller than a step test's: the run file is saved and read again while the run waits.
         self.run.variables = self.variables_snapshot(limit=20_000)
         self.log(f"Duraklatıldı: «{label}» adımından önce. Studio'da Sonraki adım, Devam et veya "
@@ -677,7 +703,7 @@ class Executor:
         if step.action == "control.for_each" and "item_name" not in step.params:
             # Imported pre-0.3 flows used item when this parameter was omitted.
             raw["item_name"] = "item"
-        label = step.title or BY_TYPE[step.action]["label"]
+        label = self.numbered(step)
         self.log(f"Başladı: {label}", step_id=step.id)
         if self.run.dry_run and step.action.startswith(EXTERNAL_PREFIXES):
             self.mark_unknown(step, raw)
@@ -865,6 +891,7 @@ class Executor:
         validate_workflow(child)
         self.log(f"Alt akış başladı: {child.name}")
         self.titles.update(step_titles(child.steps))
+        self.numbers.update({key: f"{child.name} › {value}" for key, value in step_numbers(child.steps).items()})
         self.call_stack.append(workflow_id)
         try:
             self.steps(child.steps)
@@ -1467,6 +1494,7 @@ class RunManager:
             variable_name(name)
         plan = step_test_plan(workflow, step_id, variables, condition_only=condition_only)
         plan["titles"] = step_titles(workflow.steps)
+        plan["numbers"] = step_numbers(workflow.steps)
         if locate and not plan["locatable"]:
             raise WorkflowError("Yeri göster yalnız tıklama ve alan doldurma adımlarında kullanılabilir.")
         single = workflow.model_copy(update={"steps": [plan["step"].model_copy(deep=True)]}, deep=True)
@@ -1509,6 +1537,7 @@ class RunManager:
         runner.debugger = debugger
         if plan:
             runner.titles = dict(plan.get("titles") or {})
+            runner.numbers = dict(plan.get("numbers") or {})
         try:
             run.status = "running"
             if run.test_step_id:

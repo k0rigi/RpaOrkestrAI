@@ -50,7 +50,7 @@ def test_the_flow_waits_after_the_step_and_says_so(tmp_path):
     messages = [event.message for event in run.events]
     assert "Sonraki adıma geçmeden 0,3 saniye bekleniyor." in messages
     # The pause comes after the step is done and before the next one starts.
-    assert messages.index("Tamamlandı: Listeye ekle") < messages.index("Sonraki adıma geçmeden 0,3 saniye bekleniyor.")
+    assert messages.index("Tamamlandı: 1 Listeye ekle") < messages.index("Sonraki adıma geçmeden 0,3 saniye bekleniyor.")
 
 
 def test_a_block_waits_once_after_all_its_turns(tmp_path):

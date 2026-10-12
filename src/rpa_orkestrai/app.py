@@ -78,6 +78,10 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     captures = CaptureStore()
     picks = PickJobs(manager, captures)
+    from .integrations.web_picker import WebPicks
+
+    web_picks = WebPicks(manager, settings.data_dir / "web-profile", timeout_ms=int(settings.action_timeout * 1000),
+                         attention=lambda: (getattr(settings, "bring_to_front", None) or (lambda: None))())
     from .desktop.recorder import RecordJobs
     from .desktop.windows import WindowService
 
@@ -129,6 +133,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                 licensing.stop()
                 records.close()
                 picks.close()
+                web_picks.close()
                 manager.close()
 
     app = FastAPI(title="RpaOrkestrAI Studio", version=__version__, lifespan=lifespan,
@@ -316,6 +321,27 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/web/pick", status_code=202)
+    def start_web_pick(body: dict = Body(...)):
+        url, browser = body.get("url") or "", body.get("browser") or "auto"
+        if not isinstance(url, str) or not isinstance(browser, str) or len(url) > 4096:
+            raise HTTPException(status_code=422, detail="Adres geçersiz.")
+        try:
+            return web_picks.start(url.strip(), browser)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/web/pick/{pick_id}")
+    def web_pick_status(pick_id: str):
+        try:
+            return web_picks.status(pick_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Seçim bulunamadı.") from exc
+
+    @app.delete("/api/web/pick/{pick_id}", status_code=204)
+    def cancel_web_pick(pick_id: str):
+        web_picks.cancel(pick_id)
 
     @app.get("/api/desktop/pick/{pick_id}")
     def desktop_pick_status(pick_id: str):

@@ -1339,6 +1339,26 @@
   function stepName(step) {
     return step ? step.title || specFor(step.action).label : "";
   }
+  // Every step's number: 1, 2, 3.1, 3.2 … — a block's inner steps (both branches, in order) under
+  // its own number. Computed from the order and never saved, so flow files stay as they were.
+  function computeStepNumbers() {
+    const numbers = new Map();
+    const walk = (list, prefix) => (list || []).forEach((step, index) => {
+      const number = prefix ? `${prefix}.${index + 1}` : String(index + 1);
+      numbers.set(step.id, number);
+      walk([...(step.children || []), ...(step.otherwise || [])], number);
+    });
+    walk(state.workflow?.steps || [], "");
+    state.stepNumbers = numbers;
+    return numbers;
+  }
+  function stepNumber(step) {
+    if (!step) return "";
+    return (state.stepNumbers?.get(step.id) ?? computeStepNumbers().get(step.id)) || "";
+  }
+  function numberedName(step) {
+    return step ? `${stepNumber(step)} ${stepName(step)}`.trim() : "";
+  }
   function listOwner(list, steps = state.workflow?.steps || []) {
     // The block step and branch holding this list; null for the main flow.
     for (const step of steps) {
@@ -1483,10 +1503,11 @@
     return found;
   }
   function flowOutline() {
-    // Every step in flow order with a number and where it sits, for choosing a target.
+    // Every step in flow order with its number and where it sits, for choosing a target.
     const rows = [];
+    computeStepNumbers();
     const walk = (list, where) => list.forEach((step) => {
-      rows.push({ step, number: rows.length + 1, where });
+      rows.push({ step, number: stepNumber(step), where });
       for (const branch of ["children", "otherwise"])
         walk(step[branch] || [], `${stepName(step)} › ${branchWord(step, branch)}`);
     });
@@ -1657,6 +1678,7 @@
   function renderCanvas() {
     const pane = document.getElementById("flow-canvas");
     if (!pane) return;
+    computeStepNumbers();
     state.unreached = unreachedSteps();
     // A path end replaced from Bu adımdan sonra leaves its id behind in a note.
     const stale = new Set(flowNotes().flatMap((item) => item.steps).filter((id) => !findStep(id)));
@@ -2613,7 +2635,7 @@
     const output = step.params?.output;
     if (step.action === "control.goto") {
       const target = findStep(step.params?.target)?.step;
-      copy.append(node("strong", "", target ? stepName(target) : "Hedef adımı seçin"),
+      copy.append(node("strong", "", target ? `→ ${numberedName(target)}` : "Hedef adımı seçin"),
         node("small", "", step.title && step.title !== spec.label ? step.title : "Adıma git"));
     } else if (item.pill) {
       copy.append(node("strong", "", step.title || spec.label));
@@ -2625,6 +2647,12 @@
       );
     }
     el.append(tile, copy);
+    const number = stepNumber(step);
+    if (number) {
+      const badge = node("span", "dnode-number", number);
+      badge.title = `Adım ${number}`;
+      el.append(badge);
+    }
     if (status) {
       const mark = node("span", `dnode-status ${status.kind}`);
       mark.title = status.title;
@@ -2863,7 +2891,7 @@
     grip.append(icon("grip"));
     main.append(
       grip,
-      node("span", "step-number", String(index + 1).padStart(2, "0")),
+      node("span", "step-number", stepNumber(step)),
     );
     const glyph = node("div", "step-icon");
     glyph.append(icon(actionIcon(step.action)));
@@ -3330,6 +3358,11 @@
     });
     if (spec.region && !screenTable) tools.append(button("Bölge çiz", "target", () => captureRegion(step), "small"));
     if (spec.template) tools.append(button("Ekrandan görsel seç", "eye", () => pickScreenTemplate(step), "small"));
+    if (/^web\./.test(step.action) && (spec.fields || []).some((f) => f.name === "target" && fieldVisible(step, f))) {
+      tools.append(button("Tarayıcıda seç", "globe", () => pickWebTarget(step), "small"),
+        node("p", "help", "Tarayıcı açılır; hedef öğeye tıklayın. Hedef, sayfada tek olarak bulunacak şekilde kendiliğinden doldurulur."));
+      return tools;
+    }
     if (step.action === "window.checkbox" && ["coordinates", "image"].includes(parameterValue(step, "target_mode"))) {
       // Java and custom-drawn applications give no state: the two pictures tell checked from unchecked.
       for (const [param, label] of [["checked_template", "İşaretliyken görüntüsünü seç"],
@@ -3683,7 +3716,7 @@
     // The Studio works out what the step needs from earlier steps, so nothing has to be typed.
     const plan = await attempt(() => api(`${base}/test-plan${conditionOnly ? "?condition_only=true" : ""}`));
     if (!plan || !stepExists(step)) return;
-    dialog(`Adımı test et: ${step.title || spec.label}`, (body, d) => {
+    dialog(`Adımı test et: ${numberedName(step) || spec.label}`, (body, d) => {
       d.classList.add("step-test-dialog");
       const inputs = new Map();
       if (step.action === "control.if") {
@@ -4109,6 +4142,68 @@
       }, "menu"));
     }
     return wrap;
+  }
+  // ----- Tarayıcıda seç: click the element in the browser instead of writing a target -------
+  function pickWebTarget(step) {
+    const steps = allSteps(state.workflow?.steps || []);
+    const opener = steps.slice(0, steps.indexOf(step)).reverse().find((item) => item.action === "web.open");
+    const startUrl = state.webPickUrl || (opener && /^https?:\/\//.test(parameterValue(opener, "url") || "")
+      ? parameterValue(opener, "url") : "");
+    dialog("Tarayıcıda seç", (body, d) => {
+      let job = null, timer = null;
+      const url = textInput(startUrl, "https://…");
+      url.spellcheck = false;
+      const status = node("div", "connection-test-result");
+      status.setAttribute("role", "status");
+      const open = button("Tarayıcıyı aç", "globe", start, "primary");
+      body.append(
+        node("p", "pane-caption", "Web adımlarının kullandığı tarayıcı açılır; girişleriniz orada hatırlanır. Sağ alttaki panelden seçimi kapatıp önce gezinebilir veya giriş yapabilirsiniz. Seçim açıkken tıkladığınız öğe hedef olur; sayfa bu tıklamayı işlemez."),
+        field("Açılacak adres", url, "Boş bırakılırsa boş sayfa açılır."), open, status);
+      d.addEventListener("close", () => {
+        clearTimeout(timer);
+        if (job && !["completed", "error", "cancelled"].includes(job.status))
+          api(`/api/web/pick/${encodeURIComponent(job.id)}`, { method: "DELETE" }).catch(() => {});
+      });
+      async function start() {
+        open.disabled = true;
+        status.replaceChildren(node("p", "help", "Tarayıcı açılıyor…"));
+        try {
+          job = await api("/api/web/pick", { method: "POST", body: JSON.stringify({
+            url: url.value.trim(), browser: opener ? parameterValue(opener, "browser") || "auto" : "auto" }) });
+          poll();
+        } catch (error) {
+          status.replaceChildren(note(error.message, "error"));
+          open.disabled = false;
+        }
+      }
+      async function poll() {
+        try {
+          job = await api(`/api/web/pick/${encodeURIComponent(job.id)}`);
+        } catch (error) {
+          status.replaceChildren(note(error.message, "error"));
+          open.disabled = false;
+          return;
+        }
+        if (!d.isConnected) return;
+        if (job.status === "completed") {
+          if (!stepExists(step)) return;
+          const result = job.result;
+          if (!result.frame) delete step.params.frame;
+          applyStepParams(step, { by: result.by, target: result.target, exact: true,
+            ...(result.frame ? { frame: result.frame } : {}) });
+          state.webPickUrl = result.url;
+          d.close();
+          toast(`Hedef seçildi · ${result.summary}`);
+          return;
+        }
+        status.replaceChildren(note(job.message, job.status === "error" ? "error" : "info"));
+        if (["error", "cancelled"].includes(job.status)) {
+          open.disabled = false;
+          return;
+        }
+        timer = setTimeout(poll, 700);
+      }
+    });
   }
   function applyStepParams(step, values) {
     Object.assign(step.params, values);
@@ -4856,7 +4951,7 @@
     flowOutline().forEach(({ step: candidate, number, where }) => {
       if (candidate.id === step.id || ENDINGS.has(candidate.action)) return;
       const problem = jumpProblem(around, candidate.id);
-      const option = node("option", "", `${number}. ${stepName(candidate)}${where ? ` (${where})` : ""}`
+      const option = node("option", "", `${number} ${stepName(candidate)}${where ? ` (${where})` : ""}`
         + (problem ? " – buradan gidilemez" : ""));
       option.value = candidate.id;
       option.disabled = Boolean(problem);
@@ -5004,6 +5099,7 @@
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
+    computeStepNumbers();
     pane.replaceChildren();
     const located = findStep(state.selected);
     const openNote = !located && findNote(state.selectedNote);
@@ -5039,7 +5135,7 @@
     const step = located.step;
     const spec = specFor(step.action);
     pane.append(
-      node("div", "eyebrow", "ADIM AYARLARI"),
+      node("div", "eyebrow", `ADIM ${stepNumber(step)} · AYARLAR`),
       node("div", "pane-heading", spec.label),
       node("p", "pane-caption", spec.description),
     );
@@ -5893,7 +5989,7 @@
     const head = node("div", "debug-pause-head");
     head.append(
       node("span", "debug-pause-badge", "Duraklatıldı"),
-      node("h2", "", `Sıradaki adım: ${run.paused.title}`),
+      node("h2", "", `Sıradaki adım: ${run.paused.number ? `${run.paused.number} ` : ""}${run.paused.title}`),
     );
     panel.append(head, node("p", "help",
       "Akış bu adımdan hemen önce bekliyor; adım henüz çalışmadı. Sonraki adım yalnız bunu çalıştırıp yeniden durur. " +

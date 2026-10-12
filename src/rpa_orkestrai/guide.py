@@ -54,6 +54,16 @@ FIELD_HELP = {
 }
 
 STEP_FIELD_HELP = {
+    ("web.wait", "condition"): "Sabit Bekle yerine: sayfa hazır olunca hemen devam edilir.",
+    ("web.wait", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.wait", "wait"): "Bu süre içinde koşul gerçekleşmezse Süre dolarsa seçimine göre davranılır.",
+    ("web.press", "modifier"): "Ör. Ctrl/Command + Enter ile gönderilen formlar için; çoğu durumda Yok kalır.",
+    ("web.press", "by"): "Hedef boşsa tuş, sayfada o an odaktaki öğeye gönderilir.",
+    ("web.navigate", "action"): "Yenile, sayfayı yeniden yükler; doldurulmuş ama gönderilmemiş alanlar silinebilir.",
+    ("web.tab", "action"): "Sekmeler soldan sağa sıralıdır; kapatılan sekmeden sonra son sekmeye geçilir.",
+    ("web.read_table", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.download", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.upload", "by"): "Dosya alanları çoğunlukla gizlidir; Alan etiketi veya CSS seçici kullanın.",
     ("window.checkbox", "operation"): "Durumunu oku hiçbir şeyi değiştirmez; sonucu Koşul'da kullanın.",
     ("file.zip", "operation"): "Aç: zip'teki dosyalar klasöre çıkarılır. Oluştur: dosya ve klasörler tek zip olur.",
     ("web.open", "browser"): "Seçilen tarayıcı bilgisayarda kurulu olmalıdır; ayrıca tarayıcı indirilmez.",
@@ -309,6 +319,43 @@ GUIDES = {
          "Desenle bilgi çıkar ekleyin."],
         "Metin modunda ${pdf_text} metindir; tablo modunda Her satır için ile kullanılacak satır listesidir.",
         "Taranmış sayfalar sistem OCR'ıyla okunur; kalite taramaya bağlıdır. Şifreli PDF okunmaz."),
+    "web.wait": guide(
+        ["Ne beklensin? seçin: öğe görünsün, kaybolsun veya adres bir metni içersin.",
+         "Öğe için hedefi yazın (ör. Kaydedildi yazısı) ve en fazla bekleme süresini girin."],
+        "${web_waited}: koşul gerçekleştiyse doğru.",
+        "Yükleniyor yazısının kaybolmasını beklemek, sabit beklemeden hem hızlı hem güvenlidir."),
+    "web.press": guide(
+        ["Tuşu seçin (ör. Enter).", "Belirli bir alana basmak için hedefi yazın; boşsa odaktaki öğeye basılır."],
+        "", "Arama kutusuna yazdıktan sonra Enter ile aramayı başlatmak için kullanın."),
+    "web.navigate": guide(["Geri, İleri veya Yenile seçin."], "${web_url}: gidilen sayfanın adresi."),
+    "web.tab": guide(
+        ["Geçilecek sekmeyi seçin veya etkin sekmeyi kapatın.",
+         "Başlık veya adrese göre seçmek için aranacak metni yazın."],
+        "${web_url}: etkin sekmenin adresi.",
+        "Bir bağlantı yeni sekme açarsa sonraki adımlar o sekmede çalışır; bu adım yalnız başka sekmeye dönmek içindir."),
+    "web.read_table": guide(
+        ["Tablonun içindeki bir yazıyı (ör. sütun başlığı) veya tablonun CSS seçicisini hedef olarak yazın.",
+         "Ardından Her satır için ekleyip ${row.Sütun_adı} ile kullanın."],
+        "${web_rows}: satır listesi.", "Birleştirilmiş hücreler tek hücre olarak okunur."),
+    "web.download": guide(
+        ["İndirmeyi başlatan bağlantıyı veya düğmeyi hedef olarak yazın (ör. Excel'e aktar).",
+         "Kaydedilecek klasörü seçin."],
+        "${web_file}: indirilen dosyanın tam yolu; ardından Excel / CSV oku ile açabilirsiniz.",
+        "Tıklamadan sonra süre içinde indirme başlamazsa adım durur."),
+    "web.upload": guide(
+        ["Dosya seçme alanını etiketiyle veya CSS ile belirtin.", "Her satıra bir dosya yolu yazın."],
+        "", "Gözat penceresi açılmaz; dosya doğrudan alana verilir. Ardından Yükle düğmesine tıklayın."),
+    "web.screenshot": guide(
+        ["Dosya adını yazın; sayfanın tamamı veya yalnız görünen kısmı seçin."],
+        "${web_image}: görüntünün yolu; çalışmanın çıktılarında da görünür.",
+        "Hata olursa dalında kullanarak hata anındaki sayfayı saklayabilirsiniz."),
+    "web.script": guide(
+        ["JavaScript kodunu async bir fonksiyonun gövdesi olarak yazın; sonucu return ile verin.",
+         "Akış değişkenlerini Girdi alanından verin; kodda girdi adıyla kullanılır.",
+         "Örnek: return [...document.querySelectorAll('h2')].map(h => h.innerText);"],
+        "${web_result}: return ile döndürülen değer.",
+        "Kod sayfanın içinde, oturum açmış kullanıcı yetkisiyle çalışır; güvenmediğiniz kodu yapıştırmayın. "
+        "Kodun içindeki ${...} JavaScript'e aittir; akış değişkeni olarak doldurulmaz."),
     "mail.send": guide(
         ["E-posta (SMTP) bağlantısı seçin veya yeni oluşturun; Bağlantıyı test et ile deneyin (posta gönderilmez).",
          "Kime, Konu ve İleti yazın; ek için her satıra bir dosya yolu yazın.",
