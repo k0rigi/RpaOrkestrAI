@@ -54,6 +54,15 @@ FIELD_HELP = {
 }
 
 STEP_FIELD_HELP = {
+    ("window.checkbox", "operation"): "Durumunu oku hiçbir şeyi değiştirmez; sonucu Koşul'da kullanın.",
+    ("file.zip", "operation"): "Aç: zip'teki dosyalar klasöre çıkarılır. Oluştur: dosya ve klasörler tek zip olur.",
+    ("web.open", "browser"): "Seçilen tarayıcı bilgisayarda kurulu olmalıdır; ayrıca tarayıcı indirilmez.",
+    ("mail.send", "cc"): "Alıcıların göreceği ek adresler; virgülle ayırın.",
+    ("mail.send", "bcc"): "Diğer alıcıların görmeyeceği adresler; virgülle ayırın.",
+    ("web.click", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.fill", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.read", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
+    ("web.select", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
     ("window.text_write", "after"): "Tab sonraki alana geçer, Enter değeri onaylar. Uygulamanız hücreyi nasıl "
                                     "onaylıyorsa onu seçin.",
     ("desktop.find_window", "match"): "Başlık her açılışta aynıysa Tam eşleşme; içinde değişen numara, tarih veya "
@@ -266,6 +275,16 @@ GUIDES = {
         "Doğrudan hücre erişimi yoksa tablo kopyalanır ve görünür hücre doğrulanır. Boş hücre, sütun başlığı ile "
         "aynı satırdaki tek olan dolu bir değerin kesişiminden bulunur; ikisi de ekranda görünmelidir. "
         "Önizlemede başlık satırında Başlık yap seçin; başlık yoksa Başlık yok seçin. Veri 1, Satır 1’dir. Hücre otomatik düzenlemeye açılır; değişkenin değeri yazılıp tüm tablo yeniden okunarak doğrulanır. Kaydetme/onayı ayrıca ekleyin."),
+    "window.checkbox": guide(
+        [WINDOW_FIRST,
+         "İşlemi seçin: İşaretle, İşaretini kaldır veya Durumunu oku.",
+         "Ekranda seç ile onay kutusunu seçin. Uygulama alan kimliği veriyorsa durum doğrudan uygulamadan okunur.",
+         "Java veya özel çizilmiş ekranlarda Konum ya da Referans görsel ile seçin; ardından kutu işaretliyken ve "
+         "işaretsizken birer küçük görüntüsünü seçin.",
+         "Bu adımı test et → Yeri göster ile kutuyu kontrol edin."],
+        "${checkbox_state}: işaretliyse doğru, değilse yanlış.",
+        "Kutu zaten istenen durumdaysa tıklanmaz. Değiştirince yeni durum doğrulanır; değişmezse yeniden tıklanmaz. "
+        "Durum kesin anlaşılamazsa adım durur."),
     "window.text_write": guide(
         [WINDOW_FIRST,
          "Bölge çiz ile pencere görüntüsünde aranacak alanı seçin (ör. yalnız tablo).",
@@ -277,6 +296,53 @@ GUIDES = {
         "Konum her çalışmada ekrandaki metinden ölçülür; ekran ölçeği veya sütun genişliği değişse de "
         "kaydedilmiş koordinat kullanılmaz. Metin bulunamazsa veya alanda birden fazla yerde görünürse tıklanmaz; "
         "alanı daraltın. Satır kaydırılıp görünmez olduysa önce kaydırın. Kaydetme/onayı ayrıca ekleyin."),
+    "file.zip": guide(
+        ["İşlemi seçin: Zip'i klasöre aç veya Zip oluştur.",
+         "Açarken zip dosyasını ve açılacak klasörü; oluştururken her satıra bir dosya/klasör ve zip dosyasının adını yazın."],
+        "${zip_result.files}: açılan veya eklenen dosyalar; ${zip_result.count}: sayısı.",
+        "Aynı adlı dosya varsa, üzerine yazma açık değilse hiçbir dosya yazılmaz. Klasör dışına yazmaya çalışan "
+        "zip'ler açılmaz. Windows'ta oluşturulmuş zip'lerdeki Türkçe adlar korunur."),
+    "file.read_pdf": guide(
+        ["PDF dosyasını seçin.",
+         "Metin için Ne okunsun: Metin; çizgili bir tablo için Tablo seçin.",
+         "Gerekirse sayfaları yazın (ör. 1-2). Metinden fatura no veya tutar almak için ardından Metin işlemi → "
+         "Desenle bilgi çıkar ekleyin."],
+        "Metin modunda ${pdf_text} metindir; tablo modunda Her satır için ile kullanılacak satır listesidir.",
+        "Taranmış sayfalar sistem OCR'ıyla okunur; kalite taramaya bağlıdır. Şifreli PDF okunmaz."),
+    "mail.send": guide(
+        ["E-posta (SMTP) bağlantısı seçin veya yeni oluşturun; Bağlantıyı test et ile deneyin (posta gönderilmez).",
+         "Kime, Konu ve İleti yazın; ek için her satıra bir dosya yolu yazın.",
+         "Değişken kullanabilirsiniz: Konu: Fatura ${row.no} işlendi."],
+        "${mail_result.to}: gönderilen adresler.",
+        "Gmail ve Microsoft 365'te uygulama şifresi gerekebilir. Hata olursa posta yeniden gönderilmez; iki kez "
+        "gitmesin diye. Akışın sonunda özet göndermek için Hata olursa bloğuyla birlikte kullanın."),
+    "web.open": guide(
+        ["Adresi yazın (https://…).",
+         "Tarayıcıyı seçin; Otomatik Windows'ta Edge, Mac'te Chrome kullanır.",
+         "Sonra Web alanını doldur, Web öğesine tıkla ve Web'den metin oku adımlarını ekleyin."],
+        "${web_url}: açılan sayfanın adresi.",
+        "Tarayıcı çalışma bitince kapanır. Girişler RpaOrkestrAI'nin ayrı profilinde hatırlanır; kendi "
+        "tarayıcınızın profili kullanılmaz."),
+    "web.click": guide(
+        ["Hedefi bulma yöntemini seçin; düğmeler için Düğme veya bağlantı adı.",
+         "Hedef'e sayfada görünen yazıyı yazın (ör. Kaydet)."],
+        "",
+        "Hedef birden fazla öğeyle eşleşirse tıklanmaz; Tam eşleşmeyi açın veya daha ayırt edici bir yazı kullanın. "
+        "Tıklama tekrarlanmaz."),
+    "web.fill": guide(
+        ["Hedefi bulma yöntemi olarak Alan etiketi veya Alandaki silik yazı seçin.",
+         "Hedef'e alanın yanındaki etiketi yazın (ör. Fatura No); Yazılacak değeri girin."],
+        "",
+        "Alandaki eski değer silinip yenisi yazılır. Şifre için ${sifre.ad} kullanın; günlükte gizlenir."),
+    "web.read": guide(
+        ["Okunacak öğeyi görünen metniyle, etiketiyle veya CSS ile belirtin."],
+        "${web_text}: öğenin metni; yazı alanlarında alanın değeri.",
+        "Boş bir sonuç alanı da okunabilir; değer boş metin olur."),
+    "web.select": guide(
+        ["Açılır listeyi etiketiyle veya CSS ile belirtin.",
+         "Seçilecek seçeneğin listede görünen adını yazın."],
+        "${web_option}: seçilen seçeneğin tam adı.",
+        "Tam eşleşme kapalıyken adın içinde geçmesi yeterlidir; birden fazla seçenek eşleşirse seçilmez."),
     "window.read_table": guide(
         [WINDOW_FIRST,
          "Ekranda seç ile tablonun herhangi bir satırına tıklayın; hücreyi tek tek göstermeniz gerekmez.",

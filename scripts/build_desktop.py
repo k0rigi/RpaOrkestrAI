@@ -70,6 +70,10 @@ def main() -> None:
                "--collect-data", "webview", "--collect-data", "certifi",
                "--collect-submodules", "uvicorn", "--collect-submodules", "rpa_orkestrai",
                "--collect-submodules", "openpyxl",
+               # PDF'ten oku: pdfminer's font maps and pdfium's native library are loaded by path.
+               "--collect-data", "pdfminer", "--collect-all", "pypdfium2", "--collect-all", "pypdfium2_raw",
+               # Web adımları: Playwright's driver (Node) runs the computer's own Edge/Chrome.
+               "--collect-all", "playwright",
                "--hidden-import", "sqlalchemy.dialects.postgresql.psycopg",
                "--hidden-import", "sqlalchemy.dialects.mssql.pyodbc",
                # Veritabanı sorgusu: SQLAlchemy imports these drivers by name, out of PyInstaller's sight.

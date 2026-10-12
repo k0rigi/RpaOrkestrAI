@@ -420,6 +420,7 @@ class Executor:
         self._last_save = 0.0
         self.resources = ExitStack()
         self._browser: Any = None
+        self._web: Any = None
         self._desktop: Any = None
         self._windows: Any = None
         self._databases: dict[str, Any] = {}
@@ -518,7 +519,7 @@ class Executor:
                     self.log(f"Hazırlık: {label} listesindeki ilk öğe ${{{name}}} olarak kullanılıyor "
                              f"({len(items)} öğe var).")
                 elif entry["kind"] == "error":
-                    self.variables[name] = "Örnek hata mesajı (test)"
+                    self.variables[name] = "" if name.endswith("_ekran") else "Örnek hata mesajı (test)"
                 else:
                     self.variables.setdefault("loop_index", 0)
             except CONTROL_SIGNALS:
@@ -541,6 +542,10 @@ class Executor:
             from .actions.windows import text_operation
 
             x, y = text_operation(self, p)
+        elif action == "window.checkbox":
+            from .actions.windows import checkbox_operation
+
+            x, y = checkbox_operation(self, p, locate=True)
         elif action == "screen.click_image":
             from .actions.screen import search
 
@@ -820,7 +825,30 @@ class Executor:
             message = describe_error(exc)
             self.variables[name] = message
             self.log(f"Hata yakalandı: {message}", level="warning", step_id=step.id)
+            if p.get("screenshot") is True:
+                self.variables[f"{name}_ekran"] = self.error_screenshot(step)
             self.steps(step.otherwise)
+
+    def error_screenshot(self, step: Step) -> str:
+        """The screen at the moment of the error; a capture problem never replaces the real error."""
+        if self.run.dry_run:
+            return ""
+        import io
+
+        try:
+            image = self.desktop().screenshot()
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            name = f"hata-{time.strftime('%Y%m%d-%H%M%S')}.png"
+            stored = self.save_artifact(name, buffer.getvalue())
+        except Exception as exc:
+            if type(exc).__name__ == "FailSafeException":
+                raise
+            self.log(f"Hata anındaki ekran görüntüsü alınamadı: {describe_error(exc)} (macOS'ta Ekran Kaydı, "
+                     "Windows'ta oturumun kilitli olmaması gerekir).", level="warning", step_id=step.id)
+            return ""
+        self.log(f"Hata anındaki ekran görüntüsü kaydedildi: {name} (çalışma çıktıları).", step_id=step.id)
+        return str(stored)
 
     def run_workflow(self, p: dict) -> None:
         workflow_id = p.get("workflow")
@@ -931,6 +959,16 @@ class Executor:
                 BrowserService(timeout_ms=int(self.settings.action_timeout * 1000))
             )
         return self._browser
+
+    def web(self) -> Any:
+        """Web steps' browser: one per run, closed when the run ends."""
+        if self._web is None:
+            from .integrations.web_session import WebSession
+
+            self._web = self.resources.enter_context(WebSession(
+                self.settings.data_dir / "web-profile", timeout_ms=int(self.settings.action_timeout * 1000),
+                cancel=self.cancel))
+        return self._web
 
     def desktop(self) -> Any:
         if self._desktop is None:
@@ -1331,7 +1369,8 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = (), *, cond
                 p = parameters(owner)
                 if owner.action == "control.for_each" and p.get("item_name") == name:
                     return "item", owner
-                if owner.action == "control.try" and branch == "otherwise" and p.get("error_name") == name:
+                if owner.action == "control.try" and branch == "otherwise" and name in {
+                        p.get("error_name"), f"{p.get('error_name')}_ekran"}:
                     return "error", owner
                 if name == "loop_index" and owner.action in LOOPS:
                     return "index", owner

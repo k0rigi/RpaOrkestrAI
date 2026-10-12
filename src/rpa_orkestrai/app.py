@@ -853,9 +853,23 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         stored = connections.get(body["id"]) if body.get("id") else {"config": {}}
         try:
             config = connections._clean(kind, body.get("config") or {}, stored["config"]) if kind in {
-                "google_sheets", "database"} else None
+                "google_sheets", "database", "smtp"} else None
             if config is None:
                 raise ValueError("Bağlantı türü geçersiz.")
+            if kind == "smtp":
+                from .actions.mail import connect
+                from .actions.mail import describe as describe_mail
+
+                if not connections.ready({"type": "smtp", "config": config}):
+                    raise ValueError("SMTP sunucusunu ve gönderen adresini girin.")
+                try:
+                    server = connect(config, 20)
+                    server.quit()
+                except Exception as exc:
+                    raise ValueError(describe_mail(exc)) from exc
+                # Only the connection and login are checked; no message is sent.
+                return {"ok": True, "message": "SMTP sunucusuna bağlanıldı" + (" ve giriş yapıldı." if config.get("user")
+                                                                              else ".") + " Deneme e-postası gönderilmedi."}
             spreadsheet = body.get("spreadsheet") or ""
             if kind == "database":
                 from .database.query import QueryDatabase, describe

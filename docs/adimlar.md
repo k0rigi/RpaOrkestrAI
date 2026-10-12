@@ -114,6 +114,7 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Alanı doldur | Alanı bulur, tıklar, temizler ve değeri yazar. | — |
 | Alanın değerini oku | Alandaki değeri okur. Alan kimliğinde doğrudan okunur. Konum ve görselde alan seçilip kopyalanır, pano eski haline döner. Hedef bir tablo/liste ise tablonun tamamı başlıklarıyla gelir. | `${field_value}` |
 | Tablodan değer oku | Uygulama tablosundaki bir hücreyi sütun başlığıyla okur; satır numarası 1'den başlar. **Kaç satır var?** seçeneği aramanın sonuç verip vermediğini söyler (0: kayıt yok). | `${table_value}` |
+| Onay kutusu (0.9.20+) | İşaretler, işaretini kaldırır veya durumunu okur. **Alan kimliği** ile seçilen kutularda durum uygulamadan okunur. Java gibi alan kimliği vermeyen uygulamalarda **Konum** veya **Referans görsel** ile seçip kutunun **işaretliyken** ve **işaretsizken** birer küçük görüntüsünü seçin; iki görüntü yalnız hedefin çevresinde karşılaştırılır. Kutu istenen durumdaysa tıklanmaz; değiştirdikten sonra yeni durum doğrulanır, değişmezse yeniden tıklanmaz; durum kesin değilse adım durur. | `${checkbox_state}` (doğru/yanlış) |
 | Metni bul, tıkla ve yaz (0.9.15+) | **Bölge çiz** ile pencerede arama alanını seçin. **Bulunan metnin üzerine** veya **Sütun ve satır kesişimine** tıklar; değeri yazar, isterseniz Tab/Enter'a basar. Konum her çalışmada OCR ile yeniden ölçülür. | Tıklanan nokta ve değer test günlüğünde |
 | Tabloya değer yaz (0.9.6+) | **0.9.11: Tabloyu seç** ile herhangi bir hücreye tek tıklayın; satır sayısı ve sütunlar alınır. Satır, sütun adı / `sutun_2` / numara ve yeni değer girin. Alan çizmek gerekmez. Hücre güncel tablodan bulunur; sonuç doğrulanır. Ek ayar bölümü yoktur; hücre düzenlemesi otomatik doğrulanır, sonuç tablonun tamamından kontrol edilir. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
@@ -185,6 +186,8 @@ Eski sürümde kısayol seçerken yalnız `javaws.exe` yolu kaydedilmişse günc
 | Dosya kopyala / taşı / sil | Kopyala, taşı/yeniden adlandır, sil, klasör oluştur. | Hedef yol |
 | Dosyanın oluşmasını bekle | İndirilen dosya tamamlanana kadar bekler (`.crdownload`/`.part` dosyalarını beklemez). Desen kullanılabilir: `~/Downloads/rapor*.xlsx`. | `${file_path}` |
 | Departman raporu (CSV) | Kayıtları çalışma çıktılarına indirilebilir CSV olarak yazar. | — |
+| Zip aç / oluştur (0.9.20+) | Zip'i klasöre açar veya dosya/klasörlerden zip oluşturur (her satıra bir yol). Windows'ta oluşturulmuş zip'lerdeki Türkçe adlar doğru açılır. Aynı adlı dosya varsa, **Üzerine yaz** kapalıyken hiçbir dosya yazılmaz; klasör dışına yazmaya çalışan zip açılmaz; açılmış boyutu 4 GB'ı veya 20.000 dosyayı aşan zip reddedilir. | `${zip_result.files}`, `${zip_result.count}` |
+| PDF'ten oku (0.9.20+) | **Metin**: seçilen sayfaların metni; metni olmayan (taranmış) sayfalar sistem OCR'ıyla okunur. **Tablo**: çizgili tabloyu satır listesine çevirir, başlıklar alan adı olur. Sayfalar `1-3, 5` biçiminde seçilir. Şifreli PDF okunmaz. Fatura no, tutar gibi değerler için ardından **Metin işlemi → Desenle bilgi çıkar** ekleyin. | `${pdf_text}` |
 
 Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dosya seçme penceresini açar. Excel'de açık bir dosyaya yazılamıyorsa adım bunu bildirir.
 
@@ -237,7 +240,7 @@ Eski akışlardaki **Tablo oku** adımı çalışmaya devam eder; yeni akışlar
 | Koşul sürdükçe tekrarla | Koşul doğru oldukça tekrarlar; tekrar ve süre sınırı vardır. |
 | Döngüden çık / Sonraki tura geç | En içteki döngüyü bitirir veya turu atlar. Yalnız döngü içinde eklenebilir. |
 | Adıma git | Akışı seçilen adımdan sürdürür; gerideki bir adıma dönüp adımları tekrarlamak (ör. aramayı başka filtreyle yeniden yapmak) veya iki dalı ortak bir adımda buluşturmak için. Bir döngünün içindeki adıma ancak aynı döngünün içinden gidilir; dışarıdan döngü kutusuna bağlanır, döngünün kendi kutusuna bağlamak sonraki tura geçer. Döngü dışına gitmek döngüyü bitirir. **Her turda en fazla** (varsayılan 10) sonsuz döngüyü önler: aynı bağlantı bir turda daha çok kullanılırsa akış durur. |
-| Hata olursa | **DENE** dalında hata olursa akışı durdurmak yerine **HATA OLURSA** dalını çalıştırır. Mesaj `${error_message}` içindedir. Örneğin hatalı satırı Excel'e "Hata" olarak işaretleyip sonraki satıra geçmek için kullanılır. |
+| Hata olursa | **DENE** dalında hata olursa akışı durdurmak yerine **HATA OLURSA** dalını çalıştırır. Mesaj `${error_message}` içindedir. **Hata anında ekran görüntüsü kaydet** (0.9.20+) açıksa o anki ekran çalışmanın çıktılarına PNG olarak eklenir ve yolu `${error_message_ekran}` değişkenine yazılır; görüntü alınamazsa hata yine işlenir. Örneğin hatalı satırı Excel'e "Hata" olarak işaretleyip sonraki satıra geçmek için kullanılır. |
 | Başka akışı çalıştır | Kayıtlı bir akışı bu noktada çalıştırır; değişkenler ortaktır. ERP'ye giriş gibi ortak işleri tek yerde tutun. En fazla 5 seviye olabilir ve akış kendini çağıramaz. |
 | Akışı bitir | Başarıyla veya hata mesajıyla sonlandırır. |
 | Bekle / Çalışma notu | Sabit bekleme; günlüğe değer yazma. Bir adımdan sonra beklemek için o adımın **Sonraki adıma geçmeden bekle** alanı da kullanılabilir. |
@@ -251,6 +254,9 @@ Bir akış 10.000 adıma ve 50 seviye iç içe bloğa (koşul, döngü, hata olu
 | Mesaj kutusu göster | Tamam, Tamam/İptal veya Evet/Hayır; yanıt beklenir. **Otomatik kapanma** verilirse kutu o kadar saniye sonra kendiliğinden kapanır (macOS ve Windows). | `${answer}`: `ok`, `cancel`, `yes`, `no`; süre dolarsa `timeout` |
 | Kullanıcıdan değer iste | Çalışma sırasında tarih veya fatura no gibi bir değer sorar. | `${user_input}` |
 | HTTP isteği gönder (API) | GET/POST/PUT/PATCH/DELETE; JSON gövde ve başlıklarla. | `${response.status}`, `${response.body}` |
+| Web sayfası aç (0.9.20+) | Bilgisayardaki Edge veya Chrome ile sayfayı açar (Otomatik: Windows'ta Edge, Mac'te Chrome); ayrıca tarayıcı indirilmez. Girişler RpaOrkestrAI'nin ayrı tarayıcı profilinde hatırlanır; tarayıcı çalışma bitince kapanır. | `${web_url}` |
+| Web öğesine tıkla / Web alanını doldur / Web'den metin oku / Web listesinden seç (0.9.20+) | Hedef **görünen metin**, **alan etiketi**, **alandaki silik yazı**, **düğme veya bağlantı adı** ya da CSS seçiciyle bulunur. Kapalı **Tam eşleşme** ile yazdığınızın içinde geçmesi yeterlidir. Hedef birden fazla öğeyle eşleşirse işlem yapılmaz; tıklama tekrarlanmaz. Çerçeve (iframe) içindeki öğeler bu sürümde desteklenmez. Türkçe büyük **İ** içeren metinlerde hedefi sayfadaki gibi yazın. | `${web_text}`, `${web_option}` |
+| E-posta gönder (0.9.20+) | Seçilen **E-posta (SMTP)** bağlantısından düz metin posta ve ek gönderir (toplam 25 MB). Bağlantı **Bağlantılar** penceresinden kurulur; **Bağlantıyı test et** yalnız bağlanıp giriş yapar, posta göndermez. Gmail ve Microsoft 365'te uygulama şifresi gerekebilir. Hata olursa posta iki kez gitmesin diye yeniden denenmez. | `${mail_result.to}` |
 
 ## AutoHotkey karşılıkları
 

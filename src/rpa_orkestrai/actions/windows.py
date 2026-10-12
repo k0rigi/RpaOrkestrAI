@@ -194,3 +194,33 @@ def text_write(ctx, p):
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         value = str(value)
     return text_operation(ctx, p, value=text(value, "Yazılacak değer", limit=10_000))
+
+
+def checkbox_operation(ctx, p, *, locate=False):
+    """Shared by running the step and Yeri göster (locate: the box's point, nothing is changed)."""
+    from PIL import Image
+
+    from ..desktop.checkbox import checkbox
+
+    operation = choice(p.get("operation", "check"), "İşlem", {"check", "uncheck", "read"})
+    targeting = ctx.window_target(p)
+    images = {}
+    if targeting["target_mode"] != "element":
+        for key, label in (("checked_template", "işaretliyken"), ("unchecked_template", "işaretsizken")):
+            if not p.get(key):
+                raise WorkflowError(f"Onay kutusunun {label} görüntüsünü seçin (Görüntüyü seç düğmesi).")
+            with Image.open(ctx.template_path(p[key])) as image:
+                images[key] = image.convert("RGB")
+    try:
+        return checkbox(ctx.windows(), _window(p), ctx.desktop(), operation=operation, targeting=targeting,
+                        checked=images.get("checked_template"), unchecked=images.get("unchecked_template"),
+                        locate=locate)
+    except WindowError as exc:
+        raise WorkflowError(str(exc)) from exc
+
+
+@handler("window.checkbox")
+def checkbox_step(ctx, p):
+    state = checkbox_operation(ctx, p)
+    ctx.log("Onay kutusu: " + {True: "işaretli", False: "işaretsiz", None: "kısmen işaretli (belirsiz)"}[state])
+    return state

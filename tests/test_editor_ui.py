@@ -684,7 +684,7 @@ def test_database_query_command_modes_and_loop_start_in_the_editor(tmp_path):
             # Database connections are always offered now that the library has a database step.
             page.get_by_role("button", name="Bağlantılar", exact=True).click()
             manager = page.locator("dialog.connection-manager")
-            playwright.expect(manager.locator(".connection-group h3")).to_have_text(["Google Sheets", "Veritabanı"])
+            playwright.expect(manager.locator(".connection-group h3")).to_have_text(["Google Sheets", "Veritabanı", "E-posta (SMTP)"])
             manager.get_by_role("button", name="Kapat").click()
 
             # Veritabanı sorgusu: a SQLite connection made from the step's own form.
@@ -2078,4 +2078,67 @@ def test_condition_test_checks_only_the_condition_by_default(tmp_path):
             playwright.expect(dialog.get_by_label("Yalnız koşulu kontrol et", exact=False)).not_to_be_checked()
             playwright.expect(dialog.locator(".step-test-sources code")).to_have_text(["${islem_durumu}", "${erp}"])
             browser.close()
+    assert not errors
+
+
+def test_new_steps_render_and_smtp_connection_is_created(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    steps = [
+        {"id": "pencere", "action": "desktop.find_window", "params": {"application": "", "title": "ERP", "output": "erp"}},
+        {"id": "onay", "action": "window.checkbox", "params": {"window": "${erp}", "target_mode": "coordinates",
+                                                               "x": 10, "y": 10}},
+        {"id": "zip", "action": "file.zip", "params": {}},
+        {"id": "pdf", "action": "file.read_pdf", "params": {"mode": "table"}},
+        {"id": "ac", "action": "web.open", "params": {"url": "https://example.com"}},
+        {"id": "doldur", "action": "web.fill", "params": {"by": "label", "target": "Fatura No", "text": "1"}},
+        {"id": "sec", "action": "web.select", "params": {"by": "css", "target": "#durum", "option": "Onay"}},
+        {"id": "posta", "action": "mail.send", "params": {"to": "a@firma.com", "subject": "Deneme"}},
+        {"id": "dene", "action": "control.try", "params": {"screenshot": True}},
+    ]
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        assert client.post("/api/workflows", json={"name": "Yeni adımlar", "steps": steps}).status_code == 201
+
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                url = urlsplit(request.url)
+                result = client.request(request.method, url.path + (f"?{url.query}" if url.query else ""),
+                                        content=request.post_data_buffer, headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Yeni adımlar", exact=True).click()
+            expected = {"onay": "İşaretliyken görüntüsünü seç", "zip": "Açılacak klasör", "pdf": "Kaçıncı tablo",
+                        "ac": "Tarayıcıyı göstermeden çalıştır", "doldur": "Yazılacak değer",
+                        "sec": "Seçilecek seçenek", "posta": "E-posta (SMTP) bağlantısı",
+                        "dene": "Hata anında ekran görüntüsü kaydet"}
+            for step_id, text in expected.items():
+                page.locator(f'[data-step-id="{step_id}"]').first.click()
+                playwright.expect(page.get_by_text(text, exact=False).first).to_be_visible()
+            # A new SMTP connection from the mail step: the password is stored but never shown again.
+            page.locator('[data-step-id="posta"]').first.click()
+            page.get_by_label("E-posta (SMTP) bağlantısı").select_option("__new__")
+            dialog = page.locator("dialog.connection-dialog")
+            dialog.get_by_label("SMTP sunucusu").fill("smtp.firma.com")
+            dialog.get_by_label("Şifre", exact=True).fill("gizli-sifre")
+            dialog.get_by_label("Gönderen adresi").fill("rpa@firma.com")
+            dialog.get_by_role("button", name="Bağlantıyı oluştur").click()
+            playwright.expect(dialog).to_have_count(0)
+            browser.close()
+        profiles = client.get("/api/connections").json()
+        smtp = [item for item in profiles if item["type"] == "smtp"]
+        assert len(smtp) == 1 and smtp[0]["has_password"] and smtp[0]["port"] == "587" and smtp[0]["ready"]
+        assert "gizli-sifre" not in json.dumps(profiles)
     assert not errors

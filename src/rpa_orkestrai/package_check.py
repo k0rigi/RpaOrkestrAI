@@ -92,6 +92,54 @@ def _check_databases(folder: Path) -> None:
         sa.create_engine(f"{scheme}://kullanici:sifre@localhost/veritabani").dispose()
 
 
+def _check_documents(folder: Path) -> None:
+    """Zip with Turkish names, PDF text and page rendering (pdfminer + pdfium) inside the package."""
+    from types import SimpleNamespace
+
+    from .actions.documents import page_image, read_pdf, zip_files
+
+    source = folder / "zip-kaynak"
+    source.mkdir()
+    (source / "çağrı özeti.txt").write_text("ğüşıöç", encoding="utf-8")
+    ctx = SimpleNamespace(log=lambda message, **kw: None, check_cancelled=lambda: None)
+    zip_files(ctx, {"operation": "create", "items": str(source), "destination": str(folder / "paket.zip")})
+    zip_files(ctx, {"operation": "extract", "source": str(folder / "paket.zip"), "folder": str(folder / "zip-acilan")})
+    if (folder / "zip-acilan" / "zip-kaynak" / "çağrı özeti.txt").read_text(encoding="utf-8") != "ğüşıöç":
+        raise RuntimeError("Paket içindeki zip açma/oluşturma doğrulanamadı.")
+    stream = "BT /F1 18 Tf 72 700 Td (Fatura INV-1069) Tj ET"
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [5 0 R] /Count 1 >>",
+               "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+               f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+               "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> "
+               "/Contents 4 0 R >>"]
+    data, offsets = bytearray(b"%PDF-1.4\n"), []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(data))
+        data += f"{number} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    xref = len(data)
+    data += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    data += "".join(f"{offset:010d} 00000 n \n" for offset in offsets).encode()
+    data += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    pdf = folder / "fatura.pdf"
+    pdf.write_bytes(bytes(data))
+    if "INV-1069" not in read_pdf(ctx, {"path": str(pdf), "ocr": False}):
+        raise RuntimeError("Paket içindeki PDF metin okuma doğrulanamadı.")
+    if page_image(pdf, 0).size[0] < 1000:
+        raise RuntimeError("Paket içindeki PDF sayfa görüntüsü (taranmış sayfa okuma) oluşturulamadı.")
+
+
+def _check_web_driver() -> None:
+    """Web adımları: Playwright's bundled driver starts (no browser is launched or downloaded)."""
+    from playwright.sync_api import sync_playwright
+
+    runtime = sync_playwright().start()
+    try:
+        if runtime.chromium is None:
+            raise RuntimeError("Paket içindeki web sürücüsü başlatılamadı.")
+    finally:
+        runtime.stop()
+
+
 def _check_license_verification() -> None:
     """Sign with a throwaway key and verify with the packaged license code (no network)."""
     import base64
@@ -177,6 +225,8 @@ def run_check(report: Path) -> int:
             _check_accessibility()
             _check_ocr_and_tables(root)
             _check_databases(root)
+            _check_documents(root)
+            _check_web_driver()
             _check_login_item()
             _check_password_store()
 

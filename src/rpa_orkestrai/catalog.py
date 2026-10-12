@@ -36,6 +36,20 @@ OPERATORS = [
 WINDOW = field("window", "Pencere", default="${erp_window}", required=True)
 SHEETS_CONNECTION = field("connection", "Google Sheets bağlantısı", "connection", "", connection_type="google_sheets",
                           help="Boş bırakılırsa varsayılan Google Sheets bağlantısı kullanılır.")
+WEB_TARGET = [
+    field("by", "Hedefi bulma yöntemi", "select", "text", required=True, options=[
+        {"value": "text", "label": "Görünen metin"}, {"value": "label", "label": "Alan etiketi"},
+        {"value": "placeholder", "label": "Alandaki silik yazı (yer tutucu)"},
+        {"value": "button", "label": "Düğme veya bağlantı adı"}, {"value": "css", "label": "CSS seçici (gelişmiş)"}]),
+    field("target", "Hedef", required=True,
+          help="Sayfada görünen yazı (ör. Giriş yap, Fatura No) veya CSS seçici (ör. #kullanici)."),
+    field("exact", "Tam eşleşme", "boolean", False, omit_default=True,
+          help="Kapalıyken yazdığınız metnin içinde geçmesi yeterlidir; büyük/küçük harf fark etmez."),
+    field("timeout", "En fazla bekle (saniye)", "number", 15, min=0.5, max=300, omit_default=True,
+          help="Hedef görünene kadar bekler; süre dolarsa adım durur."),
+]
+MAIL_CONNECTION = field("connection", "E-posta (SMTP) bağlantısı", "connection", "", connection_type="smtp",
+                        help="Gönderen hesap ve sunucu. Şifre yalnız bu bilgisayarda saklanır.")
 DATABASE_CONNECTION = field("connection", "Veritabanı bağlantısı", "connection", "", connection_type="database",
                             help="Boş bırakılırsa varsayılan veritabanı bağlantısı kullanılır.")
 SHEET_ID = field("spreadsheet_id", "Google Sheets adresi veya kimliği", required=True,
@@ -400,6 +414,22 @@ LIBRARY = [
                   options=[{"value": "none", "label": "Hiçbir şey"}, {"value": "tab", "label": "Tab'a bas"},
                            {"value": "enter", "label": "Enter'a bas"}])],
            region=True),
+    action("window.checkbox", "Onay kutusu", "Pencere",
+           "Bir onay kutusunu işaretler, işaretini kaldırır veya durumunu okur. Zaten istenen durumdaysa tıklamaz; "
+           "değiştirdikten sonra yeni durumu doğrular.",
+           [WINDOW,
+            field("operation", "İşlem", "select", "check", required=True, options=[
+                {"value": "check", "label": "İşaretle"}, {"value": "uncheck", "label": "İşaretini kaldır"},
+                {"value": "read", "label": "Durumunu oku"}]),
+            *target_fields(),
+            field("checked_template", "İşaretliyken görüntüsü", required=True,
+                  visible_when={"target_mode": ["coordinates", "image"]},
+                  help="Kutu işaretliyken yalnız kutuyu kapsayan küçük bir görüntü. Uygulama yapısından durum "
+                       "okunamayan (ör. Java) uygulamalar için."),
+            field("unchecked_template", "İşaretsizken görüntüsü", required=True,
+                  visible_when={"target_mode": ["coordinates", "image"]},
+                  help="Aynı kutunun işaretsiz hali; iki görüntü yalnız hedefin çevresinde karşılaştırılır."),
+            output("checkbox_state", "İşaretliyse doğru, değilse yanlış: Koşul → Dolu / doğru ile kullanın.")]),
     action("window.state", "Pencereyi büyüt / küçült", "Pencere",
            "Pencereyi tam ekran yapar, simge durumuna küçültür veya geri yükler.",
            [WINDOW, field("state", "İşlem", "select", "maximize", required=True,
@@ -571,6 +601,35 @@ LIBRARY = [
             field("sheet", "Sayfa adı (Excel)", default="Sayfa1"),
             field("mode", "Yazma biçimi", "select", "overwrite", options=[
                 {"value": "overwrite", "label": "Yeni dosya / üzerine yaz"}, {"value": "append", "label": "Sonuna ekle"}])]),
+    action("file.zip", "Zip aç / oluştur", "Dosya ve Excel",
+           "Bir zip dosyasını klasöre açar veya dosya ve klasörlerden zip oluşturur. Türkçe dosya adları korunur.",
+           [field("operation", "İşlem", "select", "extract", required=True, options=[
+                {"value": "extract", "label": "Zip'i klasöre aç"}, {"value": "create", "label": "Zip oluştur"}]),
+            field("source", "Zip dosyası", "path", "", required=True, visible_when={"operation": "extract"},
+                  help=FILE_HELP),
+            field("folder", "Açılacak klasör", "path", "", required=True, visible_when={"operation": "extract"},
+                  help="Klasör yoksa oluşturulur. Zip'teki klasör yapısı korunur."),
+            field("items", "Eklenecek dosya ve klasörler", "code", "", required=True,
+                  visible_when={"operation": "create"},
+                  help="Her satıra bir dosya veya klasör yolu yazın; klasörler içindekilerle eklenir."),
+            field("destination", "Oluşturulacak zip dosyası", "path", "", required=True, path_kind="save",
+                  visible_when={"operation": "create"}, help="Ör. C:\\Raporlar\\gunluk.zip"),
+            field("overwrite", "Aynı adlı dosyaların üzerine yaz", "boolean", False,
+                  help="Kapalıyken aynı adlı dosya varsa hiçbir dosya yazılmaz."),
+            output("zip_result", "Dosya listesi: ${zip_result.files}, sayısı: ${zip_result.count}.")]),
+    action("file.read_pdf", "PDF'ten oku", "Dosya ve Excel",
+           "PDF'in metnini veya içindeki bir tabloyu okur. Taranmış (metni olmayan) sayfalar sistem OCR'ıyla okunur.",
+           [field("path", "PDF dosyası", "path", "", required=True, help=FILE_HELP),
+            field("mode", "Ne okunsun?", "select", "text", required=True, options=[
+                {"value": "text", "label": "Metin"}, {"value": "table", "label": "Tablo (satır listesi)"}]),
+            field("pages", "Sayfalar", default="", help="Boş: tüm sayfalar. Ör. 1 veya 1-3, 5."),
+            field("ocr", "Metni olmayan sayfaları OCR ile oku", "boolean", True, visible_when={"mode": "text"},
+                  help="Taranmış belge ve fotoğraf sayfaları için. Kapalıyken bu sayfalar boş gelir."),
+            field("table", "Kaçıncı tablo", "number", 1, min=1, max=1000, visible_when={"mode": "table"},
+                  help="Seçilen sayfalardaki tabloların sırası; 1 ilk tablodur. Tablolar çizgileriyle tanınır."),
+            field("header", "İlk satır sütun başlıklarıdır", "boolean", True, visible_when={"mode": "table"},
+                  help="Açıkken başlıklar alan adı olur: ${row.Tutar}. Kapalıyken sutun_1, sutun_2…"),
+            output("pdf_text", "Metin modunda okunan metin; tablo modunda Her satır için ile kullanılacak satır listesi.")]),
     action("file.read_text", "Metin dosyası oku", "Dosya ve Excel", "Bir .txt, .json veya log dosyasının içeriğini okur.",
            [field("path", "Dosya", "path", "", required=True, help=FILE_HELP), output("file_text")]),
     action("file.write_text", "Metin dosyasına yaz", "Dosya ve Excel", "Metni dosyaya yazar veya sonuna ekler (günlük tutma).",
@@ -696,7 +755,10 @@ LIBRARY = [
            container="loop", branches={"children": "TEKRARLA · İÇ ADIMLAR"}),
     action("control.try", "Hata olursa", "Akış",
            "İç adımlarda hata olursa akışı durdurmak yerine Hata olursa dalını çalıştırır; mesaj ${error_message}.",
-           [field("error_name", "Hata mesajı değişkeni", default="error_message", required=True)],
+           [field("error_name", "Hata mesajı değişkeni", default="error_message", required=True),
+            field("screenshot", "Hata anında ekran görüntüsü kaydet", "boolean", False, omit_default=True,
+                  help="Hata yakalandığı andaki ekran, çalışmanın çıktılarına PNG olarak eklenir; dosya yolu "
+                       "${error_message_ekran} gibi hata değişkeninin adı + _ekran değişkenine yazılır.")],
            container="try", branches={"children": "DENE", "otherwise": "HATA OLURSA"}),
     action("control.break", "Döngüden çık", "Akış", "İçinde bulunduğu döngüyü hemen bitirir.", []),
     action("control.continue", "Sonraki tura geç", "Akış", "Döngünün bu turunu atlayıp sonrakine geçer.", []),
@@ -731,7 +793,43 @@ LIBRARY = [
                 {"value": "stop", "label": "Akışı durdur"}, {"value": "continue", "label": "Boş değerle devam et"}]),
             output("user_input")]),
     # ----- Web ve API --------------------------------------------------------------------
-    action("http.request", "HTTP isteği gönder (API)", "Web ve API",
+    action("web.open", "Web sayfası aç", "Web, e-posta ve API",
+           "Bilgisayardaki Edge veya Chrome ile sayfayı açar; sonraki web adımları bu sayfada çalışır. Tarayıcı, "
+           "çalışma bitince kapanır; girişler ayrı RpaOrkestrAI profilinde hatırlanır.",
+           [field("url", "Adres", default="https://", required=True, help="http:// veya https:// ile başlamalıdır."),
+            field("browser", "Tarayıcı", "select", "auto", options=[
+                {"value": "auto", "label": "Otomatik (Windows: Edge, Mac: Chrome)"},
+                {"value": "msedge", "label": "Microsoft Edge"}, {"value": "chrome", "label": "Google Chrome"}]),
+            field("headless", "Tarayıcıyı göstermeden çalıştır", "boolean", False, omit_default=True,
+                  help="Açıkken pencere görünmez. Giriş veya doğrulama gereken sitelerde kapalı bırakın."),
+            output("web_url", "Açılan sayfanın son adresi (yönlendirmelerden sonra).")]),
+    action("web.click", "Web öğesine tıkla", "Web, e-posta ve API",
+           "Açık sayfada düğme, bağlantı veya metne tıklar. Hedef birden fazla öğeyle eşleşirse tıklamaz.",
+           WEB_TARGET),
+    action("web.fill", "Web alanını doldur", "Web, e-posta ve API",
+           "Açık sayfada bir yazı alanının değerini yazılan değerle değiştirir.",
+           [*WEB_TARGET, field("text", "Yazılacak değer", default="", help="Değişken kullanılabilir: ${row.no}. "
+                                                                           "Şifre için ${sifre.ad} kullanın.")]),
+    action("web.read", "Web'den metin oku", "Web, e-posta ve API",
+           "Açık sayfadaki bir öğenin metnini veya yazı alanının değerini okur.",
+           [*WEB_TARGET, output("web_text")]),
+    action("web.select", "Web listesinden seç", "Web, e-posta ve API",
+           "Açık sayfadaki açılır listede (select) yazılan seçeneği seçer. Bulunamaz veya birden fazla eşleşirse seçmez.",
+           [*WEB_TARGET, field("option", "Seçilecek seçenek", required=True,
+                                help="Listede görünen ad. Tam eşleşme kapalıyken ad içinde geçmesi yeterlidir."),
+            output("web_option", "Seçilen seçeneğin tam adı.")]),
+    action("mail.send", "E-posta gönder", "Web, e-posta ve API",
+           "Seçilen SMTP hesabından düz metin e-posta gönderir; ek dosya eklenebilir. Hata olursa yeniden denemez.",
+           [MAIL_CONNECTION,
+            field("to", "Kime", required=True, help="Virgül veya noktalı virgülle birden fazla adres: a@firma.com; b@firma.com"),
+            field("cc", "Bilgi (CC)", default=""),
+            field("bcc", "Gizli (BCC)", default=""),
+            field("subject", "Konu", required=True, help="Değişken kullanılabilir: Fatura ${row.no} işlendi"),
+            field("body", "İleti", "code", "", help="Düz metin. Değişken kullanılabilir."),
+            field("attachments", "Ek dosyalar", "code", "",
+                  help="Her satıra bir dosya yolu. Toplam en fazla 25 MB. Bulunamayan ek varsa gönderilmez."),
+            output("mail_result", "Gönderilen adresler: ${mail_result.to}.")]),
+    action("http.request", "HTTP isteği gönder (API)", "Web, e-posta ve API",
            "Bir web servisine istek gönderir; JSON yanıt ${response.body} içinde gelir.",
            [field("method", "Yöntem", "select", "GET", options=[{"value": m, "label": m} for m in
                                                                ["GET", "POST", "PUT", "PATCH", "DELETE"]]),
@@ -741,7 +839,7 @@ LIBRARY = [
             field("fail_on_error", "4xx/5xx yanıtında akışı durdur", "boolean", True), output("response")]),
 ]
 CATEGORY_ORDER = ["Pencere", "Fare ve klavye", "Ekran ve görsel", "Uygulama ve sistem", "Dosya ve Excel",
-                  "Veri ve metin", "Google Sheets", "Veritabanı", "Akış", "Kullanıcı etkileşimi", "Web ve API"]
+                  "Veri ve metin", "Google Sheets", "Veritabanı", "Akış", "Kullanıcı etkileşimi", "Web, e-posta ve API"]
 BRANCHES = {"control.for_each": {"children": "HER SATIR İÇİN · İÇ ADIMLAR"},
             "control.while": {"children": "KOŞUL SÜRDÜKÇE · İÇ ADIMLAR"},
             "control.if": {"children": "KOŞUL DOĞRUYSA", "otherwise": "DEĞİLSE"}}
@@ -781,7 +879,7 @@ ACTION_DEFINITIONS = ACTION_DEFINITIONS + [entry for entry in CATALOG if entry["
 CATALOG = [entry for entry in CATALOG if entry["type"] not in RETIRED]
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
-                     "clipboard.", "file.", "ui.", "http.")
+                     "clipboard.", "file.", "ui.", "http.", "mail.", "web.")
 CONTAINERS = {"control.for_each": ("children",), "control.while": ("children",), "control.repeat": ("children",),
               "control.if": ("children", "otherwise"), "control.try": ("children", "otherwise")}
 LOOPS = {"control.for_each", "control.while", "control.repeat"}
@@ -789,13 +887,13 @@ LOOPS = {"control.for_each", "control.while", "control.repeat"}
 ENDINGS = {"control.goto", "control.continue", "control.break", "control.stop"}
 # A single-step test may run these earlier steps by itself to get the values the tested step needs:
 # they only compute or read, and never click, type or write.
-TEST_PREPARE = {"core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",
+TEST_PREPARE = {"file.read_pdf", "core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",
                 "desktop.find_window", "desktop.window_wait_image", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
                 "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read", "database.query"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
-LOCATABLE = {"window.write_table", "window.text_write", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
+LOCATABLE = {"window.write_table", "window.text_write", "window.checkbox", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
              "input.mouse_click",
              "input.mouse_move", "screen.click_image"}
 

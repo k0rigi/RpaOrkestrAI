@@ -136,3 +136,40 @@ def test_paused_values_stay_small_even_for_a_long_list(runtime):
     assert isinstance(shown, str) and shown.endswith(" …") and len(shown) < 2100
     manager.debug(run.id, "finish")
     assert done(store, run.id).status == "succeeded"
+
+
+@pytest.mark.parametrize("capture", ["ok", "fails"])
+def test_try_block_saves_the_screen_at_the_error(runtime, monkeypatch, capture):
+    from PIL import Image
+
+    from rpa_orkestrai.engine import Executor
+
+    class Desk:
+        def screenshot(self):
+            if capture == "fails":
+                raise OSError("ekran izni yok")
+            return Image.new("RGB", (40, 30), "red")
+
+    monkeypatch.setattr(Executor, "desktop", lambda self: Desk())
+    manager, store, _ = runtime
+    failing = Step(action="data.calculate", params={"expression": "1 +", "output": "x"})
+    handled = setter("sonra", "${hata_ekran}")
+    block = Step(action="control.try", params={"error_name": "hata", "screenshot": True},
+                 children=[failing], otherwise=[handled])
+    final = done(store, manager.start(Workflow(steps=[block])).id)
+    # The error is still handled when the capture itself fails.
+    assert final.status == "succeeded", final.error
+    names = [artifact.name for artifact in final.artifacts]
+    messages = " ".join(event.message for event in final.events)
+    if capture == "ok":
+        assert len(names) == 1 and names[0].startswith("hata-") and names[0].endswith(".png")
+        assert "ekran görüntüsü kaydedildi" in messages
+    else:
+        assert names == [] and "ekran görüntüsü alınamadı" in messages
+
+
+def test_screenshot_option_is_off_and_not_written_by_default():
+    from rpa_orkestrai.catalog import BY_TYPE
+
+    option = next(f for f in BY_TYPE["control.try"]["fields"] if f["name"] == "screenshot")
+    assert option["default"] is False and option["omit_default"] is True

@@ -18,10 +18,14 @@ from typing import Any
 from .config import atomic_json
 from .errors import WorkflowError
 
-TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı"}
+TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı", "smtp": "E-posta (SMTP)"}
 SHEETS_METHODS = {"apps_script": "Apps Script", "service_account": "Servis hesabı"}
 SECRET_FIELDS = {"script_token", "credentials_path", "url", "password"}
 DATABASE_FIELDS = ("host", "port", "database", "user", "path")
+SMTP_SECURITY = {"starttls": "STARTTLS (genellikle 587)", "ssl": "SSL/TLS (genellikle 465)",
+                 "none": "Şifrelemesiz (yalnız iç ağ)"}
+SMTP_PORTS = {"starttls": "587", "ssl": "465", "none": "25"}
+EMAIL = re.compile(r"^[^@\s,;<>\"]+@[^@\s,;<>\"]+\.[^@\s,;<>\"]+$")
 NAME_LIMIT = 80
 
 
@@ -102,6 +106,8 @@ class Connections:
                     raise ValueError("Apps Script anahtarı geçersiz.")
             return {"method": method, "script_url": url, "script_token": token,
                     "credentials_path": secret("credentials_path", "Servis hesabı dosyası")}
+        if kind == "smtp":
+            return self._clean_smtp(config, previous, secret)
         from .database.query import ENGINES
 
         tables = config.get("allowed_tables", previous.get("allowed_tables", []))
@@ -130,8 +136,34 @@ class Connections:
         return cleaned
 
     @staticmethod
+    def _clean_smtp(config: dict, previous: dict, secret: Any) -> dict:
+        def value(key: str, label: str, limit: int = 320) -> str:
+            raw = config.get(key, previous.get(key, ""))
+            raw = str(raw) if isinstance(raw, int) and not isinstance(raw, bool) else raw
+            return _text(raw, label, limit)
+
+        security = config.get("security") or previous.get("security") or "starttls"
+        if security not in SMTP_SECURITY:
+            raise ValueError("Şifreleme STARTTLS, SSL/TLS veya şifrelemesiz olmalıdır.")
+        cleaned = {"host": value("host", "SMTP sunucusu", 255), "port": value("port", "Port", 5) or SMTP_PORTS[security],
+                   "security": security, "user": value("user", "Kullanıcı"), "sender": value("sender", "Gönderen adresi"),
+                   "sender_name": value("sender_name", "Gönderen adı", 120)}
+        if not (cleaned["port"].isdigit() and 0 < int(cleaned["port"]) < 65536):
+            raise ValueError("Port 1 ile 65535 arasında bir sayı olmalıdır.")
+        if cleaned["sender"] and not EMAIL.fullmatch(cleaned["sender"]):
+            raise ValueError("Gönderen adresi geçerli bir e-posta adresi olmalıdır (ör. rpa@firma.com).")
+        if any(char in cleaned["sender_name"] for char in "\r\n"):
+            raise ValueError("Gönderen adı satır sonu içeremez.")
+        # A changed server or user must not reuse a password typed for another account.
+        same = previous.get("host") == cleaned["host"] and previous.get("user") == cleaned["user"]
+        cleaned["password"] = secret("password", "Şifre") if same or config.get("password") else ""
+        return cleaned
+
+    @staticmethod
     def ready(item: dict) -> bool:
         config = item["config"]
+        if item["type"] == "smtp":
+            return bool(config.get("host") and config.get("sender"))
         if item["type"] == "database":
             engine = config.get("engine") or "url"
             if engine == "url":
@@ -152,6 +184,10 @@ class Connections:
             data.update(method=config["method"], method_label=SHEETS_METHODS[config["method"]],
                         script_url=config.get("script_url", ""), has_token=bool(config.get("script_token")),
                         has_credentials=bool(config.get("credentials_path")))
+        elif item["type"] == "smtp":
+            data.update(has_password=bool(config.get("password")), security_label=SMTP_SECURITY[config["security"]],
+                        **{key: config.get(key, "") for key in ("host", "port", "security", "user", "sender",
+                                                                "sender_name")})
         else:
             from .database.query import engine_label
 
@@ -178,7 +214,7 @@ class Connections:
     def create(self, data: dict) -> dict:
         kind = data.get("type")
         if kind not in TYPES:
-            raise ValueError("Bağlantı türü Google Sheets veya veritabanı olmalıdır.")
+            raise ValueError("Bağlantı türü Google Sheets, veritabanı veya e-posta (SMTP) olmalıdır.")
         with self._lock:
             items = self._load()
             item = {"id": uuid.uuid4().hex, "name": self._name(data.get("name"), kind, items), "type": kind,

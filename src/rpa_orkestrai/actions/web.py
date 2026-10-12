@@ -57,3 +57,50 @@ def request(ctx, p):
     if status >= 400 and p.get("fail_on_error", True) is True:
         raise WorkflowError(f"Sunucu {status} hatası döndürdü.")
     return {"status": status, "ok": status < 400, "body": parsed}
+
+
+# ----- Web sayfası adımları (the computer's own Edge or Chrome) -----------------------------
+def web_target(p) -> dict:
+    from ..integrations.web_session import TARGETS
+
+    return {"by": choice(p.get("by", "text"), "Hedefi bulma yöntemi", TARGETS),
+            "value": text(p.get("target"), "Hedef", limit=4096),
+            "exact": p.get("exact") is True,
+            "timeout_ms": int(number(p.get("timeout", 15), "En fazla bekle", 0.5, 300) * 1000)}
+
+
+@handler("web.open")
+def web_open(ctx, p):
+    url = text(p.get("url"), "Adres", limit=4096).strip()
+    browser = choice(p.get("browser", "auto"), "Tarayıcı", {"auto", "msedge", "chrome"})
+    session = ctx.web()
+    final = session.open(url, browser=browser, headless=p.get("headless") is True)
+    ctx.log(f"Sayfa açıldı ({session.channel}): {final}")
+    return final
+
+
+@handler("web.click")
+def web_click(ctx, p):
+    target = web_target(p)
+    ctx.web().click(target["by"], target["value"], exact=target["exact"], timeout_ms=target["timeout_ms"])
+
+
+@handler("web.fill")
+def web_fill(ctx, p):
+    target = web_target(p)
+    value = text(p.get("text"), "Yazılacak değer", required=False, limit=100_000)
+    ctx.web().fill(target["by"], target["value"], value, exact=target["exact"], timeout_ms=target["timeout_ms"])
+
+
+@handler("web.read")
+def web_read(ctx, p):
+    target = web_target(p)
+    return ctx.web().read(target["by"], target["value"], exact=target["exact"], timeout_ms=target["timeout_ms"])
+
+
+@handler("web.select")
+def web_select(ctx, p):
+    target = web_target(p)
+    option = text(p.get("option"), "Seçilecek seçenek", limit=1000)
+    return ctx.web().select(target["by"], target["value"], option, exact=target["exact"],
+                            timeout_ms=target["timeout_ms"])

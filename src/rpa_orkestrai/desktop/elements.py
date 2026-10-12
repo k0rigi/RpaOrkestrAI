@@ -215,6 +215,16 @@ class ElementService:
             self.cancel.wait(min(POLL_SECONDS, remaining))
 
 
+CHECKBOX_ROLES = {"CheckBox", "AXCheckBox"}
+
+
+def checkbox_info(service: ElementService, window: WindowInfo, locator: Any, *, timeout: float) -> ElementInfo:
+    info = service.find(window, locator, timeout=timeout)
+    if info.role not in CHECKBOX_ROLES:
+        raise WindowError(f"Seçilen alan bir onay kutusu değil ({role_label(info.role)}). Onay kutusunu yeniden seçin.")
+    return info
+
+
 def import_comtypes():
     """Import comtypes without clashing with a thread already joined to COM.
 
@@ -339,6 +349,48 @@ class UiaElements:
             # still has to prove the target through fresh OCR in that case.
             return None
 
+    def _raw(self, window: WindowInfo, info: ElementInfo) -> Any:
+        """The live element behind info: same type, bounds and identity, exactly one."""
+        automation, request, everything = self._context()
+        try:
+            found = automation.ElementFromHandle(window.window_id).FindAllBuildCache(
+                UIA_TREE_SCOPE_DESCENDANTS, everything, request)
+            count = min(found.Length, WINDOWS_ELEMENT_LIMIT) if found is not None else 0
+            same = []
+            for index in range(count):
+                element = found.GetElement(index)
+                candidate = self._info(element)
+                if candidate is not None and candidate.bounds == info.bounds and candidate.role == info.role \
+                        and stable_identity(candidate) == stable_identity(info):
+                    same.append(element)
+        except OSError as exc:
+            raise WindowError("uygulama penceresinin alanları okunamadı.") from exc
+        if len(same) != 1:
+            raise WindowError("Onay kutusu pencerede tek olarak doğrulanamadı; işlem yapılmadı.")
+        return same[0]
+
+    def _toggle_pattern(self, window: WindowInfo, info: ElementInfo) -> Any:
+        from comtypes.gen.UIAutomationClient import IUIAutomationTogglePattern
+
+        try:
+            unknown = self._raw(window, info).GetCurrentPattern(10015)
+            if not unknown:
+                raise WindowError("Bu onay kutusu durumunu uygulama yapısından vermiyor; Referans görsel yöntemini "
+                                  "kullanın.")
+            return unknown.QueryInterface(IUIAutomationTogglePattern)
+        except OSError as exc:
+            raise WindowError("Onay kutusunun durumu okunamadı.") from exc
+
+    def checkbox_state(self, window: WindowInfo, info: ElementInfo) -> bool | None:
+        state = int(self._toggle_pattern(window, info).CurrentToggleState)
+        return {0: False, 1: True}.get(state)  # 2: indeterminate
+
+    def toggle_checkbox(self, window: WindowInfo, info: ElementInfo) -> None:
+        try:
+            self._toggle_pattern(window, info).Toggle()
+        except OSError as exc:
+            raise WindowError("Onay kutusu değiştirilemedi.") from exc
+
     def element_at(self, window: WindowInfo, x: int, y: int) -> ElementInfo | None:
         # Hit-test the window's own tree: another window above the point (Studio,
         # the picker HUD) can never be mistaken for the uygulama field.
@@ -442,6 +494,37 @@ class AxElements:
             if depth < MAC_DEPTH_LIMIT:
                 queue.extend((child, depth + 1) for child in self._attribute(element, "AXChildren") or [])
         return found
+
+    def _raw(self, window: WindowInfo, info: ElementInfo) -> Any:
+        application = self._application(window)
+        queue = deque([(self._window_element(application, window), 0)])
+        same, visited = [], 0
+        while queue and visited < MAC_ELEMENT_LIMIT:
+            element, depth = queue.popleft()
+            visited += 1
+            role = self._text(element, "AXRole")
+            if role == info.role:
+                candidate = self._info(element, role)
+                if candidate is not None and candidate.bounds == info.bounds \
+                        and stable_identity(candidate) == stable_identity(info):
+                    same.append(element)
+            if depth < MAC_DEPTH_LIMIT:
+                queue.extend((child, depth + 1) for child in self._attribute(element, "AXChildren") or [])
+        if len(same) != 1:
+            raise WindowError("Onay kutusu pencerede tek olarak doğrulanamadı; işlem yapılmadı.")
+        return same[0]
+
+    def checkbox_state(self, window: WindowInfo, info: ElementInfo) -> bool | None:
+        value = self._attribute(self._raw(window, info), "AXValue")
+        try:
+            return {0: False, 1: True}.get(int(value))  # 2: mixed
+        except (TypeError, ValueError):
+            raise WindowError("Bu onay kutusu durumunu uygulama yapısından vermiyor; Referans görsel yöntemini "
+                              "kullanın.") from None
+
+    def toggle_checkbox(self, window: WindowInfo, info: ElementInfo) -> None:
+        if self.ax.AXUIElementPerformAction(self._raw(window, info), "AXPress") != 0:
+            raise WindowError("Onay kutusu değiştirilemedi.")
 
     def element_at(self, window: WindowInfo, x: int, y: int) -> ElementInfo | None:
         application = self._application(window)

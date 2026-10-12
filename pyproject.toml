@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rpa-orkestrai"
-version = "0.9.19"
+version = "0.9.20"
 description = "Yerel masaüstü ve web otomasyonu için görsel RPA Studio"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -44,6 +44,7 @@ automation = [
   "gspread>=6.1,<7",
   "google-auth>=2.35,<3",
   "playwright>=1.49,<2",
+  "pdfplumber>=0.11,<1",
   "psycopg[binary]>=3.2,<4",
   "pyodbc>=5.3,<6",
   # SQL Server from a Mac without the Microsoft ODBC driver; Windows uses pyodbc and its own driver.

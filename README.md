@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.19-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.19-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.20-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.20-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -22,6 +22,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 **0.9.7:** Tabloya yazmada **Ekranda seç** ile referans görsel, konum veya alan kimliği kullanılabilir. Ana form satır, sütun ve değerden oluşur; ayrıntılı ayarlar **Diğer seçenekler** altındadır. 0.9.6 ile kaydedilmiş otomatik/adla tablo seçimi korunur. Adım açıklamaları firma ve uygulamadan bağımsız olacak şekilde genelleştirilmiştir.
 
 **0.9.12:** Tablo önizlemesinde **Başlık yap** ile gerçek başlık satırını seçebilirsiniz; başlık yoksa **Başlık yok** seçin. Başlık ve öncesi veri sayılmaz, ilk kayıt **Veri 1 / Satır 1** olur. Başlıktan önce boş satır bulunan kopyalar desteklenir; okuma ve yazma aynı satır ayrımını kullanır. `sutun_7` gibi numaralı sütun adları çalışmaya devam eder.
+
+**0.9.20:** Yeni adımlar: **Onay kutusu**, **PDF'ten oku**, **Zip aç / oluştur**, **E-posta gönder**, **Web sayfası aç / Web öğesine tıkla / Web alanını doldur / Web'den metin oku / Web listesinden seç**. **Hata olursa** bloğuna hata anında ekran görüntüsü seçeneği eklendi. Bu adımları veya seçeneği kullanan akışlar 0.9.20 öncesi sürümlerde açılmaz. [Adımlar](docs/adimlar.md).
 
 **0.9.19:** Akış düzenleyicideki ana **Çalıştır** düğmesinin `body.pause_at: Input should be a valid string` hatası verip akışı başlatmaması düzeltildi (0.9.16–0.9.18).
 
@@ -123,6 +125,7 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Kayıtlı şifreler | ERP girişi gibi işler için şifreyi işletim sisteminin kasasında (Windows Kimlik Bilgisi Yöneticisi, macOS Anahtar Zinciri) tutma; adımda `${sifre.ad}` ile kullanma, günlükte gizleme |
 | Script ve programlar | **Uygulama, dosya veya adres aç** programı, belgeyi veya klasörü çift tıklar gibi açar. Windows'ta programları başlatmak için masaüstü kısayolunu (`.lnk`) seçin; kısayolun parametreleri ve çalışma klasörü korunur. **Komut / script çalıştır** terminal (cmd / Terminal) veya PowerShell komutunu ya da seçilen `.py`, `.ps1`, `.bat`, `.vbs`, `.sh` script'ini çalıştırır, bitmesini bekler ve çıktısını akışta kullanır |
 | Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
+| Yeni (0.9.20) | **Onay kutusu** (alan kimliği veya işaretli/işaretsiz görüntüyle), **PDF'ten oku** (metin, tablo, taranmış sayfalar için OCR), **Zip aç / oluştur**, **E-posta gönder** (SMTP bağlantısı), **Web sayfası** adımları (Edge/Chrome ile aç, tıkla, doldur, oku, listeden seç) ve **Hata olursa** bloğunda hata anında ekran görüntüsü |
 | Ekrandaki metinle yazma | **Metni bul, tıkla ve yaz** ile çizilen alanda OCR ile metni bulup üzerine ya da sütun başlığı ile satır değerinin kesişimine (boş hücre dahil) tıklama ve değer yazma; koordinat kaydedilmez (0.9.15+) |
 | Uygulama tabloları | **Tablodan değer oku** ile uygulama tablosundaki hücreyi sütun adıyla okuma ve satır sayma; **Tabloya değer yaz** ile erişilebilir tablo hücresini satır/sütun veya benzersiz kayıt değeriyle bulup yazma ve doğrulama (0.9.6+) |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |

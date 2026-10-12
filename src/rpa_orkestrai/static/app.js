@@ -316,6 +316,7 @@
     if (type === "control.continue") return "loop";
     if (type === "control.break") return "logout";
     if (/^http\./.test(type)) return "globe";
+    if (/^mail\./.test(type)) return "message";
     if (/^data\.calculate|^text\.|^data\.date|^data\.list/.test(type)) return "code";
     if (/^system\.|clipboard/.test(type)) return "terminal";
     if (/database|sql|query/.test(type)) return "database";
@@ -1770,7 +1771,7 @@
   const categoryTones = {
     "Pencere": "window", "Fare ve klavye": "input", "Ekran ve görsel": "screen",
     "Uygulama ve sistem": "system", "Dosya ve Excel": "file", "Veri ve metin": "data",
-    "Google Sheets": "sheets", "Akış": "flow", "Kullanıcı etkileşimi": "ui", "Web ve API": "web",
+    "Google Sheets": "sheets", "Akış": "flow", "Kullanıcı etkileşimi": "ui", "Web, e-posta ve API": "web",
   };
   const branchWords = {
     "control.for_each": { children: "Her öğe" },
@@ -3329,6 +3330,16 @@
     });
     if (spec.region && !screenTable) tools.append(button("Bölge çiz", "target", () => captureRegion(step), "small"));
     if (spec.template) tools.append(button("Ekrandan görsel seç", "eye", () => pickScreenTemplate(step), "small"));
+    if (step.action === "window.checkbox" && ["coordinates", "image"].includes(parameterValue(step, "target_mode"))) {
+      // Java and custom-drawn applications give no state: the two pictures tell checked from unchecked.
+      for (const [param, label] of [["checked_template", "İşaretliyken görüntüsünü seç"],
+        ["unchecked_template", "İşaretsizken görüntüsünü seç"]]) {
+        const chosen = Boolean(step.params[param]);
+        tools.append(button(`${label}${chosen ? " ✓" : ""}`, "eye", () => pickScreenTemplate(step, false, param, label), "small"));
+      }
+      tools.append(node("p", "help", "Kutuyu uygulamada önce işaretleyip görüntüsünü, sonra işaretini kaldırıp diğer görüntüsünü seçin. Yalnız kutuyu (çerçevesiyle) kapsayan küçük bir alan çizin."));
+      return tools;
+    }
     if (!tools.children.length) return null;
     tools.append(node("p", "help", screenTable
       ? "Pencerenin görüntüsünde tek bir tabloyu, başlıkları ve veri satırlarıyla birlikte bir kez çizin. Hücrelerin yerini tek tek seçmeniz gerekmez."
@@ -3350,12 +3361,12 @@
   function captureRegion(step) {
     pickScreenTemplate(step, true);
   }
-  function pickScreenTemplate(step, regionOnly = false) {
+  function pickScreenTemplate(step, regionOnly = false, param = "template", title = "") {
     const clickable = !regionOnly && step.action === "screen.click_image";
     const tableRegion = regionOnly && step.action === "window.write_table";
     const windowRegion = regionOnly && (tableRegion || step.action === "window.text_write"
       || parameterValue(step, "relative_to") === "window");
-    dialog(tableRegion ? "Tablo alanını çiz" : regionOnly ? "Okunacak bölgeyi çiz" : "Ekrandan görsel seç", (body, d) => {
+    dialog(title || (tableRegion ? "Tablo alanını çiz" : regionOnly ? "Okunacak bölgeyi çiz" : "Ekrandan görsel seç"), (body, d) => {
       d.classList.add("target-picker-dialog");
       let capture = null, image = null, rect = null, point = null, drag = null, saved = false;
       const delay = node("select");
@@ -3498,7 +3509,7 @@
             method: "POST", body: JSON.stringify({ capture_id: capture.id, ...rect }),
           });
           saved = true;
-          const values = { template: stored.template };
+          const values = { [param]: stored.template };
           if (clickable) {
             const centerX = rect.x + Math.floor(rect.width / 2);
             const centerY = rect.y + Math.floor(rect.height / 2);
@@ -5268,8 +5279,8 @@
         const row = node("div", "path-row");
         control.replaceWith(row);
         const browse = button("Seç…", "folder", async () => {
-          const kind = f.name === "folder" ? "folder"
-            : ["file.write_text", "file.write_table"].includes(step.action) ? "save" : "open";
+          const kind = f.path_kind || (f.name === "folder" ? "folder"
+            : ["file.write_text", "file.write_table"].includes(step.action) ? "save" : "open");
           try {
             const preserve_shortcuts = step.action === "system.open" && f.name === "target";
             const chosen = await api("/api/desktop/choose-path", {
@@ -6565,6 +6576,7 @@
   const connectionKinds = {
     google_sheets: { label: "Google Sheets", glyph: "sheet", example: "Ör. Satış tablosu" },
     database: { label: "Veritabanı", glyph: "database", example: "Ör. uygulama canlı veritabanı" },
+    smtp: { label: "E-posta (SMTP)", glyph: "message", example: "Ör. RPA bildirim hesabı" },
   };
   async function refreshConnections() {
     state.connections = await api("/api/connections");
@@ -6581,6 +6593,7 @@
   }
   function connectionSummary(profile) {
     if (profile.type === "google_sheets") return profile.method_label;
+    if (profile.type === "smtp") return [profile.sender, profile.host].filter(Boolean).join(" · ");
     const place = profile.engine === "sqlite" ? profile.path.split(/[\\/]/).pop()
       : profile.engine === "url" ? profile.url_kind : [profile.host, profile.database].filter(Boolean).join(" / ");
     return [profile.engine_label, place].filter(Boolean).join(" · ");
@@ -6684,6 +6697,7 @@
       inputs.name.maxLength = 80;
       body.append(field("Bağlantı adı", inputs.name, "Adımlarda bu adla seçilir.", true));
       if (kind === "google_sheets") sheetsForm(body);
+      else if (kind === "smtp") smtpForm(body);
       else databaseForm(body);
       const makeDefault = node("input");
       makeDefault.type = "checkbox";
@@ -6854,6 +6868,45 @@
         + "değiştiremeyen bir veritabanı kullanıcısı kullanın.", "", "shield"), testArea());
       paint();
     }
+    function smtpForm(body) {
+      const plain = (value, placeholder) => {
+        const input = textInput(value || "", placeholder);
+        input.spellcheck = false;
+        input.autocomplete = "off";
+        return input;
+      };
+      inputs.security = node("select");
+      for (const [value, label] of [["starttls", "STARTTLS (genellikle 587)"], ["ssl", "SSL/TLS (genellikle 465)"],
+        ["none", "Şifrelemesiz (yalnız iç ağ)"]]) {
+        const option = node("option", "", label);
+        option.value = value;
+        inputs.security.append(option);
+      }
+      inputs.security.value = profile?.security || "starttls";
+      inputs.host = plain(profile?.host, "Ör. smtp.office365.com veya smtp.gmail.com");
+      inputs.port = plain(profile?.port, "");
+      inputs.user = plain(profile?.user, "Ör. rpa@firma.com");
+      inputs.password = textInput("", profile?.has_password
+        ? "Kayıtlı şifre kullanılıyor · değiştirmek için yazın" : "", "password");
+      inputs.password.autocomplete = "new-password";
+      inputs.sender = plain(profile?.sender, "Ör. rpa@firma.com");
+      inputs.sender_name = plain(profile?.sender_name, "Ör. RpaOrkestrAI");
+      const ports = { starttls: 587, ssl: 465, none: 25 };
+      const paint = () => { inputs.port.placeholder = `Varsayılan: ${ports[inputs.security.value]}`; };
+      inputs.security.addEventListener("change", paint);
+      body.append(
+        field("SMTP sunucusu", inputs.host, "E-posta sağlayıcınızın giden posta sunucusu.", true),
+        field("Şifreleme", inputs.security, "", true),
+        field("Port", inputs.port, "Boş bırakılırsa şifrelemeye göre varsayılan kullanılır."),
+        field("Kullanıcı", inputs.user, "Çoğunlukla e-posta adresinin kendisi. Sunucu giriş istemiyorsa boş bırakın."),
+        field("Şifre", inputs.password, "Gmail ve Microsoft 365'te hesabın şifresi yerine uygulama şifresi gerekebilir. Yalnız bu bilgisayarda saklanır."),
+        field("Gönderen adresi", inputs.sender, "Giriş yapılan hesaba ait olmalıdır.", true),
+        field("Gönderen adı", inputs.sender_name, "Alıcının gördüğü ad (isteğe bağlı)."),
+        note("Bağlantıyı test et yalnız sunucuya bağlanıp giriş yapar; e-posta göndermez.", "", "shield"),
+        testArea(),
+      );
+      paint();
+    }
     function testArea() {
       const wrap = node("div", "connection-test");
       const result = node("div", "connection-test-result");
@@ -6880,6 +6933,11 @@
       return wrap;
     }
     function config() {
+      if (kind === "smtp") {
+        const values = { security: inputs.security.value };
+        for (const key of ["host", "port", "user", "password", "sender", "sender_name"]) values[key] = inputs[key].value.trim();
+        return values;
+      }
       if (kind === "google_sheets")
         return {
           method: inputs.method.value,
