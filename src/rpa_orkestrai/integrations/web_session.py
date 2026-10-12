@@ -149,12 +149,22 @@ class WebSession:
             self._runtime = sync_playwright().start()
             self._context = launch(self._runtime, self.profile, channel, headless, self.timeout_ms)
             self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
-            # A tab the page opens itself (target=_blank, window.open) is where a person continues.
-            self._context.on("page", lambda page: self._opened.append(page))  # a builtin is not accepted
+            self._follow(self._page)
             self.channel = channel
         except Exception:
             self.close()
             raise
+
+    def _follow(self, page: Any) -> None:
+        """A tab this page opens (target=_blank, window.open) is where a person continues.
+
+        Only the page's own popups count: the browser may open internal pages (Edge does for a
+        download) that must never take over the work.
+        """
+        if getattr(page, "_rpa_followed", False):
+            return
+        page._rpa_followed = True
+        page.on("popup", lambda popup: (self._opened.append(popup), self._follow(popup)))
 
     @property
     def page(self) -> Any:
@@ -249,7 +259,7 @@ class WebSession:
         # Never retried: a second click can submit a form twice.
         if new_tab:
             def click_and_wait() -> None:
-                with self._context.expect_page(timeout=target.timeout_ms):
+                with page.expect_popup(timeout=target.timeout_ms):
                     item.click(timeout=target.timeout_ms)
 
             self._run(click_and_wait, "Yeni sekme açılmadı")
@@ -404,6 +414,7 @@ class WebSession:
             raise WorkflowError(f"“{text}” {len(chosen)} sekmeyle eşleşti; tek bir sekme seçilebilir." if chosen
                                 else f"“{text}” geçen bir sekme bulunamadı.")
         self._page = chosen[0]
+        self._follow(self._page)
         self._run(lambda: self._page.bring_to_front(), "Sekmeye geçilemedi")
         return str(self._page.url)
 
