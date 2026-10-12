@@ -82,7 +82,7 @@ def context(tmp_path, smtp, **config):
 
 def test_sends_once_with_turkish_subject_body_and_attachment(tmp_path, smtp):
     attachment = tmp_path / "iade özeti.csv"
-    attachment.write_text("no;tutar\n1;10,50", encoding="utf-8")
+    attachment.write_bytes("no;tutar\n1;10,50".encode("utf-8"))  # exact bytes: Windows text mode adds \r
     ctx, logs = context(tmp_path, smtp)
     result = send(ctx, {"to": "a@firma.com; b@firma.com", "cc": "c@firma.com", "bcc": "gizli@firma.com",
                         "subject": "Fatura 1069 işlendi", "body": "Merhaba,\nİşlem tamamlandı: ğüşıöç",
