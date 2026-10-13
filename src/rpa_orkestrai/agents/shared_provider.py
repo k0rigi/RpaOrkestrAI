@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from collections import deque
+from contextlib import contextmanager
 
 from ..models import uid
 from .central import CentralError, identity_key, record_id
@@ -17,6 +20,37 @@ from .providers import (
     ToolCall,
     Usage,
 )
+
+_MODEL_CONDITION = threading.Condition()
+_MODEL_WAITERS = {}
+
+
+@contextmanager
+def _model_slot(client, actor, cancel, deadline):
+    """One pending server job per signed session, shared by every Studio provider instance."""
+    key, ticket = identity_key(actor), object()
+    with _MODEL_CONDITION:
+        waiting = _MODEL_WAITERS.setdefault(key, deque())
+        waiting.append(ticket)
+    try:
+        while True:
+            if cancel.is_set():
+                raise ProviderCancelled()
+            if time.monotonic() >= deadline:
+                raise ProviderTimeout()
+            if identity_key(client.actor()) != key:
+                raise ProviderError()
+            with _MODEL_CONDITION:
+                if waiting[0] is ticket:
+                    break
+                _MODEL_CONDITION.wait(min(0.05, max(0, deadline - time.monotonic())))
+        yield
+    finally:
+        with _MODEL_CONDITION:
+            waiting.remove(ticket)
+            if not waiting:
+                _MODEL_WAITERS.pop(key, None)
+            _MODEL_CONDITION.notify_all()
 
 
 def shared_prompt_bytes(messages, tools):
@@ -86,6 +120,14 @@ class SharedProvider:
 
     def complete(self, messages, tools, *, model, max_tokens, cancel, deadline):
         actor = self.client.actor()
+        try:
+            with _model_slot(self.client, actor, cancel, deadline):
+                return self._complete(messages, tools, model=model, max_tokens=max_tokens,
+                                      cancel=cancel, deadline=deadline, actor=actor)
+        except CentralError:
+            raise ProviderError() from None
+
+    def _complete(self, messages, tools, *, model, max_tokens, cancel, deadline, actor):
         job_id = None
 
         def check():
@@ -93,6 +135,8 @@ class SharedProvider:
                 raise ProviderCancelled()
             if time.monotonic() >= deadline:
                 raise ProviderTimeout()
+            if identity_key(self.client.actor()) != identity_key(actor):
+                raise ProviderError()
 
         try:
             check()

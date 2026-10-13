@@ -359,3 +359,127 @@ def test_model_retry_policy_does_not_repeat_approval_decision_or_consumption(ope
         else:
             backend.consume(context, remote, digest=prepared.digest)
     assert len(attempts) == 1
+
+
+def _shared_thread(client, label, *, cancel=None, timeout=5):
+    outcome = {}
+
+    def work():
+        try:
+            outcome["response"] = SharedProvider(client).complete(
+                [{"role": "user", "content": label}], [], model="kurum-modeli", max_tokens=128,
+                cancel=cancel or threading.Event(), deadline=time.monotonic() + timeout)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    return thread, outcome
+
+
+def _wait_model_queue(count):
+    from rpa_orkestrai.agents.shared_provider import _MODEL_CONDITION, _MODEL_WAITERS
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        with _MODEL_CONDITION:
+            if sum(len(waiting) for waiting in _MODEL_WAITERS.values()) == count:
+                return
+        threading.Event().wait(0.005)
+    pytest.fail("Model sırası beklenen uzunluğa ulaşmadı.")
+
+
+class BlockingModelClient(ModelClient):
+    def __init__(self, *, first_failure=False):
+        super().__init__(shared_success())
+        self.first_started, self.release_first = threading.Event(), threading.Event()
+        self.submitted = []
+        self.first_failure = first_failure
+        self.current_actor = actor()
+
+    def actor(self):
+        return self.current_actor
+
+    def request(self, method, path, body=None, **kwargs):
+        if method == "POST":
+            label = body["messages"][0]["content"]
+            self.submitted.append(label)
+            if label == "first":
+                self.first_started.set()
+                if not self.release_first.wait(3):
+                    raise AssertionError("Testin ilk isteği serbest bırakılmadı.")
+                if self.first_failure:
+                    raise CentralError("İstek gönderilemedi", 403)
+        return super().request(method, path, body, **kwargs)
+
+
+@pytest.mark.parametrize("first_failure", [False, True])
+def test_shared_session_fifo_is_global_across_provider_instances_and_releases_failed_slot(first_failure):
+    client = BlockingModelClient(first_failure=first_failure)
+    workers = [_shared_thread(client, "first")]
+    try:
+        assert client.first_started.wait(2)
+        workers.append(_shared_thread(client, "second"))
+        _wait_model_queue(2)
+        workers.append(_shared_thread(client, "third"))
+        _wait_model_queue(3)
+        assert client.submitted == ["first"]
+    finally:
+        client.release_first.set()
+        for thread, _outcome in workers:
+            thread.join(3)
+    assert all(not thread.is_alive() for thread, _ in workers)
+    assert client.submitted == ["first", "second", "third"]
+    assert ("error" in workers[0][1]) is first_failure
+    assert all("response" in outcome for _, outcome in workers[1:])
+    _wait_model_queue(0)
+
+
+@pytest.mark.parametrize("mode", ["cancel", "deadline", "session", "license"])
+def test_shared_waiting_slot_cancels_before_post_and_does_not_block_successor(mode, monkeypatch):
+    active, waiting = BlockingModelClient(), ModelClient(shared_success())
+    cancel = threading.Event()
+    workers = [_shared_thread(active, "first")]
+    try:
+        assert active.first_started.wait(2)
+        workers.append(_shared_thread(waiting, "waiting", cancel=cancel, timeout=0.12 if mode == "deadline" else 5))
+        _wait_model_queue(2)
+        if mode == "cancel":
+            cancel.set()
+        elif mode == "session":
+            monkeypatch.setattr(waiting, "actor", lambda: actor().model_copy(update={"session_id": "new-session"}))
+        elif mode == "license":
+            def locked():
+                raise CentralError("Lisans kapalı", 403)
+            monkeypatch.setattr(waiting, "actor", locked)
+        workers[1][0].join(1)
+        assert not workers[1][0].is_alive()
+        expected = {"cancel": ProviderCancelled, "deadline": ProviderTimeout}.get(mode, ProviderError)
+        assert isinstance(workers[1][1].get("error"), expected)
+        assert not waiting.calls  # No capabilities or business request while waiting.
+        _wait_model_queue(1)
+        workers.append(_shared_thread(active, "successor"))
+        _wait_model_queue(2)
+    finally:
+        active.release_first.set()
+        for thread, _outcome in workers:
+            thread.join(3)
+    assert active.submitted == ["first", "successor"]
+    assert "response" in workers[-1][1]
+    _wait_model_queue(0)
+
+
+def test_shared_fifo_does_not_block_different_signed_sessions():
+    active, other = BlockingModelClient(), ModelClient(shared_success())
+    other.actor = lambda: actor().model_copy(update={"user_id": 9, "session_id": "another-session"})
+    first, outcome = _shared_thread(active, "first")
+    try:
+        assert active.first_started.wait(2)
+        second, completed = _shared_thread(other, "independent")
+        second.join(1)
+        assert not second.is_alive() and "response" in completed
+        assert not outcome
+    finally:
+        active.release_first.set()
+        first.join(3)
+    _wait_model_queue(0)
