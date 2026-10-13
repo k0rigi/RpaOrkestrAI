@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -153,6 +154,45 @@ def test_three_files_license_and_revision_are_bundled():
     from scripts.build_desktop import office_assets
 
     assert office_assets().name == "static"
+
+
+def test_windows_checkout_preserves_upstream_vendor_bytes(tmp_path):
+    project = Path(__file__).resolve().parents[1]
+    relative = Path("src/rpa_orkestrai/static/vendor/three")
+    vendor = tmp_path / relative
+    shutil.copytree(project / relative, vendor)
+    shutil.copyfile(project / ".gitattributes", tmp_path / ".gitattributes")
+    original = {str(path.relative_to(vendor)): path.read_bytes() for path in vendor.rglob("*") if path.is_file()}
+
+    def git(*args):
+        return subprocess.run(["git", "-c", "core.autocrlf=true", *args], cwd=tmp_path,
+                              check=True, capture_output=True)
+
+    git("init", "--quiet")
+    git("add", ".gitattributes", relative.as_posix())
+    shutil.rmtree(vendor)
+    git("checkout-index", "--all", "--force")
+    assert {str(path.relative_to(vendor)): path.read_bytes() for path in vendor.rglob("*") if path.is_file()} == original
+    root = vendor.parent.parent
+    for name in ("office.js", "office.css", "agents.js", "agents.css", "native-office-check.js"):
+        shutil.copyfile(project / "src/rpa_orkestrai/static" / name, root / name)
+    _check_office_assets(root)
+
+
+@pytest.mark.parametrize("name", ["three.module.js", "addons/controls/OrbitControls.js", "LICENSE"])
+def test_office_integrity_rejects_changed_line_endings(tmp_path, name):
+    root = Path(__file__).resolve().parents[1] / "src" / "rpa_orkestrai" / "static"
+    vendor = tmp_path / "vendor" / "three"
+    shutil.copytree(root / "vendor" / "three", vendor)
+    for item in ("office.js", "office.css", "agents.js", "agents.css", "native-office-check.js"):
+        shutil.copyfile(root / item, tmp_path / item)
+    target = vendor / name
+    original = target.read_bytes()
+    changed = original.replace(b"\n", b"\r\n")
+    assert changed != original
+    target.write_bytes(changed)
+    with pytest.raises(RuntimeError, match="Three.js"):
+        _check_office_assets(tmp_path)
 
 
 @pytest.mark.parametrize("name", ["vendor/three/three.module.js", "vendor/three/addons/controls/OrbitControls.js",

@@ -105,7 +105,13 @@ kullanır; ayrıca API anahtarı girilmez. Diğer bulut sağlayıcılarına otom
    reddeder. Akışı başlatacak Studio onayı sunucuda tek kullanımlık olarak
    tüketmeden çalıştırmaz. Bağlantı hatası yerel onaya dönüşmez.
 5. **Durdur** ajanı, alt görevlerini ve yalnız bunlara bağlı çalışan akışı durdurur.
-   Daha önce tamamlanan dış işlemler geri alınmaz.
+   Alt akış iptal sinyalini önce görse de kaydı **İptal edildi** olur. Aynı kural
+   lisansın kapanması ve oturum değişmesi için geçerlidir; süre veya yetki sınırını
+   aşmak hata olarak kaydedilir. Daha önce tamamlanan dış işlemler geri alınmaz.
+
+Birden fazla ajan aynı çalışma alanındaki bağlantı kayıtlarını paylaşabilir.
+İlk açılış ve eşzamanlı kayıt işlemleri sıraya alınır; yarım kalan dosya yazımı
+önceki geçerli kaydı bozmaz.
 
 ## Organizasyon ve insan görevleri
 

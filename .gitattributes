@@ -1,0 +1,2 @@
+# Preserve the upstream bytes checked by the bundled SHA-256 manifest.
+src/rpa_orkestrai/static/vendor/three/** -text

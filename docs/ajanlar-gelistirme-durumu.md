@@ -1,9 +1,9 @@
 # Ajan geliştirmesi — 14 Ekim 2026
 
-Bu rapor yerel geliştirme durumudur. Yeni kurulum paketi veya ajan sunucu hizmeti
-henüz yayımlanmadı; 0.9.23 kaynak sürümü kullanıcı onayıyla hazırlanıyor. Donanım
-ve hizmet/lisans metadata tanılamaları dışında bu özellik için canlı sunucu
-değişikliği yapılmadı.
+Bu rapor yayın hazırlığının durumudur. 0.9.23 kurulum paketi henüz yayımlanmadı.
+Ajan ve ekip API kodu normal sunucu dağıtımıyla yayımlandı; mevcut API hizmetinin
+yeniden başlatılması ve kimlik kapısı doğrulandı. Ortak model kurulumu ve açıkça
+onaylanan lisans ataması ayrıca tamamlanacak.
 
 ## Aşamalar
 
@@ -26,13 +26,14 @@ raporlama bu kapsamda yayımlanmış değildir.
 ## Doğrulama
 
 - Studio tam ağsız test koşusu: **1.730 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Son insan durumu biçim denetimi ayrıca 15 ofis testiyle doğrulandı.
-- Sunucu ajan/ekip/LLM ve lisans atama testleri: **184 geçti**; kurulum denetimleri ayrıca çalışıyor. Python 3.6 uyumluluğu statik olarak denetlendi.
+- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **247 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
 - Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
 - Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
 - UI testleri Chromium'da sahte HTTP yanıtlarıyla çalıştı; gerçek sağlayıcı/ERP hesabı kullanılmadı.
 - Gerçek macOS WKWebView kaynak çalışması: **9/9 kontrol geçti**, 633 WebGL çizim çağrısı, hata yok; sürüm 0.9.23, `frozen=false`. Paketlenmiş uygulama kanıtı değildir. Ofis Chromium testleri **10/10**, native kontrol regresyonları **56** test geçti.
 - Gerçek Windows WebView2, paketlenmiş EXE/DMG öz testi ve iki platform CI sonuçları henüz tamamlanmadı.
-- Gerçek MariaDB geçişi, Ollama çıkarımı ve sunucu hizmet kurulumu henüz yapılmadı.
+- İlk Windows CI koşusu vendor dosyalarının CRLF dönüşümünü, iki testte UTF-8 belirtilmemesini ve eşzamanlı bağlantı kaydı/iptal yarışını ortaya çıkardı. Orijinal vendor baytları `.gitattributes` ile korunuyor; üretimde SHA denetimi gevşetilmedi. Bağlantılar ortak kilit ve benzersiz geçici dosya kullanıyor; iptal kontrol sinyali alt akışta da iptal sayılıyor. Ofis/native 50, bağlantı/kayıt/ajan 76, akış AI 52 hedefli test geçti; yeni tam koşu ve iki platform CI sonucu bekleniyor. Başarısız koşu yayın kanıtı sayılmaz.
+- Sunucu API dağıtımı başarılı: [0033c5b dağıtım kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38476658847). Gerçek MariaDB lisans ön kontrolü, Ollama çıkarımı ve model hizmet kurulumu henüz tamamlanmadı.
 
 ## Güvenlik kontrol listesi
 

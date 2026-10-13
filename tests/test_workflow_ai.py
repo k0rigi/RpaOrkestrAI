@@ -57,7 +57,7 @@ def test_ai_step_uses_saved_model_without_tools_and_saves_masked_request(ai):
     request = ai.state["provider"].requests[0]
     assert request["model"] == "yerel-test" and request["tools"] == []
     artifact = ai.executor.run.artifacts[0]
-    content = next((ai.settings.data_dir / "artifacts" / ai.executor.run.id).glob(f"{artifact.id}.*")).read_text()
+    content = next((ai.settings.data_dir / "artifacts" / ai.executor.run.id).glob(f"{artifact.id}.*")).read_text(encoding="utf-8")
     assert json.loads(content) == request
 
 
@@ -74,7 +74,7 @@ def test_shared_context_limit_is_applied_before_audit_and_provider_call(ai, avai
         assert execute(ai) == "Tamam"
         request = provider.requests[0]
         assert request["max_tokens"] == available
-        content = next((ai.settings.data_dir / "artifacts" / ai.executor.run.id).glob("*.json")).read_text()
+        content = next((ai.settings.data_dir / "artifacts" / ai.executor.run.id).glob("*.json")).read_text(encoding="utf-8")
         assert json.loads(content) == request
 
 
