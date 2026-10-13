@@ -1,6 +1,7 @@
 """The isolated package diagnostic never needs an account, vault, or external service."""
 
 import http.client
+import io
 import json
 import os
 import sys
@@ -229,6 +230,30 @@ def test_ci_wrapper_requires_complete_frozen_matching_native_report(monkeypatch,
             runner.check(executable, report)
     else:
         runner.check(executable, report)
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_ci_wrapper_prints_turkish_with_windows_ansi_redirected_streams(monkeypatch, failed):
+    output, errors = io.BytesIO(), io.BytesIO()
+    stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict", write_through=True)
+    stderr = io.TextIOWrapper(errors, encoding="cp1252", errors="strict", write_through=True)
+    monkeypatch.setattr(runner.sys, "stdout", stdout)
+    monkeypatch.setattr(runner.sys, "stderr", stderr)
+    monkeypatch.setattr(runner.sys, "argv", ["check_native_office.py", "app.exe", "report.json"])
+    check = Mock(side_effect=ValueError("private-error") if failed else None)
+    monkeypatch.setattr(runner, "check", check)
+    if failed:
+        with pytest.raises(SystemExit) as caught:
+            runner.main()
+        assert caught.value.code == 1
+        assert "başarısız oldu" in errors.getvalue().decode("utf-8")
+        assert "private-error" not in errors.getvalue().decode("utf-8")
+        assert output.getvalue() == b""
+    else:
+        assert runner.main() == 0
+        assert output.getvalue().decode("utf-8").splitlines() == ["Paket içindeki yerel ofis ve 3D çizim doğrulandı."]
+        assert errors.getvalue() == b""
+    check.assert_called_once_with(Path("app.exe"), Path("report.json"))
 
 
 @pytest.mark.skipif(os.environ.get("RPA_UI_TESTS") != "1", reason="İsteğe bağlı ağsız tanılama sayfası testi")

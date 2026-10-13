@@ -25,17 +25,20 @@ raporlama bu kapsamda yayımlanmış değildir.
 
 ## Doğrulama
 
-- Windows düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.744 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı.
-- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **247 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
+- İkinci CI düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.749 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı. Görev sırası, yeniden deneme süresi ve Türkçe konsol çıktısı ayrıca deterministik regresyonlarla doğrulandı.
+- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **270 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
 - Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
 - Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
 - UI testleri Chromium'da sahte HTTP yanıtlarıyla çalıştı; gerçek sağlayıcı/ERP hesabı kullanılmadı.
 - Gerçek macOS WKWebView kaynak çalışması: **9/9 kontrol geçti**, 633 WebGL çizim çağrısı, hata yok; sürüm 0.9.23, `frozen=false`. Paketlenmiş uygulama kanıtı değildir. Ofis Chromium testleri **10/10**, native kontrol regresyonları **56** test geçti.
 - İlk macOS CI matrisinde Python 3.11–3.14 geçti. İlk macOS paketinin öz testinde `ok=true`, `frozen=true`; gerçek WKWebView ofis sınamasında 9/9 kontrol ve 633 çizim çağrısı başarılı. Bu paket ilk commit içindir; Windows düzeltmelerini içeren yeni paket ve CI sonucu hâlâ gerekli. [macOS paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38475578862).
 - İlk Windows CI koşusu vendor dosyalarının CRLF dönüşümünü, iki testte UTF-8 belirtilmemesini ve eşzamanlı bağlantı kaydı/iptal yarışını ortaya çıkardı. Orijinal vendor baytları `.gitattributes` ile korunuyor; üretimde SHA denetimi gevşetilmedi. Bağlantılar ortak kilit ve benzersiz geçici dosya kullanıyor; iptal kontrol sinyali alt akışta da iptal sayılıyor. Ofis/native 50, bağlantı/kayıt/ajan 76, akış AI 52 hedefli test ve ardından 1.744 testlik tam koşu geçti. Yeni iki platform CI sonucu bekleniyor; başarısız koşu yayın kanıtı sayılmaz.
+- İkinci matrisin macOS Python 3.11–3.14 işleri başarılı. Windows'ta aynı ajanın kuyruk taraması sırasında görevin bitmesiyle sonraki işin öne geçmesi deterministik testle yeniden üretildi ve düzeltildi; kuyruğa giriş sırası sistem saatinden bağımsız korunuyor. Erken biten beklemenin model tekrar denemesini öne çekmesi de kontrollü saat testiyle düzeltildi. Windows arayüz fixture'ları UTF-8 okuyor; 23 yerel tarayıcı testi geçti. [İkinci matris](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38478500170).
+- İkinci Windows paketinin öz testi `ok=true`, `frozen=true`, 16 kontrol başarılı. Gerçek WebView2 ofis sınaması 9/9 kontrol, 844 WebGL çizim çağrısı ve boş hata listesiyle geçti. İşin sonundaki Türkçe başarı mesajı ANSI konsolda kodlama hatası verdi; komut satırı çıktısı UTF-8 olarak düzenlendi, başarı ve hata çıkışları cp1252 akışlarıyla test edildi. Son düzeltilen kaynak için yeni iki platform paketleri gerekli. [Windows paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38478502484).
 - Sunucu API dağıtımı başarılı: [0033c5b dağıtım kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38476658847). Ollama çıkarımı ve model hizmet kurulumu henüz tamamlanmadı.
 - Canlı MariaDB lisans ön kontrolü onaylanan hesap, firma ve dönem için başarılı; değişiklik yapılmadı. [Ön kontrol](https://github.com/k0rigi/orkestrai/actions/runs/38477834671).
-- İlk gerçek model kurulumu araç sınaması aşamasında başarısız oldu; servis ve ayarlar otomatik geri alındı. Model erişimi açılmadı, lisans verilmedi. İş içeriği göstermeyen alt aşama tanılaması hazırlanıyor. [Kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38476989144).
+- İlk gerçek model kurulumu araç sınaması aşamasında başarısız oldu; servis ve ayarlar otomatik geri alındı. Model erişimi açılmadı, lisans verilmedi. İş içeriği göstermeyen alt aşama tanılaması dağıtıldı. [İlk kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38476989144).
+- İkinci model sınaması yapılandırma, soket ve istek denetimlerini geçti; ilk çıkarım 90,18 saniyede erişim hatasıyla durdu. Bu, çıkarım süre sınırına karşılık geliyor; zaman aşımı ayrımı ve soğuk yükleme ölçümü hazırlanıyor. Servis ve ayarlar geri alındı, lisans ataması hâlâ uygulanmadı. [İkinci kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38479036763).
 
 ## Güvenlik kontrol listesi
 
@@ -56,7 +59,7 @@ raporlama bu kapsamda yayımlanmış değildir.
 
 - Sunucu yükseltmesi salt okunur Actions tanılamasıyla doğrulandı: **6 mantıksal işlemci, 7,5 GiB toplam / 6,8 GiB kullanılabilir RAM, 81,6 GiB boş disk**, AlmaLinux 8.10 x86_64. NVIDIA yönetim aracı bulunmaması GPU olmadığını kanıtlamaz; ilk model CPU ile, tek çıkarım sırasında ölçülecek. Donanım artışı tek başına model hızı veya araç çağrısı doğruluğunun doğrulandığı anlamına gelmez. [Tanılama kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472031645).
 - Mevcut web hizmeti ve lisans metadata incelemesi tamamlandı; mevcut systemd web hizmeti korunacak. Ortak model henüz kurulu değil. [İnceleme kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472777304).
-- Ofis karakterleri ve yerel pencere testi tamamlandı; paketler içindeki gerçek motor kontrolleri bekliyor.
+- Ofis karakterleri ve paketler içindeki gerçek WKWebView/WebView2 kontrolleri başarılı; son düzeltmeleri içeren iki platform paketleri bekliyor.
 - Seçilen firma/kullanıcı için `MOD_AJAN` bitişini mevcut RPA firma bitişiyle eşleme ve tek onaycı bağlama işlemi kullanıcı tarafından onaylandı; canlı atama henüz yapılmadı. Hesap kimlikleri ve lisans tarihleri genel uygulama koduna veya bu açık depo belgesine gömülmez.
 - Sunucu seed'i yalnız modül kataloğunu oluşturuyor, lisans vermiyor. Bu depoda genel modül atama ekranı/yazma API'si bulunmadığından canlı atama ayrıca denetlenen yönetim işlemiyle yapılmalı; mevcut panelden atanabildiği doğrulanmadı.
 - GitHub Actions üzerinden kurulum/yayın öncesi inceleme, gerçek model ölçümü, iki platform CI ve paket öz testleri.

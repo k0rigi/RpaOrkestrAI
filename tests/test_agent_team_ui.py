@@ -44,7 +44,7 @@ def team(ui):  # noqa: F811
 
     page.route("**/api/agents/central/**", handle)
     page.route("**/api/agents/tasks", handle)
-    page.add_script_tag(content=(STATIC / "agent-team.js").read_text())
+    page.add_script_tag(content=(STATIC / "agent-team.js").read_text(encoding="utf-8"))
     page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
     return page, calls, session, task, approval
 

@@ -22,7 +22,7 @@ def office_browser():
                         "task_id": None, "task_label": "Görev bekliyor", "queue_count": 0}],
             "departments": [{"name": name, "agent_count": 1} for name in ("Departman A", "Departman B", "Departman C", "Departman D")],
             "totals": {"agents": 1, "queued": 0, "running": 0, "waiting": 0}}
-    index = (STATIC / "index.html").read_text()
+    index = (STATIC / "index.html").read_text(encoding="utf-8")
     source = re.search(r'<script type="importmap">(.*?)</script>', index).group(1)
     digest = base64.b64encode(hashlib.sha256(source.encode()).digest()).decode()
     head = index.split("<head>")[1].split("</head>")[0].replace('<script defer src="/app.js"></script>', "")

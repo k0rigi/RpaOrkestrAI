@@ -36,6 +36,10 @@ def check(executable: Path, report: Path) -> None:
 
 
 def main() -> int:
+    # Redirected Windows streams otherwise use an ANSI codec that cannot print Turkish.
+    for stream in (sys.stdout, sys.stderr):
+        if callable(getattr(stream, "reconfigure", None)):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Paket içindeki ofisi gerçek WKWebView/WebView2 ile doğrula")
     parser.add_argument("executable", type=Path)
     parser.add_argument("report", type=Path)

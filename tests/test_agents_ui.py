@@ -40,7 +40,7 @@ def ui():
         if path == "/":
             route.fulfill(content_type="text/html; charset=utf-8", body='<html lang="tr"><head><meta charset="UTF-8"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/agents.css"><script src="/agents.js"></script></head><body><main id="root"></main></body></html>')
         elif path in {"/agents.js", "/agents.css", "/styles.css"}:
-            route.fulfill(content_type="text/javascript; charset=utf-8" if path.endswith(".js") else "text/css; charset=utf-8", body=(STATIC / path[1:]).read_text())
+            route.fulfill(content_type="text/javascript; charset=utf-8" if path.endswith(".js") else "text/css; charset=utf-8", body=(STATIC / path[1:]).read_text(encoding="utf-8"))
         elif path.startswith("/fonts/"):
             route.abort()
         elif path == "/api/agents/session":

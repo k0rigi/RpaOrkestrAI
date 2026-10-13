@@ -31,7 +31,7 @@ def mount(fixture):
             route.fallback()
 
     page.route("**/api/agents/**", handle)
-    page.add_script_tag(content=(STATIC / "agent-metrics.js").read_text())
+    page.add_script_tag(content=(STATIC / "agent-metrics.js").read_text(encoding="utf-8"))
     page.evaluate("window.RpaAgents.mount(document.getElementById('root'), {...window.agentOptions, initialTab: 'performance'})")
     page.get_by_role("heading", name="Kurumdaki insan görevleri").wait_for()
     return page, requests
