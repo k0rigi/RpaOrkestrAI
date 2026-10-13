@@ -19,6 +19,7 @@ from .risk import WRITE, workflow_risk
 WORKFLOW_ID = re.compile(r"^[a-f0-9]{32}$")
 # These handlers lack a enforceable resource boundary. Human-run flows are unaffected.
 UNSUPPORTED = frozenset({
+    "ai.ask",
     "system.command", "system.run_file", "system.open", "system.close_app", "web.script",
     "http.request", "database.query", "file.zip", "screen.screenshot", "desktop.ocr",
     "desktop.click", "desktop.write", "desktop.hotkey", "desktop.press", "desktop.click_template",
@@ -122,7 +123,7 @@ class PreparedWorkflow:
     actor: dict[str, Any]
 
 
-def _supported(workflow, grant):
+def _supported(workflow, grant, *, require_resource_grants=True):
     from ..catalog import BY_TYPE
     from ..engine import variable_name
 
@@ -139,7 +140,7 @@ def _supported(workflow, grant):
                 raise WorkflowError("Ajanın Pencereyi tanı adımında uygulama adı sabit ve dolu olmalıdır.")
             if _unsafe_application(application):
                 raise WorkflowError("Ajan kabuk, tarayıcı, dosya yöneticisi veya Studio penceresini yönetemez.")
-        if step.action in FILE_FIELDS and not grant.allowed_roots:
+        if step.action in FILE_FIELDS and require_resource_grants and not grant.allowed_roots:
             raise WorkflowError("Dosya adımları için ajanın akış izninde izin verilen klasörleri belirtin.")
         if step.action in {"screen.read_text", "screen.wait_text", "screen.find_image", "screen.click_image"}:
             if raw.get("relative_to") != "window":
@@ -157,6 +158,16 @@ def _supported(workflow, grant):
             raise WorkflowError("Ayrılmış sistem değişkenleri değiştirilemez.")
         if step.action in {"core.set", "data.append"}:
             variable_name(raw.get("name"))
+
+
+def inspect_workflow(workflow_id, store):
+    """Editor-only capabilities; never constructs execution permissions or approval tokens."""
+    graph = _load_graph(workflow_id, store)
+    for workflow in graph.values():
+        _supported(workflow, None, require_resource_grants=False)
+    return {"requires_roots": any(step.action in FILE_FIELDS for workflow in graph.values()
+                                  for step in walk_steps(workflow.steps)),
+            "dependencies": [key for key in graph if key != workflow_id]}
 
 
 def prepare_workflow(agent, workflow_id: str, store, inputs, *, actor=None) -> PreparedWorkflow:

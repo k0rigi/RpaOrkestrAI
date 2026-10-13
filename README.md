@@ -221,9 +221,11 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 ## Rehberler
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
-  izinli akışlar, tek kullanımlık onay, veri sınırları ve sağlayıcı bağlantıları.
+  izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
+  ve sağlayıcı bağlantıları. Bu özellikler geliştirme dalındadır; ortak model
+  kurulumu ve yeni kurulum paketi henüz yayımlanmamıştır.
 
-- [Adım rehberi: 65 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
+- [Adım rehberi: 86 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)
 - [Kullanıcı girişi, lisans, tek bilgisayar kuralı ve internet gereksinimi](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)

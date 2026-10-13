@@ -34,7 +34,10 @@ jobs:
       - name: Check runtime dependency consistency
         run: python -m pip check
       - name: Load automation dependencies
-        run: python -c "import pandas, cv2, pyautogui, pyodbc, psycopg, oracledb, pymysql, gspread, webview, openpyxl, pdfplumber, pypdfium2; from pynput import keyboard, mouse; from playwright.sync_api import sync_playwright"
+        run: python -c "import pandas, cv2, pyautogui, pyodbc, psycopg, oracledb, pymysql, gspread, webview, openpyxl, pdfplumber, pypdfium2, jsonschema, referencing, rpds; from pynput import keyboard, mouse; from playwright.sync_api import sync_playwright"
+      - name: Install browser for Studio UI checks
+        if: matrix.python-version == '3.12'
+        run: python -m playwright install chromium
       - name: Load Windows native renderer
         if: runner.os == 'Windows'
         run: python -c "import clr; clr.AddReference('System.Windows.Forms'); import webview.platforms.winforms"
@@ -47,4 +50,6 @@ jobs:
       - name: Lint
         run: python -m ruff check .
       - name: Test without external accounts or desktop access
+        env:
+          RPA_UI_TESTS: ${{ matrix.python-version == '3.12' && '1' || '0' }}
         run: python -m pytest

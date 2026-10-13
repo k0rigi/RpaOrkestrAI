@@ -108,6 +108,8 @@ def main() -> None:
                "--collect-data", "webview", "--collect-data", "certifi",
                "--collect-submodules", "uvicorn", "--collect-submodules", "rpa_orkestrai",
                "--collect-submodules", "openpyxl",
+               "--collect-all", "jsonschema", "--collect-all", "jsonschema_specifications",
+               "--collect-all", "referencing", "--collect-all", "rpds",
                # PDF'ten oku: pdfminer's font maps and pdfium's native library are loaded by path.
                "--collect-data", "pdfminer", "--collect-all", "pypdfium2", "--collect-all", "pypdfium2_raw",
                # Web adımları: Playwright's driver (Node) runs the computer's own Edge/Chrome.

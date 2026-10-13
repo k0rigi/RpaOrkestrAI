@@ -413,9 +413,11 @@ class Debugger:
 
 class Executor:
     def __init__(self, settings: Settings, store: Store, run: Run, cancel: threading.Event,
-                 save: Callable[[], None], variables: dict[str, Any] | None = None, *, agent_context: Any = None):
+                 save: Callable[[], None], variables: dict[str, Any] | None = None, *, agent_context: Any = None,
+                 ai_service: Any = None):
         self.settings, self.store, self.run = settings, store, run
         self.agent_context = agent_context
+        self.ai_service = ai_service
         self.cancel, self._save = cancel, save
         self.config = settings.snapshot()
         self.variables: dict[str, Any] = dict(variables or {})
@@ -1484,8 +1486,9 @@ def step_test_plan(workflow: Workflow, step_id: str, provided: Any = (), *, cond
 class RunManager:
     """One worker protects the shared mouse/keyboard and owns its browser thread."""
 
-    def __init__(self, settings: Settings, store: Store):
+    def __init__(self, settings: Settings, store: Store, *, ai_service: Any = None):
         self.settings, self.store = settings, store
+        self.ai_service = ai_service
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rpa-worker")
         self._lock = threading.RLock()
         self._active: tuple[str, threading.Event] | None = None
@@ -1576,7 +1579,7 @@ class RunManager:
               debugger: Debugger | None = None, agent_context: Any = None) -> None:
         try:
             runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables,
-                              agent_context=agent_context)
+                              agent_context=agent_context, ai_service=self.ai_service)
         except Exception:
             # A failed secret-store or policy setup must release the only desktop worker.
             run.status = "failed"

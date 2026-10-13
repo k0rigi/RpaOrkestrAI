@@ -19,6 +19,7 @@
     licenseTimer: null,
     licenseWatch: null,
     page: "dashboard",
+    agentTab: null,
     workflow: null,
     selected: null,
     // Steps gathered for a note (Shift / Ctrl / ⌘ + click, or a region on the diagram).
@@ -561,12 +562,14 @@
       ["workflows", "Akışlarım", "flow"],
       ["runs", "Çalışma geçmişi", "clock"],
       ["schedules", "Zamanlayıcı", "calendar"],
+      ["agents", "Ajanlar", "spark"],
     ]) {
       const selected =
         state.page === page ||
         (page === "workflows" && state.page === "editor") ||
         (page === "runs" && state.page === "run");
       const item = node("button", `nav-button${selected ? " active" : ""}`);
+      item.id = `nav-${page}`;
       item.append(icon(glyph), node("span", "", label));
       if (page === "workflows")
         item.append(node("span", "nav-count", state.workflows.length));
@@ -641,6 +644,7 @@
           runs: "Çalışma geçmişi",
           run: "Çalışma ayrıntısı",
           schedules: "Zamanlayıcı",
+          agents: "Ajanlar ve ekip",
           settings: "Ayarlar",
         }[state.page],
       ),
@@ -680,6 +684,7 @@
   function renderPage() {
     const target = document.querySelector(".page-content");
     if (!target) return;
+    window.RpaAgents?.unmount();
     target.replaceChildren();
     const views = {
       dashboard: dashboardPage,
@@ -688,9 +693,26 @@
       runs: runsPage,
       run: runPage,
       schedules: schedulesPage,
+      agents: agentsPage,
       settings: settingsPage,
     };
     target.append((views[state.page] || dashboardPage)());
+  }
+  function agentsPage() {
+    const page = node("div", "page agents-page");
+    page.id = "agents-page";
+    const initialTab = state.agentTab;
+    state.agentTab = null;
+    queueMicrotask(() => {
+      if (state.page !== "agents" || !page.isConnected) return;
+      if (!window.RpaAgents) {
+        page.append(node("p", "error-text", "Ajan ekranı yüklenemedi. Studio'yu yeniden açın."));
+        return;
+      }
+      window.RpaAgents.mount(page, { api, openRun, toast, confirmDialog, initialTab,
+        workflows: state.workflows, getPage: () => state.page });
+    });
+    return page;
   }
   function heading(eyebrow, title, subtitle, actions) {
     const el = node("div", "page-heading");
@@ -5248,6 +5270,10 @@
         fieldPane.append(connectionField(step, f));
         return;
       }
+      if (f.type === "agent_connection") {
+        fieldPane.append(agentConnectionField(step, f));
+        return;
+      }
       if (f.type === "step") {
         fieldPane.append(stepTargetField(step, f));
         return;
@@ -5297,8 +5323,8 @@
           control.append(option);
         });
         control.value = value ?? "";
-      } else if (f.type === "code") {
-        control = node("textarea", "mono");
+      } else if (f.type === "code" || f.type === "textarea") {
+        control = node("textarea", f.type === "code" ? "mono" : "");
         control.rows = 6;
         control.spellcheck = false;
         control.value = value ?? "";
@@ -5308,6 +5334,7 @@
         control.rows = 3;
         control.spellcheck = false;
         jsonMode = node("select", "value-type");
+        jsonMode.id = `json-mode-${step.id}-${f.name}`;
         jsonMode.setAttribute("aria-label", `${f.label || f.name} değer türü`);
         for (const [kind, label] of [
           ["variable", "Akış değişkeni"],
@@ -5898,6 +5925,7 @@
     return page;
   }
   function stopPolling() {
+    window.RpaAgents?.unmount();
     clearTimeout(state.poll);
     state.poll = null;
     state.pollEpoch += 1;
@@ -6708,6 +6736,65 @@
       if (!taken.has(name.toLocaleLowerCase("tr"))) return name;
     }
   }
+  function agentConnectionField(step, f) {
+    const wrap = node("div", "field connection-field");
+    const select = node("select");
+    select.id = `agent-step-connection-${step.id}-${f.name}`;
+    select.required = Boolean(f.required);
+    const label = node("label", "field-label", f.label);
+    label.htmlFor = select.id;
+    const status = node("p", "help", "Sağlayıcı bağlantıları yükleniyor…");
+    status.setAttribute("aria-live", "polite");
+    const row = node("div", "connection-row");
+    const refresh = iconButton("Sağlayıcı bağlantılarını yenile", "refresh", () => load());
+    refresh.id = `${select.id}-refresh`;
+    const manage = button("Sağlayıcı bağlantılarını yönet", "link", () => navigate("agents"), "small");
+    manage.id = `${select.id}-manage`;
+    row.append(select, refresh);
+    wrap.append(label, row, status, manage, node("p", "help", f.help || ""));
+    let profiles = [];
+    const explain = () => {
+      const chosen = profiles.find((item) => item.id === select.value);
+      status.textContent = chosen?.sends_to_cloud
+        ? "Akış sonuçları bu sağlayıcıya gönderilir; hassas veri için yerel model kullanın."
+        : chosen?.sends_to_company_server
+          ? "Girdi kurumun ortak model sunucusuna gönderilir."
+          : chosen ? "Girdi seçili yerel model bağlantısına gönderilir." : "Bir sağlayıcı bağlantısı seçin.";
+    };
+    select.addEventListener("change", () => {
+      step.params[f.name] = select.value;
+      markDirty();
+      explain();
+    });
+    async function load() {
+      select.disabled = true;
+      refresh.disabled = true;
+      try {
+        const values = await api("/api/agents/connections");
+        if (!wrap.isConnected) return;
+        profiles = values;
+        select.replaceChildren();
+        const add = (value, text) => {
+          const option = node("option", "", text);
+          option.value = value;
+          select.append(option);
+        };
+        add("", "Bağlantı seçin");
+        profiles.forEach((item) => add(item.id, `${item.name} · ${item.model || "model adı eksik"}`));
+        const chosen = step.params[f.name] || "";
+        if (chosen && !profiles.some((item) => item.id === chosen)) add(chosen, "Bu hesapta bulunmayan bağlantı");
+        select.value = chosen;
+        explain();
+      } catch (error) {
+        if (wrap.isConnected) status.textContent = error.message;
+      } finally {
+        select.disabled = false;
+        refresh.disabled = false;
+      }
+    }
+    load();
+    return wrap;
+  }
   function connectionField(step, f) {
     const kind = f.connection_type;
     const info = connectionKinds[kind] || { label: "Bağlantı", glyph: "link" };
@@ -7160,6 +7247,15 @@
       return el;
     }
     form.append(licensePanel(panel));
+    const agentsPanel = panel("Yapay zekâ bağlantıları", "spark",
+      "Model sağlayıcısı, kayıtlı API anahtarları ve ajan izinlerini yönetin. Ajanlar için ayrıca ajan lisansı gerekir.");
+    const agentsSettings = button("Ajan bağlantılarını aç", "arrow", () => {
+      state.agentTab = "connections";
+      navigate("agents");
+    });
+    agentsSettings.id = "settings-agent-connections";
+    agentsPanel.append(agentsSettings);
+    form.append(agentsPanel);
     const updatePanel = panel(
       "Uygulama güncellemeleri", "refresh",
       "Yeni sürümler arka planda indirilir. Studio'yu kapatıp açtığınızda kurulum ekranı açılmadan kendiliğinden "

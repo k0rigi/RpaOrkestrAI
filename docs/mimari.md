@@ -60,7 +60,11 @@ Tek uygulama süreci aynı anda bir akış çalıştırır; yeni çalıştırma 
 
 ## Yerel erişim modeli
 
-API loopback üzerinde çalışır. Departman yetkileri veya uzak robot bağlantısı bulunmaz. Departman alanı düzenleme ve çıktı sınıflandırması içindir. İnternete veya ortak ağa yayınlama ayrı bir geliştirme aşamasıdır.
+API loopback üzerinde çalışır. RPA departman alanı düzenleme ve çıktı sınıflandırması içindir.
+Geliştirme dalındaki ajan modülü ayrıca sunucunun imzaladığı firma/kullanıcı yetkisi,
+ajan başına akış izin listesi ve merkezi insan onayı kullanır. İnsan görevleri kurum
+sunucusunda, ajan akışları yerel Studio'da yürür. Studio API'si ortak ağa açılmaz;
+uzak robot bağlantısı bulunmaz. Ayrıntılar [Ajanlar](ajanlar.md) rehberindedir.
 
 `licensing.py`, orkestrai.net lisansını yerel API'nin önünde bir kapı olarak uygular. `/api/health`, `/api/instance` ve `/api/license*` dışındaki tüm `/api/` uçları geçerli lisans ister; aksi halde `403` ve lisans durumu döner. Uygulama her açılışta ve ardından 10 dakikada bir orkestrai.net'ten taze onay ister. Her istek rastgele bir değer taşır; orkestrai.net bu değeri lisansa yazıp Ed25519 ile imzalar, uygulama imzayı gömülü açık anahtarla, cihaz kimliğini ve bu değeri denetler. Onay yalnız bellekte tutulur: diskteki hiçbir bilgi Studio'yu açmaz, şifre saklanmaz. Bağlantı kesilirse çalışan Studio en fazla 60 dakika sürer; bu süre bilgisayarın saatiyle değil çalışma süresiyle ölçülür. Hesap aynı anda tek bilgisayarda çalışır (sunucudaki oturum kaydı). Lisans kilitlendiğinde çalışan akış bir sonraki adımda durdurulur (`RunManager.gate`, `stop_active`). Ayrıntılar: [lisans rehberi](lisans.md).
 

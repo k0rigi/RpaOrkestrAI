@@ -741,6 +741,22 @@ LIBRARY = [
            "Bir değeri veya kaydı listeye ekler; liste yoksa oluşturur. Sonuçları toplayıp rapora yazmak için.",
            [field("name", "Liste değişkeni", default="results", required=True),
             field("value", "Eklenecek değer", "json", "${row}")]),
+    action("ai.ask", "Yapay zekâya sor", "Veri ve metin",
+           "Seçilen modele sınırlı veri gönderir; araç çalıştırmadan metin veya şemayla doğrulanan JSON döndürür.",
+           [field("connection", "Yapay zekâ bağlantısı", "agent_connection", "", required=True,
+                  help="Ajanlar bölümündeki sağlayıcı bağlantısını seçin; model adı o bağlantıdan alınır."),
+            field("instructions", "Talimat", "textarea", "", required=True,
+                  help="İstenen kararı veya analizi açıkça yazın; en fazla 8.000 karakter."),
+            field("input", "Girdi", "json", "${veri}", required=True,
+                  help="Metin, liste, nesne veya ${değişken}; en fazla 32.000 bayt. Kayıtlı sırlar maskelenir."),
+            field("schema", "Sonuç JSON şeması (isteğe bağlı)", "json", None,
+                  help="Boşsa metin döner. Draft 2020-12 şeması verilirse yalnız geçerli JSON kabul edilir; "
+                       "uzak başvuru ve düzenli ifade kuralları desteklenmez."),
+            field("timeout", "Yanıt süresi (saniye)", "number", 60, min=0.1, max=120,
+                  help="Süre dolarsa veya oturum değişirse sonuç kullanılmadan akış durur."),
+            field("max_tokens", "Yanıt token sınırı", "number", 1024, min=16, max=8192,
+                  help="Model yanıtının üst sınırı. İstek ve yanıt toplamı ayrıca 16.384 tokenla sınırlandırılır."),
+            output("ai_result")]),
     # ----- Veritabanı ------------------------------------------------------------------
     action("database.query", "Veritabanı sorgusu", "Veritabanı",
            "SQL Server, PostgreSQL, MySQL, Oracle veya SQLite veritabanında SELECT sorgusu çalıştırır; sonuç "
@@ -958,7 +974,7 @@ ACTION_DEFINITIONS = ACTION_DEFINITIONS + [entry for entry in CATALOG if entry["
 CATALOG = [entry for entry in CATALOG if entry["type"] not in RETIRED]
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
-                     "clipboard.", "file.", "ui.", "http.", "mail.", "web.")
+                     "clipboard.", "file.", "ui.", "http.", "mail.", "web.", "ai.")
 CONTAINERS = {"control.for_each": ("children",), "control.while": ("children",), "control.repeat": ("children",),
               "control.if": ("children", "otherwise"), "control.try": ("children", "otherwise")}
 LOOPS = {"control.for_each", "control.while", "control.repeat"}
@@ -970,7 +986,7 @@ TEST_PREPARE = {"file.read_pdf", "core.set", "data.append", "data.calculate", "t
                 "desktop.find_window", "desktop.window_wait_image", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
                 "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
-                "database.read", "database.query"}
+                "database.read", "database.query", "ai.ask"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
 LOCATABLE = {"window.write_table", "window.text_write", "window.checkbox", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
              "input.mouse_click",

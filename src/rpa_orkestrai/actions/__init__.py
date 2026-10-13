@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 HANDLERS: dict[str, Callable[[Any, dict], Any]] = {}
-MODULES = ("inputs", "windows", "screen", "system", "files", "data", "dialogs", "web", "documents", "mail")
+MODULES = ("inputs", "windows", "screen", "system", "files", "data", "dialogs", "web", "documents", "mail", "ai")
 
 
 def handler(*action_types: str):

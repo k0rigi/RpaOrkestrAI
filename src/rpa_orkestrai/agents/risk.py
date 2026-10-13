@@ -12,6 +12,7 @@ WRITE: Risk = "geri_alinamaz"
 
 # Classify behaviour, not the label: copying a desktop table clicks and changes selection.
 STEP_RISKS: dict[str, Risk] = {
+    "ai.ask": WRITE,
     "sheets.read_column": READ,
     "desktop.window_write": WRITE,
     "data.sample": READ,

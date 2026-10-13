@@ -1,6 +1,6 @@
 # Adım rehberi
 
-Adım kütüphanesi 65 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 86 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -203,8 +203,27 @@ Masaüstü uygulamasında yol alanlarının yanındaki **Seç…** düğmesi dos
 | Tarih ve saat | Şimdi, biçimlendir, gün/ay/yıl ekle, iki tarih farkı, haftanın günü. | `%d.%m.%Y` → `29.09.2026` |
 | Liste işlemi | Say, ilk/son/sıradaki öğe, filtrele, sırala, tekrarları kaldır, topla, alan değerleri, birleştir, parça al. | `${rows}` içinde durumu Bekliyor olanlar |
 | Listeye ekle | Sonuçları toplayıp sonra Excel'e yazmak için. | `${results}` |
+| Yapay zekâya sor | Seçilen sağlayıcı bağlantısının modeline talimat ve girdi gönderir; metin veya JSON şemasına uyan sonuç döndürür. | `${ai_result}` veya `${ai_result.karar}` |
 
 **Hesapla** adımında kullanılabilenler: `+ - * / // % **`, karşılaştırmalar, `and`, `or`, `not`, `x if koşul else y` ve `round`, `abs`, `min`, `max`, `int`, `float`, `number`, `str`, `len`, `sum`, `floor`, `ceil`. Program çalıştıran veya dosyaya erişen ifadeler reddedilir.
+
+### Yapay zekâya sor
+
+Önce **Ajanlar → Sağlayıcı bağlantıları** bölümünde model bağlantısını oluşturun. Adımda **Yapay zekâ bağlantısı**, **Talimat** ve **Girdi** alanlarını doldurun; girdi `${veri}` gibi bir akış değişkeni, metin, liste veya nesne olabilir. Model araç çalıştıramaz. Sonuç varsayılan olarak `ai_result` değişkenine yazılır; **Koşul** adımında bu değere göre dallanabilirsiniz.
+
+**Sonuç JSON şeması** boşsa metin döner. Örneğin aşağıdaki şema yalnız iki karar değerine izin verir:
+
+```json
+{"type":"object","properties":{"karar":{"enum":["devam","incele"]}},"required":["karar"],"additionalProperties":false}
+```
+
+Bu durumda Koşul adımının sol değerine `${ai_result.karar}` yazabilirsiniz. Geçersiz JSON, şemaya uymayan yanıt veya beklenmeyen araç çağrısı hata verir; sonuç tahmin edilmez ve değişkene yazılmaz. Doğrulama JSON Schema Draft 2020-12 ile yerelde yapılır; uzak `$ref`/`$dynamicRef`, `$id`, düzenli ifadeli `pattern`/`patternProperties` ve aşırı karmaşık şemalar kabul edilmez. Yerel `$defs` başvuruları kullanılabilir.
+
+Girdi en fazla 32.000 bayt, şema 16.000 bayt ve yanıt 32.000 bayttır. Yanıt süresi varsayılan 60, en fazla 120 saniyedir. Yanıt token sınırı varsayılan 1.024, en fazla 8.192; sağlayıcının bildirdiği girdi ve çıktı toplamı 16.384 tokenı aşarsa sonuç kullanılmaz. Ortak modelin bağlamı daha küçükse yanıt bütçesi küçültülür; girdi sığmıyorsa gönderilmeden hata verilir. Bu kontroller sağlayıcının ücretlendirdiği kullanımı geri almaz.
+
+Kayıtlı kasa şifreleri ve sağlayıcı anahtarları dış çağrıdan önce maskelenir; kasa güvenle okunamıyorsa istek gönderilmez. Maskelenmiş istek çalışma çıktılarındaki `yapay-zeka-istegi.json` dosyasında görülebilir. Bulut bağlantısında iş verisi sağlayıcıya gönderilir; hassas veri için yerel model seçin. **Durdur**, lisans veya kullanıcı oturumu değişikliği bekleyen sonucu geçersiz kılar.
+
+Bu adım ajan lisansı gerektirir ve şu aşamada yalnız elle başlatılan akışlarda çalışır. Ajanın araç olarak çalıştıracağı akışlarda kullanılamaz. **Önizleme** bağlantı kurmaz ve lisanslı sağlayıcı yapılandırması istemez; sonuç bilinmeyen olarak taşınır. Bu adımı içeren akışları açmak için adımı destekleyen yeni Studio sürümü gerekir; kullanmayan akışların dosya biçimi değişmez.
 
 ## Veritabanı
 

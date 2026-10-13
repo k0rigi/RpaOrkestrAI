@@ -266,6 +266,21 @@ def _check_login_item() -> None:
         raise RuntimeError("Windows başlangıç kaydı programı gösteremedi.")
 
 
+def _check_ai_schema() -> None:
+    """The packaged validator and bundled metaschemas must work without a network request."""
+    from .agents.schema import compile_schema
+    from .errors import WorkflowError
+
+    validator = compile_schema({"type": "object", "properties": {"karar": {"enum": ["evet", "hayır"]}},
+                                "required": ["karar"], "additionalProperties": False})
+    validator.validate({"karar": "evet"})
+    try:
+        validator.validate({"karar": "tahmin"})
+    except WorkflowError:
+        return
+    raise RuntimeError("Paket içindeki yapay zekâ JSON şeması doğrulaması çalışmıyor.")
+
+
 def run_check(report: Path) -> int:
     previous_stdout, previous_stderr = sys.stdout, sys.stderr
     server, worker, logger, sock = None, None, None, None
@@ -303,6 +318,7 @@ def run_check(report: Path) -> int:
             _check_login_item()
             _check_password_store()
             _check_office_assets()
+            _check_ai_schema()
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -364,7 +380,7 @@ def run_check(report: Path) -> int:
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
                                  "screen-table-target", "excel-tables", "http-api", "login-item", "password-store",
-                                 "bundled-static-files", "local-three-office-assets"]}
+                                 "bundled-static-files", "local-three-office-assets", "offline-ai-json-schema"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

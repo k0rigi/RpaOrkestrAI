@@ -530,6 +530,14 @@ GUIDES = {
         ["Kayıtlar alanına listeyi verin.", "Dosya adını .csv ile bitirin."],
         "Dosya, çalışma ayrıntısından indirilebilir."),
     # ----- Veri ve metin -------------------------------------------------------------
+    "ai.ask": guide(
+        ["Ajanlar bölümünde bir sağlayıcı bağlantısı oluşturun; bu adımda bağlantıyı seçin.",
+         "Talimatı ve gönderilecek girdiyi yazın. Yapılandırılmış karar gerekiyorsa JSON şemasını girin.",
+         "Sonucu kaydeden değişkeni Koşul adımında kullanın; örneğin ${ai_result.karar}."],
+        "Şema yoksa metin, şema varsa doğrulanmış JSON döner. Geçersiz yanıt sonuç değişkenine yazılmaz.",
+        "Ajan lisansı gerekir. Bulut bağlantısında girdi sağlayıcıya gönderilir; hassas veri için yerel model "
+        "seçin. Önizleme dış çağrı yapmaz; sonuç bilinmeyen kalır. Bu adım yalnız elle çalıştırılan akışlarda "
+        "kullanılır ve ajanların araç olarak çalıştırdığı akışlara eklenemez."),
     "core.set": guide(
         ["Değişkene bir ad verin (ör. sonuc).", "Değeri yazın: metin, sayı veya başka bir değişken."],
         "${ad}: verdiğiniz değer. Sonraki adımlarda kullanılır.",

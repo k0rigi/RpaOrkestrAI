@@ -80,11 +80,141 @@ Bulut bağlantısı kullanılırsa akış sonuçları o sağlayıcıya gönderil
 için yerel model tercih edilebilir. Bağlantı testi bile bulut sağlayıcıda kullanım
 oluşturabilir; test yalnız kullanıcının düğmeye basmasıyla yapılır.
 
-Yerel bağlantı varsayılan olarak loopback adresi kullanır. Ortak sunucu bağlantısı
-ayrı kimlik doğrulamalı hizmet gerektirir; Ollama portunu doğrudan internete açmak
+Yerel bağlantı yalnız loopback adresi kullanır. Ortak sunucu bağlantısı
+ayrı kimlik doğrulamalı hizmet kullanır; Ollama portunu doğrudan internete açmak
 desteklenen kurulum değildir. Sağlayıcı istekleri boyut ve süre sınırına tabidir,
 yönlendirme izlenmez. Yeniden deneme yalnız ağ hatası, 429 ve 5xx durumlarında
 yapılır. Testler gerçek sağlayıcıya istek göndermez.
+
+Ollama bağlantısı, her istekten önce bulut kullanımının kapalı olduğunu ve seçilen
+modelin yerelde bulunduğunu doğrular. `OLLAMA_NO_CLOUD=1` Ollama hizmetinde etkin
+olmalıdır. Doğrulama yapılamazsa iş verisi gönderilmez. API'yi desteklemeyen eski
+Ollama sürümü için güncelleme gerekir. Ortak sunucu seçeneği Studio oturumunu
+kullanır; ayrıca API anahtarı girilmez. Diğer bulut sağlayıcılarına otomatik geçilmez.
+
+## Studio'da kullanım
+
+1. **Ajanlar → Bağlantılar** bölümünde sağlayıcıyı ve serbest model adını kaydedin.
+   Kurum modeli seçildiğinde sunucuda kurulu ve izinli model adı gerekir.
+2. **Ajanlar** bölümünde bir yönetici ve gerekli departman ajanlarını oluşturun.
+   Departman adını ve bağlı yöneticiyi formdan değiştirin. Akış izinleri açıkça
+   seçilir; başka departmanın akışı otomatik olarak eklenmez.
+3. **Görev ver** ile hedefi yazın. Zaman çizelgesindeki soru kartına yanıt verin;
+   riskli akışın adı, maskelenmiş girdileri ve gerekçesi onay kartında görünür.
+4. **Onaylar** sekmesinden kurumun yetkili hesabı bekleyen işleri onaylar veya
+   reddeder. Akışı başlatacak Studio onayı sunucuda tek kullanımlık olarak
+   tüketmeden çalıştırmaz. Bağlantı hatası yerel onaya dönüşmez.
+5. **Durdur** ajanı, alt görevlerini ve yalnız bunlara bağlı çalışan akışı durdurur.
+   Daha önce tamamlanan dış işlemler geri alınmaz.
+
+## Organizasyon ve insan görevleri
+
+Yönetici yalnız görev devreder; departman ajanının akış ve onay izinlerini
+genişletemez. Hiyerarşi tek seviyelidir. Devirler kök görevin tur, token, süre,
+akış ve görev bütçesini paylaşır. Aynı ajanın görevleri sıraya girer; masaüstü
+akışları tek çalışan kuralını korur. Kuyruk durumu Studio'da görünür.
+
+Her insan çalışan kendi Studio hesabıyla giriş yapar. Kurum yetkilisi **Görevler**
+sekmesinden lisanslı çalışana görev atar. Atanan kişi başlatma, bekleme, bitirme
+ve hata durumunu bildirir. Yetkili, başka çalışanın işini tamamlandı olarak
+işaretleyemez; iptal edebilir veya başlamamış görevi başka çalışana aktarabilir.
+
+İnsan görevlerinin başlığı, talimatı, durumu ve sonuç notu kurum sunucusunda tutulur.
+Çalışan kendi görevlerini, yetkili kurum görevlerini görür. Görev listesi en yeni
+100 kaydı gösterir; performans bu listeyle sınırlanmaz. Ajan tanımları, akışlar
+ve ayrıntılı ajan zaman çizelgeleri çalıştıkları Studio bilgisayarında kalır.
+Studio kapalıyken yerel ajan çalışmaz. Bu sürüm merkezi uzak masaüstü robotu
+başlatma veya bilgisayarlar arasında ajan taşıma sağlamaz.
+
+## Performans
+
+**Performans** sekmesi bugün, bu hafta, bu ay veya en fazla 366 günlük özel
+aralığı gösterir. Gün sınırları Studio bilgisayarının saat diliminde hesaplanır.
+Dönem görevin **oluşturulma zamanına** göre seçilir; seçilen görevlerin tüm yaşam
+süresi hesaba katılır. Başarı oranı tamamlanan / (tamamlanan + başarısız + iptal)
+formülüdür. Açık görevler bu oranın paydasına girmez.
+
+Ajan ve departman tablolarında durum sayıları, toplam/ortalama süre, akış sayısı,
+onay sayısı ve bekleme süresi, token kullanımı bulunur. Üst görev alt görevin
+tokenını tekrar saymaz. Süreler başlangıç ve bitiş arasındadır, beklemeleri içerir;
+paralel görevlerin süreleri toplandığından toplam süre duvar saatiyle aynı değildir.
+Eksik süre 0 kabul edilir ve eksik kayıt sayısı ayrıca gösterilir.
+
+İnsan ölçümleri seçilen dönemin sunucu kayıtlarından hesaplanır. İnsan hesabında
+departman alanı bulunmadığından insan departman dağılımı, akış veya token kullanımı
+türetilmez. Ajan ve insan CSV'leri ayrı indirilebilir; görev içeriği içermezler ve
+elektronik tablo formülü olarak yorumlanabilecek adlar etkisizleştirilir.
+
+İsteğe bağlı **Model fiyatları** bölümüne bağlantı/model başına bir milyon girdi
+ve çıktı token fiyatı girilebilir. Maliyet güncel girilen fiyatlarla tahmin edilir;
+fatura değildir. Tarihsel görev kullanılan model ve bağlantı kimliğini korur.
+Fiyatı bulunmayan görev ayrıca belirtilir; farklı para birimleri birleştirilmez.
+Ücretsiz model için fiyat girmek gerekmez. Fiyatlar çalışma alanında firmaya özgü
+`agent_metrics_<firma>.json` dosyasında tutulur, gizli anahtar içermez.
+
+Saklama önerisi ayrıntılar için 90 gün, iş verisi çıkarılmış performans özetleri
+için 365 gündür. Otomatik temizleme henüz etkin değildir; mevcut kayıtlar sessizce
+silinmez. Temizleme eklendiğinde açık görev ve bekleyen onaylar korunmalıdır.
+
+## Ofis önizlemesi
+
+Three.js 0.160.0 ve OrbitControls, MIT lisanslarıyla uygulamaya dahildir. CDN,
+uzak model, doku veya yazı tipi yüklenmez. Açık/koyu temada kamera döndürülebilir,
+yakınlaştırılabilir; pencere gizlenince çizim durur. WebGL yoksa veya çizim yavaşsa
+2D plana geçilir; aynı durum bilgileri liste görünümünde de bulunur.
+
+Bu aşamada boş ofis yerleşimi gösterilir. Karakter ve durum animasyonları
+yerleşim onayından sonraki aşamadır. Ofis yalnız durum okur; işlem başlatmaz.
+Ofis durum cevabı görev metni, müşteri adı, tutar, girdi veya model yanıtı içermez.
+Yerel Chromium testleri geçse bile gerçek macOS WKWebView ve Windows WebView2
+kontrolleri ayrıca yapılmalıdır.
+
+## Ortak model için kurulum koşulları
+
+Başlangıç hedefi tek eşzamanlı çıkarım ve küçük, araç çağırmayı destekleyen yerel
+modeldir. 4 vCPU ve 8 GB RAM asgari başlangıç önerisidir; web/lisans hizmetiyle
+paylaşılan sunucuda 16 GB RAM tercih edilir. Model, bağlam ve sistem yüküne göre
+gerçek bellek ve hız kurulumda ölçülür. GPU zorunlu değildir; CPU yanıt süresi
+ölçülmeden performans garantisi verilmez. Model dosyası ve güncellemeler için
+en az 15–20 GB kullanılabilir disk bırakılması önerilir.
+
+Sunucudaki model işçisi web işçilerinden ayrıdır; özel yerel soket üzerinden tek
+çıkarım ve sınırlı kuyruk yönetir. Prompt ve yanıt işçi belleğinde süreli tutulur;
+iş kayıtları başka bir bulut sağlayıcısına gönderilmez. Ayrı ajan lisansı ve kurum
+onaycısı sunucu yöneticisi tarafından tanımlanmadan bu uçlar etkinleşmez.
+
+Başlangıç bağlamı 8192, yanıt sınırı 1024 tokendır. Studio sunucunun bildirdiği
+sınırları istekten önce uygular. İstek büyürse eski konuşmanın yalnız tamamlanmış
+araç/yanıt grupları çıkarılır ve bu olay zaman çizelgesine kaydedilir. Sistem
+talimatı, kullanıcı hedefi, araç tanımları veya son grup tek başına sığmıyorsa
+çalışma açık hatayla durur; model sunucusunun sessizce metin kesmesine güvenilmez.
+
+## Akış içinden yapay zekâya sor
+
+**Veri ve metin → Yapay zekâya sor** adımı, kayıtlı sağlayıcı bağlantısını kullanır.
+Talimatı ve girdi metnini/değişkenini belirtin; sonucu bir değişkene kaydedin.
+İsteğe bağlı JSON şeması verilirse yanıt JSON olarak ayrıştırılır ve doğrulanır.
+Örneğin `{"type":"object","properties":{"uygun":{"type":"boolean"}},
+"required":["uygun"],"additionalProperties":false}` şemasıyla alınan
+`${ai_result.uygun}` değeri **Koşul** adımında kullanılabilir.
+
+Şema verilmezse sonuç metindir. Geçersiz JSON, şemaya uymayan değer, beklenmeyen
+araç çağrısı, boş metin veya sınır aşımı adımı hatayla durdurur; tahmini sonuç
+üretilmez. Modelin ERP veya masaüstüne doğrudan erişimi yoktur. Sonraki akış
+adımları mevcut pencere ve hedef doğrulamalarını aynen uygular.
+
+Şema Draft 2020-12 biçimindedir; uzak başvurular, dış kimlik ve düzenli ifade
+kuralları desteklenmez. Yerel `$defs`/`$ref`, tür, zorunlu alan, enum ve uzunluk
+sınırları kullanılabilir. Şema 16.000, girdi ve yanıt 32.000 bayt ile sınırlıdır;
+iç içe düzey ve doğrulama işlemi sayısı da sınırlanır. Format denetimi seçilen
+kurulumda desteklenmiyorsa açık hata verilir, denetim sessizce atlanmaz.
+
+Bu adım için ayrı ajan lisansı gerekir. İlk sürümde yalnız elle başlatılan akışta
+çalışır; ajan araç akışından veya zamanlayıcıdan iç içe model çağrısı yapılmaz.
+Önizlemede dış istek gönderilmez ve sonuç bilinmeyen olarak taşınır. Kasa ve
+sağlayıcı anahtarları istekten önce maskelenir; maskelenmiş istek çalışma çıktısında
+incelenebilir. Bu adımı içeren akış yeni Studio sürümü gerektirir; kullanılmayan
+akışlara yeni alan eklenmez.
 
 ## Geliştirme ve denetim
 
@@ -98,7 +228,8 @@ Sahte sağlayıcı senaryoları ağsız test içindir; Studio'da gerçek bağlan
 kaydedilemez. Testler izin ve alt akış denetimini, onayı, maskelemeyi, iptali,
 lisansı, masaüstü sırasını, sağlayıcı protokollerini ve eski akış uyumunu kapsar.
 
-Organizasyon, insan görevleri, performans ve salt okunur ofis görünümü aynı kimlik
-ve izin sınırını kullanacak şekilde ayrı aşamalarda tamamlanır. İş verileri ofis
-durum uçlarına taşınmaz. Merkezi görev kaydı ve ortak model verisinin hangi
-sunucuya gönderildiği arayüzde ayrıca gösterilir; uzak robot kontrolü açılmaz.
+Kullanım uçları, şirket sınırı, lisans ve Origin denetimi aynı kapıyı kullanır.
+Yeni adım ve arayüz değişiklikleri yeni Studio sürümü gerektirir. Özelliği
+kullanmayan akışların dosya biçimi değişmez. Sunucu kapasite yükseltmesi, canlı
+lisans tanımı, gerçek model ve iki platformdaki paket kontrolleri tamamlanmadan
+özellik yayımlanmış kabul edilmez.

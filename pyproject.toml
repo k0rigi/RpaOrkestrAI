@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 automation = [
+  "jsonschema>=4.23,<5; sys_platform == 'darwin' or sys_platform == 'win32'",
   "pyobjc-framework-Quartz>=12,<13; sys_platform == 'darwin'",
   "pyobjc-framework-ApplicationServices>=12,<13; sys_platform == 'darwin'",
   "pyobjc-framework-Vision>=12,<13; sys_platform == 'darwin'",

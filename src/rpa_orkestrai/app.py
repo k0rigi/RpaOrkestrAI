@@ -125,12 +125,48 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         item.enabled and item.next_run_at and datetime.fromisoformat(item.next_run_at) <= datetime.now()
         for item in book.schedules())
     from .agents.api import router as agent_router
+    from .agents.central import CentralApprovalBackend, CentralClient
+    from .agents.connections import ProviderConnectionStore
+    from .agents.metrics_api import router as agent_metrics_router
+    from .agents.providers import ProviderError
     from .agents.runner import AgentService
+    from .agents.shared_provider import SharedProvider
+    from .agents.studio_api import router as agent_studio_router
+    from .agents.team_api import router as agent_team_router
+    from .agents.workflow_ai import WorkflowAIService
+
+    agent_connections = ProviderConnectionStore(settings.data_dir)
+    agent_central = CentralClient(licensing)
+    agent_approvals = CentralApprovalBackend(agent_central)
+
+    def agent_provider(agent):
+        if not agent.provider_connection_id:
+            raise ProviderError("Ajan için bir model bağlantısı seçin.")
+        connection = agent_connections.get(agent.provider_connection_id, agent.company_id)
+        if connection.provider == "shared":
+            return SharedProvider(agent_central)
+        return agent_connections.provider(agent.provider_connection_id, agent.company_id)
+
+    def agent_secrets():
+        actor = getattr(licensing, "agent_actor", lambda: None)()
+        return agent_connections.secrets(actor.company_id) if actor is not None else []
+
+    manager.ai_service = WorkflowAIService(
+        settings, agent_connections,
+        actor=lambda: getattr(licensing, "agent_actor", lambda: None)(),
+        gate=lambda: licensing.allowed() and getattr(licensing, "agent_allowed", lambda: False)(),
+        provider_factory=lambda connection, actor: SharedProvider(agent_central)
+        if connection.provider == "shared" else agent_connections.provider(connection.id, actor.company_id),
+    )
 
     agents = AgentService(settings, store, manager, dispatch=dispatch,
                           actor=lambda: getattr(licensing, "agent_actor", lambda: None)(),
                           gate=lambda: licensing.allowed()
-                          and getattr(licensing, "agent_allowed", lambda: False)())
+                          and getattr(licensing, "agent_allowed", lambda: False)(),
+                          provider_factory=agent_provider,
+                          model_resolver=lambda agent: agent_connections.get(
+                              agent.provider_connection_id, agent.company_id).model,
+                          secret_source=agent_secrets, approval_backend=agent_approvals)
 
     def license_locked(reason):
         message = LICENSE_STOPS.get(reason, "Lisans geçerliliğini yitirdiği için akış durduruldu.")
@@ -164,6 +200,11 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     app.state.picks, app.state.licensing, app.state.records = picks, licensing, records
     app.state.scheduler = scheduler
     app.state.agents, app.state.dispatch = agents, dispatch
+    app.state.agent_connections = agent_connections
+    app.state.agent_central = agent_central
+    app.include_router(agent_studio_router(agents, agent_connections, shared_client=agent_central))
+    app.include_router(agent_team_router(agents, agent_central, agent_approvals))
+    app.include_router(agent_metrics_router(agents, agent_connections))
     app.include_router(agent_router(agents))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
@@ -211,7 +252,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "default-src 'self'; script-src 'self' 'sha256-dkIVxJOkhk+dsLekdBE1wjlHzMelv+mUnkUYQRC39To='; "
+            "style-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
             "base-uri 'none'; form-action 'self'"
         )
@@ -230,6 +272,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, exc: RequestValidationError):
         # FastAPI's default validation errors echo the input, including submitted secrets.
+        if request.url.path.startswith("/api/agents"):
+            return JSONResponse({"detail": "Ajan isteği geçersiz. Alanları ve veri sınırlarını kontrol edin."},
+                                status_code=422)
         details = "; ".join(".".join(map(str, e["loc"])) + ": " + e["msg"] for e in exc.errors())
         return JSONResponse({"detail": details[:1500]}, status_code=422)
 
