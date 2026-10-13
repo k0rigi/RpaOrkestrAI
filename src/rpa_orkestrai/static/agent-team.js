@@ -1,0 +1,284 @@
+"use strict";
+
+(() => {
+  let sequence = 0;
+  const labels = { queued: "Sırada", running: "Çalışıyor", waiting_user: "Yanıt bekliyor",
+    waiting_approval: "Onay bekliyor", succeeded: "Tamamlandı", failed: "Hata", cancelled: "Durduruldu",
+    pending: "Onay bekliyor", approved: "Onaylandı", rejected: "Reddedildi", consumed: "Uygulandı" };
+  const el = (tag, text, css = "") => {
+    const item = document.createElement(tag);
+    if (text !== undefined) item.textContent = String(text);
+    if (css) item.className = css;
+    return item;
+  };
+  const id = (item) => { item.id = `agent-team-${++sequence}`; return item; };
+  function button(text, work, css = "") {
+    const item = id(el("button", text, `button ${css}`));
+    item.type = "button";
+    item.addEventListener("click", work);
+    return item;
+  }
+  function input(label, value = "", multiline = false) {
+    const wrapper = el("div", undefined, "agent-field");
+    const field = id(el(multiline ? "textarea" : "input"));
+    if (multiline) field.rows = 4;
+    else field.type = "text";
+    field.value = value;
+    const caption = el("label", label);
+    caption.htmlFor = field.id;
+    wrapper.append(caption, field);
+    return { wrapper, field };
+  }
+  function dropdown(label, options) {
+    const item = input(label);
+    const select = el("select");
+    select.id = item.field.id;
+    for (const [value, text] of options) {
+      const option = el("option", text);
+      option.value = value;
+      select.append(option);
+    }
+    item.field.replaceWith(select);
+    item.field = select;
+    return item;
+  }
+  function state(status) { return el("span", labels[status] || "Bilinmiyor", "agent-status"); }
+  function time(value) { return value ? new Date(value).toLocaleString("tr-TR") : "—"; }
+  function setup(container, options) {
+    const view = { alive: true, busy: false, timer: null, container, options, current: null };
+    view.request = (path, method = "GET", body) => options.api(path, {
+      method, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    view.error = (error) => { if (view.alive) options.toast(error?.message || "İşlem tamamlanamadı.", true); };
+    view.act = async (work) => {
+      if (view.busy || !view.alive) return;
+      view.busy = true;
+      container.setAttribute("aria-busy", "true");
+      try { await work(); } catch (error) { view.error(error); }
+      finally { view.busy = false; container.removeAttribute("aria-busy"); }
+    };
+    view.dispose = () => {
+      view.alive = false;
+      clearTimeout(view.timer);
+      document.removeEventListener("visibilitychange", view.visibility);
+    };
+    view.visibility = () => { if (!document.hidden) view.refresh?.(); };
+    document.addEventListener("visibilitychange", view.visibility);
+    return view;
+  }
+  function polling(view, load) {
+    let loading = false;
+    view.refresh = async () => {
+      clearTimeout(view.timer);
+      if (!view.alive || loading) return;
+      loading = true;
+      try { if (!document.hidden) await load(); }
+      catch (error) { view.error(error); }
+      finally {
+        loading = false;
+        if (view.alive) view.timer = setTimeout(view.refresh, 5000);
+      }
+    };
+    view.refresh();
+  }
+
+  function mountOrganization(container, options) {
+    const view = setup(container, options);
+    const tree = el("section", undefined, "agent-organization");
+    const humans = el("section", undefined, "agent-panel");
+    container.append(el("h2", "Organizasyon"),
+      el("p", "Bir yönetici ajan, ona bağlı departman ajanları ve kendi Studio hesabıyla çalışan ekip üyeleri.", "muted"),
+      tree, humans);
+    const agents = options.agents || [];
+    const manager = agents.find((item) => item.role === "manager");
+    const managerCard = el("article", undefined, "agent-card agent-manager-card");
+    managerCard.append(el("span", "Yönetici ajan", "agent-eyebrow"),
+      el("h3", manager?.name || "Yönetici henüz eklenmedi"),
+      el("p", manager?.description || "Ajanlar sekmesinden Yönetici rolüyle bir ajan ekleyin.", "muted"));
+    tree.append(managerCard);
+    const departments = el("div", undefined, "agent-cards");
+    for (const agent of agents.filter((item) => item.role === "department")) {
+      const card = el("article", undefined, "agent-card");
+      card.append(el("span", agent.department, "agent-eyebrow"), el("h3", agent.name),
+        el("p", agent.manager_id === manager?.id ? "Yöneticiye bağlı" : "Bağımsız departman ajanı", "muted"),
+        el("p", `${agent.workflows?.length || 0} izinli akış`, "agent-help"));
+      departments.append(card);
+    }
+    tree.append(departments, el("p", "Bağlı yöneticiyi veya departmanı Ajanlar → Düzenle formundan değiştirin.", "agent-help"));
+    humans.append(el("h3", "İnsan çalışanlar"), el("p", "Kurum hesapları yükleniyor…", "muted"));
+    view.request("/api/agents/central/members").then((data) => {
+      if (!view.alive) return;
+      humans.replaceChildren(el("h3", "İnsan çalışanlar"));
+      const list = el("ul", undefined, "agent-people");
+      for (const member of data.uyeler || []) {
+        list.append(el("li", `${member.ad_soyad}${member.onayci ? " · Onay yetkilisi" : ""}`));
+      }
+      humans.append(list, el("p", "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır.", "agent-help"));
+    }).catch((error) => {
+      if (view.alive) humans.replaceChildren(el("h3", "İnsan çalışanlar"), el("p", error.message, "agent-warning"));
+    });
+    return view.dispose;
+  }
+
+  function mountTasks(container, options) {
+    const view = setup(container, options);
+    const header = el("div", undefined, "agent-toolbar");
+    header.append(el("h2", "Görevler"));
+    const list = el("div", undefined, "agent-cards");
+    const detail = el("section", undefined, "agent-panel");
+    detail.hidden = true;
+    const note = el("p", "İnsan görevlerinin başlığı, açıklaması ve sonucu kurum sunucusunda saklanır. Ajan çalışma ayrıntıları bu bilgisayarda kalır.", "agent-help");
+    container.append(header, note, detail, list);
+    let humanTasks = [], localTasks = [], members = [];
+    function renderList() {
+      const cards = [];
+      for (const [kind, tasks] of [["human", humanTasks], ["agent", localTasks]]) {
+        for (const task of tasks) {
+          const card = el("article", undefined, "agent-card");
+          const who = kind === "human" ? members.find((m) => m.kullanici_id === task.assignee_user_id)?.ad_soyad
+            : options.agents.find((a) => a.id === task.assigned_agent_id)?.name;
+          card.append(el("span", who || (kind === "human" ? "İnsan çalışan" : "Ajan"), "agent-eyebrow"),
+            el("h3", task.title), state(task.status), el("p", time(task.created_at), "agent-help"));
+          if (kind === "human") card.append(button("Görevi aç", () => view.act(() => showHuman(task.id))));
+          else if (task.run_id) card.append(button("Çalışmayı aç", () => options.openAgentRun(task.run_id)));
+          if (task.parent_task_id) card.append(el("p", "Bir yönetici görevinin alt görevi", "agent-help"));
+          cards.push(card);
+        }
+      }
+      list.replaceChildren(...(cards.length ? cards : [el("p", "Henüz görev yok.", "muted")]));
+    }
+    async function showHuman(identity) {
+      const data = await view.request(`/api/agents/central/tasks/${encodeURIComponent(identity)}`);
+      if (!view.alive) return;
+      const task = data.task;
+      view.current = identity;
+      detail.hidden = false;
+      detail.replaceChildren(el("h3", task.title), state(task.status), el("p", task.instructions, "agent-task-copy"));
+      if (task.summary) detail.append(el("h4", "Sonuç"), el("p", task.summary, "agent-task-copy"));
+      const mayUpdate = options.session.can_manage || task.assignee_user_id === options.session.actor?.user_id;
+      const transitions = { queued: [["running", "Göreve başla"], ["cancelled", "İptal et"]],
+        running: [["waiting_user", "Yanıt bekle"], ["succeeded", "Tamamlandı"], ["failed", "Hata bildir"], ["cancelled", "İptal et"]],
+        waiting_user: [["running", "Devam et"], ["cancelled", "İptal et"]] };
+      if (mayUpdate && transitions[task.status]) {
+        const summary = input("Durum veya sonuç notu", "", true);
+        summary.field.maxLength = 4000;
+        detail.append(summary.wrapper);
+        const actions = el("div", undefined, "agent-toolbar");
+        for (const [status, label] of transitions[task.status]) {
+          if (task.assignee_user_id !== options.session.actor?.user_id && status !== "cancelled") continue;
+          actions.append(button(label, () => view.act(async () => {
+            await view.request(`/api/agents/central/tasks/${identity}/status`, "POST", {
+              status, expected_version: task.version, summary: summary.field.value,
+            });
+            await showHuman(identity);
+            await view.refresh();
+          })));
+        }
+        detail.append(actions);
+      }
+      if (options.session.can_manage && task.status === "queued") {
+        const assignee = dropdown("Başka çalışana aktar", members.map((m) => [String(m.kullanici_id), m.ad_soyad]));
+        assignee.field.value = String(task.assignee_user_id);
+        detail.append(assignee.wrapper, button("Atamayı değiştir", () => view.act(async () => {
+          await view.request(`/api/agents/central/tasks/${identity}/assign`, "POST", {
+            assignee_user_id: Number(assignee.field.value), expected_version: task.version,
+          });
+          await showHuman(identity); await view.refresh();
+        })));
+      }
+      detail.append(button("Ayrıntıyı kapat", () => { view.current = null; detail.hidden = true; detail.replaceChildren(); }));
+      detail.scrollIntoView({ block: "nearest" });
+    }
+    function newTask() {
+      view.current = "new";
+      detail.hidden = false;
+      detail.replaceChildren(el("h3", "İnsan çalışana görev ata"));
+      if (!members.length) {
+        detail.append(el("p", "Görev atanabilecek lisanslı çalışan bulunamadı. Kurum bağlantısını ve çalışan lisanslarını kontrol edin.", "agent-warning"));
+        return;
+      }
+      const title = input("Görev başlığı"); title.field.required = true; title.field.maxLength = 160;
+      const instructions = input("Yapılacak iş", "", true); instructions.field.required = true; instructions.field.maxLength = 16000;
+      const member = dropdown("Atanan çalışan", members.map((m) => [String(m.kullanici_id), m.ad_soyad]));
+      const priority = dropdown("Öncelik", [["normal", "Normal"], ["high", "Yüksek"], ["low", "Düşük"]]);
+      const form = id(el("form"));
+      form.append(title.wrapper, instructions.wrapper, member.wrapper, priority.wrapper);
+      const submit = id(el("button", "Görevi ata", "button primary")); submit.type = "submit";
+      form.append(submit);
+      const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
+        (value) => value.toString(16).padStart(2, "0")).join("");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        view.act(async () => {
+          const data = await view.request("/api/agents/central/tasks", "POST", {
+            request_id: requestId, title: title.field.value, instructions: instructions.field.value,
+            assignee_user_id: Number(member.field.value), priority: priority.field.value,
+          });
+          await showHuman(data.task.id); await view.refresh();
+        });
+      });
+      detail.append(form, button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
+    }
+    if (options.session.can_manage) header.append(button("İnsan çalışana görev ata", newTask, "primary"));
+    header.append(button("Yenile", () => view.refresh()));
+    polling(view, async () => {
+      const responses = await Promise.allSettled([
+        view.request("/api/agents/tasks"), view.request("/api/agents/central/tasks"), view.request("/api/agents/central/members"),
+      ]);
+      if (!view.alive) return;
+      if (responses[0].status === "fulfilled") localTasks = responses[0].value;
+      if (responses[1].status === "fulfilled") humanTasks = responses[1].value.tasks || [];
+      if (responses[2].status === "fulfilled") members = responses[2].value.uyeler || [];
+      const error = responses.find((response) => response.status === "rejected");
+      note.textContent = error ? `Bazı görevler alınamadı: ${error.reason.message}`
+        : "İnsan görevleri kurum sunucusunda, ajan çalışma ayrıntıları bu bilgisayarda tutulur.";
+      renderList();
+    });
+    return view.dispose;
+  }
+
+  function mountApprovals(container, options) {
+    const view = setup(container, options);
+    const list = el("div", undefined, "agent-cards");
+    const detail = el("section", undefined, "agent-panel"); detail.hidden = true;
+    const note = el("p", "Onaylar yükleniyor…", "agent-help");
+    container.append(el("h2", "Kurum onayları"), note, detail, list);
+    async function show(identity) {
+      const data = await view.request(`/api/agents/central/approvals/${encodeURIComponent(identity)}`);
+      if (!view.alive) return;
+      const item = data.approval;
+      detail.hidden = false;
+      detail.replaceChildren(el("h3", item.preview?.workflow_name || "Akış onayı"), state(item.status),
+        el("h4", "Girdiler"), el("pre", JSON.stringify(item.preview?.inputs || {}, null, 2), "agent-json"),
+        el("h4", "Ajanın gerekçesi"), el("p", item.reason, "agent-task-copy"),
+        el("p", `Son onay zamanı: ${time(item.expires_at)} · Deneme: ${item.attempt}`, "agent-help"));
+      if (item.status === "pending" && options.session.can_approve) {
+        const actions = el("div", undefined, "agent-toolbar");
+        for (const [approved, label] of [[true, "Onayla"], [false, "Reddet"]]) {
+          actions.append(button(label, () => view.act(async () => {
+            await view.request(`/api/agents/central/approvals/${identity}/decision`, "POST", { approved });
+            await show(identity); await view.refresh();
+          }), approved ? "primary" : "danger"));
+        }
+        detail.append(actions);
+      } else if (item.status === "pending") detail.append(el("p", "Kararı firmanın onay yetkilisi verebilir.", "muted"));
+      detail.append(button("Ayrıntıyı kapat", () => { detail.hidden = true; detail.replaceChildren(); }));
+    }
+    polling(view, async () => {
+      const data = await view.request("/api/agents/central/approvals");
+      if (!view.alive) return;
+      note.textContent = "Onay akışa, girdilere ve tek denemeye bağlıdır. Süresi dolan onayla işlem başlatılmaz.";
+      const cards = (data.approvals || []).map((item) => {
+        const card = el("article", undefined, "agent-card");
+        card.append(state(item.status), el("p", `İsteyen hesap: ${item.requester_user_id}`, "agent-help"),
+          el("p", `Oluşturma: ${time(item.created_at)}`, "agent-help"), button("Onayı incele", () => view.act(() => show(item.id))));
+        return card;
+      });
+      list.replaceChildren(...(cards.length ? cards : [el("p", "Bekleyen onay bulunmuyor.", "muted")]));
+    });
+    return view.dispose;
+  }
+  window.RpaAgents.registerTab({ id: "organization", label: "Organizasyon", mount: mountOrganization });
+  window.RpaAgents.registerTab({ id: "tasks", label: "Görevler", mount: mountTasks });
+  window.RpaAgents.registerTab({ id: "approvals", label: "Onaylar", mount: mountApprovals });
+})();
