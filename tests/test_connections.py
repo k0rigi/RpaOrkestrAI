@@ -2,6 +2,7 @@
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,6 +34,48 @@ def test_old_settings_become_default_profiles(tmp_path):
     # Migration runs once; later settings changes do not recreate profiles.
     settings.update({"database_url": ""})
     assert len(Connections(tmp_path, settings).list()) == 2
+
+
+def test_concurrent_store_initialization_migrates_once_and_preserves_secrets(tmp_path, monkeypatch):
+    settings = Settings(tmp_path, dotenv=False)
+    settings.update({"database_url": "sqlite:///private-secret"})
+    workers = 8
+    barrier = threading.Barrier(workers)
+    calls = []
+    original_migrate = Connections._migrate
+
+    def migrate(value):
+        calls.append(value)
+        return original_migrate(value)
+
+    monkeypatch.setattr(Connections, "_migrate", staticmethod(migrate))
+
+    def open_store(index):
+        barrier.wait(timeout=3)
+        return Connections(tmp_path if index % 2 else tmp_path / ".", settings)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        stores = list(pool.map(open_store, range(workers)))
+    assert len(calls) == 1
+    assert all(store._lock is stores[0]._lock for store in stores)
+    assert all(store.secrets(include_short=True) == ["sqlite:///private-secret"] for store in stores)
+    assert len({store.list()[0]["id"] for store in stores}) == 1
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_different_connection_instances_do_not_lose_concurrent_changes(tmp_path):
+    stores = [Connections(tmp_path), Connections(tmp_path / ".")]
+
+    def create(index):
+        return stores[index % 2].create({"name": f"Bağlantı {index}", "type": "database",
+                                       "config": {"engine": "sqlite", "path": str(tmp_path / "rows.db")}})
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(create, range(32)))
+    listed = stores[0].list()
+    assert {item["id"] for item in listed} == {item["id"] for item in results}
+    assert len(listed) == 32 and sum(item["default"] for item in listed) == 1
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_profiles_are_named_validated_and_keep_secrets(tmp_path):

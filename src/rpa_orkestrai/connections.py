@@ -38,11 +38,18 @@ def _text(value: Any, label: str, limit: int = 4096) -> str:
 
 
 class Connections:
+    _locks: dict[Path, threading.RLock] = {}
+    _locks_guard = threading.Lock()
+
     def __init__(self, data_dir: Path | str, settings: Any = None):
-        self._path = Path(data_dir) / "connections.json"
-        self._lock = threading.RLock()
-        if not self._path.exists():
-            self._save(self._migrate(settings))
+        self._path = Path(data_dir).expanduser().resolve() / "connections.json"
+        # API, engine and agents create separate Connections objects for the same
+        # workspace. Migration and read/modify/write must share one path lock.
+        with self._locks_guard:
+            self._lock = self._locks.setdefault(self._path, threading.RLock())
+        with self._lock:
+            if not self._path.exists():
+                self._save(self._migrate(settings))
 
     # ----- storage ------------------------------------------------------------------
     def _load(self) -> list[dict]:

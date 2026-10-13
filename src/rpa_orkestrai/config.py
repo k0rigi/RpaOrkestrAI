@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -18,14 +19,19 @@ def modifier_key(system: str | None = None) -> str:
 
 def atomic_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        if os.name != "nt":
-            os.chmod(temporary, 0o600)
-        json.dump(data, handle, ensure_ascii=False, indent=2, allow_nan=False)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(path)
+    # Concurrent stores must never share a temporary file, especially on Windows
+    # where another writer's open handle prevents replacement. mkstemp also
+    # creates the file privately and exclusively, without following a symlink.
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2, allow_nan=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class Settings:

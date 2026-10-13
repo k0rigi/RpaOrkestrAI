@@ -64,6 +64,13 @@ class AgentStopped(AgentPolicyStop):
         self.cancelled = cancelled
 
 
+class AgentCancelled(AgentStopped, Cancelled):
+    """Preserve cancellation when the workflow sees the agent signal first."""
+
+    def __init__(self, message: str):
+        super().__init__(message, cancelled=True)
+
+
 @dataclass
 class Context:
     agent: Agent
@@ -448,22 +455,21 @@ class AgentService:
 
     def _check(self, context: Context) -> None:
         if context.cancel.is_set() or self._closed:
-            raise AgentStopped(context.stop_reason, cancelled=True)
+            raise AgentCancelled(context.stop_reason)
         try:
             actor = self._authorize()
         except AgentServiceError:
-            raise AgentStopped("Lisans veya kullanıcı yetkisi sona erdiği için çalışma durduruldu.",
-                               cancelled=True) from None
+            raise AgentCancelled("Lisans veya kullanıcı yetkisi sona erdiği için çalışma durduruldu.") from None
         original = context.run.actor
         if (actor.user_id, actor.company_id, actor.session_id) != (
                 original.user_id, original.company_id, original.session_id):
-            raise AgentStopped("Kullanıcı oturumu değiştiği için çalışma durduruldu.", cancelled=True)
+            raise AgentCancelled("Kullanıcı oturumu değiştiği için çalışma durduruldu.")
         try:
             current = self.agent_store.agent(context.agent.id)
         except (KeyError, ValueError):
-            raise AgentStopped("Ajan tanımı artık kullanılamıyor.", cancelled=True) from None
+            raise AgentCancelled("Ajan tanımı artık kullanılamıyor.") from None
         if current.revision != context.agent.revision or current.company_id != original.company_id:
-            raise AgentStopped("Ajan yetkileri değiştiği için çalışma durduruldu.", cancelled=True)
+            raise AgentCancelled("Ajan yetkileri değiştiği için çalışma durduruldu.")
         if time.monotonic() >= context.deadline:
             raise AgentStopped("Ajanın azami çalışma süresi doldu.")
         try:

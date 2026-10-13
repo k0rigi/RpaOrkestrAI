@@ -381,6 +381,46 @@ def test_cancel_stops_only_the_owned_running_workflow(runtime):
     assert child.status == "cancelled"
 
 
+@pytest.mark.parametrize("signal", ["cancel", "gate", "session"])
+def test_agent_policy_cancellation_precedes_manager_signal_without_becoming_failure(runtime, monkeypatch, signal):
+    from rpa_orkestrai.agents.policy import AgentExecutionPolicy
+
+    entered, release = threading.Event(), threading.Event()
+    original_check = AgentExecutionPolicy.check
+
+    def paused_child_check(policy):
+        if threading.current_thread().name.startswith("rpa-worker") and not entered.is_set():
+            entered.set()
+            release.wait(2)
+        return original_check(policy)
+
+    monkeypatch.setattr(AgentExecutionPolicy, "check", paused_child_check)
+    flow = runtime.workflow(Step(action="core.wait", params={"seconds": 10}))
+    run = runtime.start(runtime.agent(flow), response(run_call(flow)))
+    active = wait_for(lambda: runtime.service.get_run(run.id), lambda value: bool(value.workflow_run_ids))
+    child_id = active.workflow_run_ids[0]
+    assert entered.wait(2)
+    original_stop = runtime.manager.stop_run
+
+    def delayed_manager_signal(identity, reason):
+        # Force the child to observe the agent policy signal before its own
+        # cancellation Event; this scheduling gap occurs naturally on Windows.
+        release.set()
+        wait_for(lambda: runtime.store.run(identity), lambda value: value.finished_at is not None)
+        return original_stop(identity, reason)
+
+    monkeypatch.setattr(runtime.manager, "stop_run", delayed_manager_signal)
+    if signal == "cancel":
+        runtime.service.cancel(run.id)
+    elif signal == "gate":
+        runtime.state["gate"] = False
+    else:
+        runtime.state["actor"] = runtime.owner.model_copy(update={"session_id": "expired-session"})
+    assert runtime.done(run).status == "cancelled"
+    child = wait_for(lambda: runtime.store.run(child_id), lambda value: value.finished_at is not None)
+    assert child.status == "cancelled"
+
+
 def test_busy_result_does_not_cancel_unrelated_work(runtime):
     manual_flow = runtime.workflow(Step(action="core.wait", params={"seconds": 1}))
     manual = runtime.manager.start(manual_flow)
