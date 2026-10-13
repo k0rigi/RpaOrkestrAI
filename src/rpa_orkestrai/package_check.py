@@ -140,6 +140,53 @@ def _check_web_driver() -> None:
         runtime.stop()
 
 
+def app_identity() -> str:
+    """The process's AppUserModelID as Windows reports it."""
+    import ctypes
+    from ctypes import wintypes
+
+    value = ctypes.c_wchar_p()
+    shell32 = ctypes.windll.shell32
+    if shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(value)) != 0 or not value.value:
+        return ""
+    try:
+        return value.value
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(ctypes.cast(value, wintypes.LPVOID))
+
+
+def file_description(path: str) -> str:
+    import ctypes
+
+    version = ctypes.windll.version
+    size = version.GetFileVersionInfoSizeW(path, None)
+    if not size:
+        return ""
+    data = ctypes.create_string_buffer(size)
+    if not version.GetFileVersionInfoW(path, 0, size, data):
+        return ""
+    pointer, length = ctypes.c_void_p(), ctypes.c_uint()
+    if not version.VerQueryValueW(data, "\\StringFileInfo\\041F04B0\\FileDescription",
+                                  ctypes.byref(pointer), ctypes.byref(length)) or not length.value:
+        return ""
+    return ctypes.wstring_at(pointer, length.value).rstrip("\x00")
+
+
+def _check_windows_identity() -> None:
+    """Pinning and search show "RpaOrkestrAI Studio": the exe's version resource and the app id."""
+    import platform
+
+    from .gui import APP_USER_MODEL_ID, set_app_identity
+
+    if platform.system() != "Windows" or not getattr(sys, "frozen", False):
+        return
+    set_app_identity()
+    if app_identity() != APP_USER_MODEL_ID:
+        raise RuntimeError("Uygulama kimliği (AppUserModelID) atanamadı; görev çubuğu sabitlemesi bozulur.")
+    if file_description(sys.executable) != "RpaOrkestrAI Studio":
+        raise RuntimeError("EXE dosyasında sürüm bilgisi (FileDescription) yok; arama ve sabitleme adı göstermez.")
+
+
 def _check_license_verification() -> None:
     """Sign with a throwaway key and verify with the packaged license code (no network)."""
     import base64
@@ -227,6 +274,7 @@ def run_check(report: Path) -> int:
             _check_databases(root)
             _check_documents(root)
             _check_web_driver()
+            _check_windows_identity()
             _check_login_item()
             _check_password_store()
 

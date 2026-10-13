@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.21-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.21-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.22-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.22-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -22,6 +22,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 **0.9.7:** Tabloya yazmada **Ekranda seç** ile referans görsel, konum veya alan kimliği kullanılabilir. Ana form satır, sütun ve değerden oluşur; ayrıntılı ayarlar **Diğer seçenekler** altındadır. 0.9.6 ile kaydedilmiş otomatik/adla tablo seçimi korunur. Adım açıklamaları firma ve uygulamadan bağımsız olacak şekilde genelleştirilmiştir.
 
 **0.9.12:** Tablo önizlemesinde **Başlık yap** ile gerçek başlık satırını seçebilirsiniz; başlık yoksa **Başlık yok** seçin. Başlık ve öncesi veri sayılmaz, ilk kayıt **Veri 1 / Satır 1** olur. Başlıktan önce boş satır bulunan kopyalar desteklenir; okuma ve yazma aynı satır ayrımını kullanır. `sutun_7` gibi numaralı sütun adları çalışmaya devam eder.
+
+**0.9.22:** Windows'ta görev çubuğuna sabitleme ve Başlat aramasında uygulama artık **RpaOrkestrAI Studio** adı ve simgesiyle görünür (önceden yalnız `RpaOrkestrAI.exe`). Uygulama ile masaüstü/Başlat kısayolları aynı uygulama kimliğini taşır; EXE'ye ad, sürüm ve yayıncı bilgisi eklendi. Daha önce sabitlenmiş eski öğeyi bir kez kaldırıp uygulama açıkken yeniden sabitleyin.
 
 **0.9.21:** **Adım numaraları** (1, 2, 3.1 …) liste, diyagram, ayar paneli, Adıma git ve çalışma günlüğünde. **Web otomasyonu** genişledi: **Tarayıcıda seç** (öğeye tıklayarak hedef belirleme), çerçeve (iframe) desteği, yeni sekmeye kendiliğinden geçiş ve yeni adımlar — Web'de bekle, tuşa bas, geri/ileri/yenile, sekmeye geç, Web tablosunu oku, Web'den dosya indir, Web'e dosya yükle, sayfa görüntüsü ve **Web'de JavaScript çalıştır**. [Web otomasyonu rehberi](docs/web-otomasyonu.md).
 

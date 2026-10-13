@@ -1,6 +1,6 @@
 # Kurulum ve bağlantılar
 
-Normal kullanımda [indirme sayfasındaki](https://orkestrai.net/rpa/) Windows EXE veya macOS DMG paketini kullanın. Paket kendi Python 3.12 yorumlayıcısını taşır; bilgisayara Python kurmanız gerekmez. Sisteminizde Python 3.14 varsa paket bundan bağımsız çalışır. Windows'ta kurulumdan sonraki masaüstü kısayolunu, Mac'te `/Applications/RpaOrkestrAI.app` dosyasını açın. `start.command` hazır uygulama değildir; terminale bağlı kaynak kod başlatıcısıdır.
+Normal kullanımda [indirme sayfasındaki](https://orkestrai.net/rpa/) Windows EXE veya macOS DMG paketini kullanın. Paket kendi Python 3.12 yorumlayıcısını taşır; bilgisayara Python kurmanız gerekmez. Sisteminizde Python 3.14 varsa paket bundan bağımsız çalışır. Windows'ta kurulumdan sonraki masaüstü kısayolunu, Mac'te `/Applications/RpaOrkestrAI.app` dosyasını açın. Windows'ta uygulama görev çubuğuna ve Başlat aramasına **RpaOrkestrAI Studio** adıyla gelir (0.9.22+); eski sürümden kalma bir `RpaOrkestrAI.exe` sabitlemesi varsa onu kaldırıp uygulama açıkken görev çubuğundaki simgeye sağ tıklayarak yeniden sabitleyin. `start.command` hazır uygulama değildir; terminale bağlı kaynak kod başlatıcısıdır.
 
 0.1.x sürümlerinden 0.2.0'a ilk geçiş elle kurulum gerektirir. Sonraki yayımlanan sürümler açılışta arka planda indirilir ve bir sonraki açılışta kurulur; mevcut akışlar ve bağlantı ayarları korunur. [Masaüstü kurulum ayrıntıları](masaustu-dagitim.md), [güncelleme mimarisi](guncelleme-mimarisi.md).
 

@@ -50,6 +50,33 @@ def make_icon(folder: Path) -> Path:
     return icon
 
 
+def version_file(folder: Path) -> Path:
+    """Windows version resource: Explorer, search and a pinned taskbar item show the name, not the file."""
+    import re
+
+    version = re.search(r'__version__ = "([0-9.]+)"', (ROOT / "src" / "rpa_orkestrai" / "__init__.py").read_text()).group(1)
+    parts = [int(part) for part in version.split(".")] + [0] * 4
+    numbers = ", ".join(str(part) for part in parts[:4])
+    dotted = ".".join(str(part) for part in parts[:4])
+    strings = {"CompanyName": "orkestrai.net", "FileDescription": "RpaOrkestrAI Studio",
+               "FileVersion": dotted, "InternalName": "RpaOrkestrAI", "LegalCopyright": "orkestrai.net",
+               "OriginalFilename": "RpaOrkestrAI.exe", "ProductName": "RpaOrkestrAI Studio", "ProductVersion": dotted}
+    entries = ",\n".join(f"          StringStruct({key!r}, {value!r})" for key, value in strings.items())
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / "version-info.txt"
+    target.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers=({numbers}), prodvers=({numbers}), mask=0x3f, flags=0x0, OS=0x40004,
+                    fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('041F04B0', [
+{entries}])]),
+    VarFileInfo([VarStruct('Translation', [0x041F, 1200])])
+  ]
+)
+""", encoding="utf-8")
+    return target
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="RpaOrkestrAI masaüstü paketi oluştur")
     parser.add_argument("--without-odbc", action="store_true",
@@ -91,7 +118,7 @@ def main() -> None:
                     "--hidden-import", "sqlalchemy.dialects.mssql.pymssql", "--collect-submodules", "pymssql"]
     else:
         # comtypes generates the UI Automation wrapper at run time; bundle its code generator.
-        command += ["--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",
+        command += ["--version-file", str(version_file(ROOT / "build" / "version")),"--hidden-import", "webview.platforms.winforms", "--hidden-import", "webview.platforms.edgechromium",
                     "--collect-submodules", "comtypes", "--collect-all", "winrt",
                     "--hidden-import", "pynput.keyboard._win32", "--hidden-import", "pynput.mouse._win32"]
     command += [str(ROOT / "launch_gui.pyw")]

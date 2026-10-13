@@ -75,8 +75,27 @@ def show_error(message: str) -> None:
         root.destroy()
 
 
+# Windows groups a window with the Start menu/desktop shortcut carrying the same id (set by the
+# installer): pinning then keeps the name and icon instead of a bare RpaOrkestrAI.exe.
+APP_USER_MODEL_ID = "Orkestrai.RpaOrkestrAI.Studio"
+
+
+def set_app_identity() -> bool:
+    """Before any window exists; harmless where unsupported."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import ctypes
+
+        return ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            ctypes.c_wchar_p(APP_USER_MODEL_ID)) == 0
+    except (AttributeError, OSError):
+        return False
+
+
 def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    set_app_identity()
     if len(args) == 2 and args[0] == "--self-test":
         from .package_check import run_check
 

@@ -1,10 +1,14 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "0.9.21"
+  #define AppVersion "0.9.22"
 #endif
 
 [Setup]
 AppId={{8B5DD476-E2DD-47E0-A45A-C09A31929DE4}
 AppName=RpaOrkestrAI Studio
+AppPublisher=orkestrai.net
+AppPublisherURL=https://orkestrai.net/rpa/
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName=RpaOrkestrAI Studio
 AppVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\RpaOrkestrAI
 DefaultGroupName=RpaOrkestrAI Studio
@@ -30,8 +34,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\dist\RpaOrkestrAI\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{userdesktop}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"
-Name: "{userprograms}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"
+; The same id as gui.APP_USER_MODEL_ID: the open window joins these shortcuts (pin, search, icon).
+Name: "{userdesktop}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"; AppUserModelID: "Orkestrai.RpaOrkestrAI.Studio"
+Name: "{userprograms}\RpaOrkestrAI Studio"; Filename: "{app}\RpaOrkestrAI.exe"; AppUserModelID: "Orkestrai.RpaOrkestrAI.Studio"
 
 [Run]
 Filename: "{app}\RpaOrkestrAI.exe"; Description: "RpaOrkestrAI Studio'yu aç"; Flags: nowait postinstall skipifsilent; Check: not IsUpdate
