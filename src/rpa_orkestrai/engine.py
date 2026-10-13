@@ -19,16 +19,17 @@ from typing import Any, Callable
 from .catalog import BY_TYPE, EXTERNAL_PREFIXES, LOCATABLE, LOOPS, TEST_PREPARE, defaults
 from .config import Settings
 from .desktop.windows import WindowError, validate_selector
-from .errors import BreakLoop, Cancelled, ContinueLoop, JumpTo, StopWorkflow, WorkflowError
+from .errors import AgentPolicyStop, BreakLoop, Cancelled, ContinueLoop, JumpTo, StopWorkflow, WorkflowError
 from .models import Artifact, Event, Run, Step, Workflow, now
 from .storage import Store
 
 MAX_EXECUTED_STEPS = 1_000_000
 MAX_LOOP_ITEMS = 100_000
 SUB_WORKFLOW_DEPTH = 5
-CONTROL_SIGNALS = (BreakLoop, ContinueLoop, JumpTo, StopWorkflow, Cancelled, InterruptedError)
+CONTROL_SIGNALS = (BreakLoop, ContinueLoop, JumpTo, StopWorkflow, Cancelled, InterruptedError, AgentPolicyStop)
 ARTIFACT_TYPES = {".csv": "text/csv; charset=utf-8", ".png": "image/png", ".txt": "text/plain; charset=utf-8",
-                  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+                  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  ".json": "application/json"}
 
 
 def describe_error(exc: BaseException) -> str:
@@ -412,8 +413,9 @@ class Debugger:
 
 class Executor:
     def __init__(self, settings: Settings, store: Store, run: Run, cancel: threading.Event,
-                 save: Callable[[], None], variables: dict[str, Any] | None = None):
+                 save: Callable[[], None], variables: dict[str, Any] | None = None, *, agent_context: Any = None):
         self.settings, self.store, self.run = settings, store, run
+        self.agent_context = agent_context
         self.cancel, self._save = cancel, save
         self.config = settings.snapshot()
         self.variables: dict[str, Any] = dict(variables or {})
@@ -429,7 +431,10 @@ class Executor:
 
         self.connections = Connections(settings.data_dir, settings)
         self._secrets = [value for value in (self.config.get("database_url"), self.config.get("google_credentials_path"))
-                         if value] + self.connections.secrets()
+                         if value] + self.connections.secrets(include_short=agent_context is not None)
+        if agent_context is not None:
+            for secret in self._secrets:
+                agent_context.remember_secret(secret)
         if "sifre" not in self.variables:
             from .vault import Vault
 
@@ -454,12 +459,16 @@ class Executor:
     def check_cancelled(self) -> None:
         if self.cancel.is_set():
             raise Cancelled()
+        if self.agent_context is not None:
+            self.agent_context.check()
         if self._deadlines and time.monotonic() >= min(self._deadlines):
             raise WorkflowError("Koşullu döngünün süre sınırı doldu; işlem durduruldu.")
 
     def remember_secret(self, value: str) -> None:
         if value and value not in self._secrets:
             self._secrets.append(value)
+        if self.agent_context is not None:
+            self.agent_context.remember_secret(value)
 
     def mask(self, message: str) -> str:
         # Never persist configured credentials or a ${sifre.…} value, even when used in a log step.
@@ -468,7 +477,8 @@ class Executor:
             escaped = json.dumps(secret, ensure_ascii=False)[1:-1]
             if escaped != secret:
                 message = message.replace(escaped, "[gizlendi]")
-        return re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
+        message = re.sub(r"(\w+://)[^\s/@]+:[^\s/@]+@", r"\1[gizlendi]@", message)
+        return self.agent_context.mask(message) if self.agent_context is not None else message
 
     def log(self, message: str, *, level: str = "info", step_id: str | None = None) -> None:
         message = self.mask(message)
@@ -483,14 +493,19 @@ class Executor:
         self._save()
 
     def wait(self, seconds: float) -> None:
-        if seconds > 0 and self.cancel.wait(seconds):
-            raise Cancelled()
+        deadline = time.monotonic() + max(0, seconds)
+        while time.monotonic() < deadline:
+            self.check_cancelled()
+            if self.cancel.wait(min(0.2, deadline - time.monotonic())):
+                raise Cancelled()
 
     def save_artifact(self, name: str, data: bytes) -> Path:
         """Store a file (e.g. a screenshot) among the run's downloadable outputs."""
         suffix = Path(name).suffix.lower()
         if suffix not in ARTIFACT_TYPES or not re.fullmatch(r"[^/\\\x00-\x1f<>:\"|?*]{1,120}", name):
-            raise WorkflowError("Çıktı dosya adı yol içermemeli ve .png, .csv, .txt veya .xlsx uzantılı olmalıdır.")
+            raise WorkflowError("Çıktı dosya adı yol içermemeli ve .png, .csv, .txt, .json veya .xlsx uzantılı olmalıdır.")
+        if self.agent_context is not None:
+            data = self.agent_context.artifact(name, data)
         if len(self.run.artifacts) >= 100:
             raise WorkflowError("Bir çalışma en fazla 100 çıktı üretebilir.")
         artifact = Artifact(name=name, department=self.run.department, rows=0)
@@ -652,6 +667,8 @@ class Executor:
         return "ok"
 
     def variables_snapshot(self, limit: int = 200_000) -> dict[str, Any]:
+        if self.agent_context is not None:
+            return self.agent_context.snapshot(self.variables)
         try:
             return json.loads(self.mask(json.dumps(snapshot(self.variables, limit), ensure_ascii=False)))
         except ValueError:  # a very short password masked JSON punctuation: show nothing rather than it
@@ -693,6 +710,17 @@ class Executor:
         self.check_cancelled()
 
     def step(self, step: Step, entry: list[tuple[str | None, int]] | None = None) -> str:
+        try:
+            return self._step(step, entry)
+        except WindowError as exc:
+            if self.agent_context is not None:
+                raise AgentPolicyStop("Pencere veya hedef doğrulanamadı; ajan akışı güvenlik nedeniyle durduruldu.") from exc
+            raise
+        finally:
+            if self.agent_context is not None:
+                self.agent_context.after_step(step, None, self.variables)
+
+    def _step(self, step: Step, entry: list[tuple[str | None, int]] | None = None) -> str:
         if entry:
             return self.enter(step, entry)
         self.check_cancelled()
@@ -724,6 +752,8 @@ class Executor:
             self.log(f"Önizleme: {label} için gerçek bağlantı verisi gerekiyor; adım/dal atlandı.",
                      level="warning", step_id=step.id)
             return "skipped"
+        if self.agent_context is not None:
+            self.agent_context.before_step(step, p, self.variables)
         # The pause belongs to the flow, not to the step's own work.
         delay = p.pop("wait_after", 0)
         if step.action == "control.for_each":
@@ -885,7 +915,10 @@ class Executor:
         if len(self.call_stack) > SUB_WORKFLOW_DEPTH:
             raise WorkflowError("En fazla 5 seviye iç içe akış çalıştırılabilir.")
         try:
-            child = self.store.workflow(workflow_id)
+            child = (self.agent_context.authorize_workflow(workflow_id) if self.agent_context is not None
+                     else self.store.workflow(workflow_id))
+        except AgentPolicyStop:
+            raise
         except (KeyError, ValueError, OSError) as exc:
             raise WorkflowError("Çalıştırılacak akış bulunamadı; silinmiş olabilir. Adımda akışı yeniden seçin.") from exc
         validate_workflow(child)
@@ -1508,16 +1541,22 @@ class RunManager:
 
     def start(self, workflow: Workflow, *, dry_run: bool = False, variables: dict[str, Any] | None = None,
               test_step_id: str | None = None, plan: dict | None = None, locate: bool = False,
-              trigger: str = "manual", pause_at: str | None = None) -> Run:
+              trigger: str = "manual", pause_at: str | None = None, agent_context: Any = None,
+              desktop_reservation: threading.Event | None = None) -> Run:
         # A tested step runs alone: its Adıma git target lies outside the copy that is run.
         validate_workflow(workflow, in_loop=bool(plan and plan["in_loop"]), jumps=plan is None)
         if pause_at is not None and (plan is not None or pause_at not in step_titles(workflow.steps)):
             raise WorkflowError("Buraya kadar çalıştır için akıştaki bir adımı seçin; adım bulunamadı.")
         if self.gate is not None and not self.gate():
             raise RuntimeError("Lisans doğrulanamadığı için akış başlatılamadı.")
+        if agent_context is not None:
+            agent_context.check()
         with self._lock:
-            if self._setup_cancel is not None:
+            if self._setup_cancel is not None and self._setup_cancel is not desktop_reservation:
                 raise RuntimeError("Bir hedef seçimi devam ediyor. Tamamlanmasını bekleyin veya iptal edin.")
+            if desktop_reservation is not None:
+                if self._setup_cancel is not desktop_reservation or desktop_reservation.is_set():
+                    raise RuntimeError("Çalıştırma sırası geçerliliğini yitirdi.")
             if self._closed or self._active:
                 raise RuntimeError("Zaten bir akış çalışıyor. Tamamlanmasını bekleyin veya durdurun.")
             run = Run(workflow_id=workflow.id, workflow_name=workflow.name, department=workflow.department,
@@ -1525,15 +1564,32 @@ class RunManager:
             cancel = threading.Event()
             self.store.save_run(run)
             self._active = (run.id, cancel)
+            if desktop_reservation is not None:
+                self._setup_cancel = None
             self._debugger = Debugger(pause_at) if pause_at is not None else None
             self.pool.submit(self._work, workflow.model_copy(deep=True), run, cancel, dict(variables or {}),
-                             plan, locate, self._debugger)
+                             plan, locate, self._debugger, agent_context)
             return run.model_copy(deep=True)
 
     def _work(self, workflow: Workflow, run: Run, cancel: threading.Event,
               variables: dict[str, Any] | None = None, plan: dict | None = None, locate: bool = False,
-              debugger: Debugger | None = None) -> None:
-        runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables)
+              debugger: Debugger | None = None, agent_context: Any = None) -> None:
+        try:
+            runner = Executor(self.settings, self.store, run, cancel, lambda: self.store.save_run(run), variables,
+                              agent_context=agent_context)
+        except Exception:
+            # A failed secret-store or policy setup must release the only desktop worker.
+            run.status = "failed"
+            run.error = "Akışın güvenli çalışma ortamı hazırlanamadı."
+            if agent_context is not None:
+                run.variables = {}
+            run.finished_at = now()
+            with self._lock:
+                self._active, self._stop_reason, self._debugger = None, None, None
+            self.store.save_run(run)
+            return
+        if agent_context is not None and agent_context.window_validator is None:
+            agent_context.window_validator = lambda target: runner.windows().current(target)
         runner.debugger = debugger
         if plan:
             runner.titles = dict(plan.get("titles") or {})
@@ -1600,11 +1656,19 @@ class RunManager:
             run.status = "failed"
             runner.log(run.error, level="error")
         finally:
-            if run.error:
-                run.error = runner.mask(run.error)
+            try:
+                if run.error:
+                    run.error = runner.mask(run.error)
+                if run.test_step_id or agent_context is not None:
+                    run.variables = runner.variables_snapshot()
+                if agent_context is not None:
+                    agent_context.finish(runner)
+            except Exception:
+                # Never persist a partially sanitized result or strand the desktop reservation.
+                run.status = "failed"
+                run.error = "Çalışma sonucu güvenli biçimde hazırlanamadı; çıktı kaydedilmedi."
+                run.variables, run.events = {}, []
             run.paused = None
-            if run.test_step_id:
-                run.variables = runner.variables_snapshot()
             run.finished_at = now()
             # Free the worker before the result becomes visible: whoever sees the finished run can
             # start the next one at once. The single worker thread still writes this file first.

@@ -264,10 +264,12 @@ class Scheduler:
                  busy: Callable[[], bool], workflow_name: Callable[[str], str | None],
                  attention: Callable[[], None] | None = None, clock: Callable[[], datetime] = datetime.now,
                  tick: float = 5.0, run_state: Callable[[str], str | None] | None = None,
-                 stop_run: Callable[[str, str], bool] | None = None):
+                 stop_run: Callable[[str, str], bool] | None = None,
+                 reserve: Callable[[], bool] | None = None, release: Callable[[], None] | None = None):
         self.book, self.start_run, self.allowed, self.busy = book, start_run, allowed, busy
         self.workflow_name, self.attention, self.clock, self.tick = workflow_name, attention, clock, tick
         self.run_state, self.stop_run = run_state, stop_run
+        self.reserve, self.release = reserve, release
         # run id → (schedule id, minutes it may take, when it started): runs with a time limit.
         self._limits: dict[str, tuple[str, int, datetime]] = {}
         self._lock = threading.RLock()
@@ -305,6 +307,8 @@ class Scheduler:
         self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=10)
+        if self.release is not None:
+            self.release()
 
     def poke(self) -> None:
         self._wake.set()
@@ -392,6 +396,8 @@ class Scheduler:
                                                          "bitmediği için atlandı.")
                 continue
             countdown = self.book.settings().countdown
+            if self.reserve is not None and not self.reserve():
+                continue
             with self._lock:
                 self._answer = None
                 self._pending = {"schedule_id": schedule.id, "workflow_id": schedule.workflow_id,
@@ -414,6 +420,8 @@ class Scheduler:
                 return
             self._pending, self._answer = None, None
         if choice == "cancel":
+            if self.release is not None:
+                self.release()
             self._record(pending["schedule_id"], "cancelled", "Geri sayımda iptal edildi.")
             return
         try:
@@ -421,6 +429,9 @@ class Scheduler:
         except Exception as exc:  # the license, a busy desktop or an invalid flow: said in the history
             self._record(pending["schedule_id"], "error", str(exc)[:500] or "Akış başlatılamadı.")
             return
+        finally:
+            if self.release is not None:
+                self.release()
         run_id = getattr(run, "id", None)
         schedule = self.book.get(pending["schedule_id"])
         if run_id and schedule and schedule.max_duration:

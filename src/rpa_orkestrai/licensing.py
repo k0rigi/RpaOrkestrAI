@@ -28,7 +28,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -103,6 +103,7 @@ class License:
     # How often to ask again, and how long a running Studio may go without an answer (seconds).
     interval: int = REFRESH_SECONDS
     tolerance: int = TOLERANCE_SECONDS
+    agents: dict[str, Any] = field(default_factory=dict)
 
     def public(self) -> dict:
         return {"user": self.user, "full_name": self.full_name, "company": self.company,
@@ -157,6 +158,7 @@ def verify_license(envelope: Any, key: Ed25519PublicKey, device: str, nonce: str
             valid_until=_timestamp(claims["gecerlilik"]),
             interval=_bounded(claims.get("aralik"), REFRESH_SECONDS, REFRESH_RANGE),
             tolerance=_bounded(claims.get("tolerans"), TOLERANCE_SECONDS, TOLERANCE_RANGE),
+            agents=_agent_claims(claims.get("ajan"), claims),
         )
     except (ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         raise LicenseError("Lisans içeriği geçersiz.") from exc
@@ -165,6 +167,31 @@ def verify_license(envelope: Any, key: Ed25519PublicKey, device: str, nonce: str
     if nonce is not None and claims.get("nonce") != nonce:
         raise LicenseError("Lisans yanıtı bu isteğe ait değil.")
     return result
+
+
+def _agent_claims(value: Any, claims: dict) -> dict:
+    """An absent/invalid extension denies agents without changing an existing RPA license."""
+    if not isinstance(value, dict) or value.get("surum") != 1 or value.get("aktif") is not True:
+        return {}
+    try:
+        user_id, company_id, owner_id = value["kullanici_id"], value["firma_id"], value["onayci_id"]
+        if (any(type(item) is not int or item < 1 for item in (user_id, company_id, owner_id))
+                or user_id != int(claims["kullanici_id"]) or company_id != int(claims["firma_id"])):
+            return {}
+        session_id, permissions = value["oturum_id"], value["yetkiler"]
+        if (not isinstance(session_id, str) or not 1 <= len(session_id) <= 200
+                or not isinstance(permissions, list) or len(permissions) > 10
+                or any(item not in {"agents.use", "agents.manage", "agents.approve"} for item in permissions)):
+            return {}
+        if user_id != owner_id and any(item in permissions for item in ("agents.manage", "agents.approve")):
+            return {}
+        ends = value.get("bitis")
+        if ends is not None:
+            date.fromisoformat(ends)
+        return {"user_id": user_id, "company_id": company_id, "owner_id": owner_id,
+                "session_id": session_id, "permissions": tuple(permissions), "ends_on": ends}
+    except (KeyError, TypeError, ValueError):
+        return {}
 
 
 def machine_identifier() -> str:
@@ -229,6 +256,7 @@ class LicenseService:
         # Credentials and refresh sessions live only in this process. Each launch
         # requires an explicit login, including installations upgraded from 0.9.5.
         self._refresh_token: str | None = None
+        self._agent_token: str | None = None
         self._user: str | None = None
         # Only what orkestrai.net confirmed in this run counts; the file never holds a usable license.
         self._license: License | None = None
@@ -272,6 +300,31 @@ class LicenseService:
     def allowed(self) -> bool:
         with self._lock:
             return self._evaluate()[0] == "valid"
+
+    def agent_actor(self):
+        from .agents.models import Actor
+
+        with self._lock:
+            if self._evaluate()[0] != "valid" or self._license is None:
+                return None
+            extension = self._license.agents
+            if not extension or "agents.use" not in extension["permissions"]:
+                return None
+            if extension["ends_on"] and date.fromisoformat(extension["ends_on"]) < date.today():
+                return None
+            return Actor(user_id=extension["user_id"], company_id=extension["company_id"],
+                         name=self._license.full_name or self._license.user,
+                         session_id=extension["session_id"], permissions=extension["permissions"])
+
+    def agent_allowed(self) -> bool:
+        return self.agent_actor() is not None
+
+    def agent_access_token(self) -> str:
+        """Only the trusted central client may use this short-lived token; never expose it to Studio JS."""
+        with self._lock:
+            if self.agent_actor() is None or self._agent_token is None:
+                raise LicenseError("Ajan modülü veya ekip oturumu doğrulanamadı.")
+            return self._agent_token
 
     def status(self) -> dict:
         with self._lock:
@@ -335,6 +388,9 @@ class LicenseService:
             raise LicenseUnavailable("Lisans sunucusunun yanıtı doğrulanamadı. Uygulamayı güncelleyin.") from exc
         with self._lock:
             self._license, self._refresh_token, self._user = accepted, token, accepted.user
+            agent_token = response.get("ajan_erisim")
+            self._agent_token = (agent_token if accepted.agents and isinstance(agent_token, str)
+                                 and re.fullmatch(r"[A-Za-z0-9_.-]{20,8192}", agent_token) else None)
             self._interval, self._tolerance = accepted.interval, accepted.tolerance
             self._verified, self._attempted, self._online = self._monotonic(), True, True
             self._denial, self._notice, self._failures = None, "", 0
@@ -349,6 +405,7 @@ class LicenseService:
     def _deny(self, exc: LicenseDenied, user: str | None = None) -> None:
         with self._lock:
             self._license, self._verified = None, None
+            self._agent_token = None
             self._attempted, self._online, self._failures = True, True, 0
             if exc.code == "OTURUM_GECERSIZ":
                 # Closed on orkestrai.net: another computer signed in, the password changed or it expired.
@@ -420,8 +477,12 @@ class LicenseService:
                     pass
             with self._lock:
                 self._license, self._verified, self._refresh_token, self._user = None, None, None, None
+                self._agent_token = None
                 self._denial, self._notice, self._online, self._failures = None, "", None, 0
                 self._save()
+                callback = self.on_locked
+            if callback is not None:
+                callback("session")
         return self.status()
 
     # ----- background renewal ------------------------------------------------------

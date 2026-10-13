@@ -284,8 +284,9 @@ class Connections:
                                 "düzenleyin.")
         return item
 
-    def secrets(self) -> list[str]:
+    def secrets(self, *, include_short: bool = False) -> list[str]:
         """Values to mask in run logs."""
         with self._lock:
             return [value for item in self._load() for key, value in item["config"].items()
-                    if key in SECRET_FIELDS and isinstance(value, str) and len(value) >= 6]
+                    if key in SECRET_FIELDS and isinstance(value, str)
+                    and len(value) >= (1 if include_short else 6)]

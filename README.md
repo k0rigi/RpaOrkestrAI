@@ -220,6 +220,9 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 ## Rehberler
 
+- [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
+  izinli akışlar, tek kullanımlık onay, veri sınırları ve sağlayıcı bağlantıları.
+
 - [Adım rehberi: 65 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)
 - [Kullanıcı girişi, lisans, tek bilgisayar kuralı ve internet gereksinimi](docs/lisans.md)

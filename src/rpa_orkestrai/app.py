@@ -20,6 +20,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from . import __version__, autostart, template_bundle
 from .catalog import ACTION_DEFINITIONS, library_catalog
 from .config import Settings
+from .dispatch import RunDispatch
 from .engine import ARTIFACT_TYPES, RunManager, WorkflowError, validate_workflow
 from .guide import QUICK_GUIDE
 from .instance import identity
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     licensing = licensing or LicenseService(settings.data_dir)
     store = Store(settings.data_dir)
     manager = RunManager(settings, store)
+    dispatch = RunDispatch(manager)
     # The license is checked where work starts as well as at the API, and a flow that is running
     # when the Studio locks stops at its next step.
     manager.gate = licensing.allowed
@@ -115,21 +117,41 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         except (KeyError, ValueError):
             return None
 
-    scheduler = Scheduler(book, start_run=lambda workflow_id: manager.start(store.workflow(workflow_id),
-                                                                            trigger="schedule"),
+    scheduler = Scheduler(book, start_run=lambda workflow_id: dispatch.start_schedule(store.workflow(workflow_id)),
                           allowed=licensing.allowed, busy=manager.busy, workflow_name=workflow_name,
-                          attention=attention, run_state=run_state, stop_run=manager.stop_run)
+                          attention=attention, run_state=run_state, stop_run=manager.stop_run,
+                          reserve=dispatch.reserve_schedule, release=dispatch.release_schedule)
+    dispatch.schedule_due = lambda: any(
+        item.enabled and item.next_run_at and datetime.fromisoformat(item.next_run_at) <= datetime.now()
+        for item in book.schedules())
+    from .agents.api import router as agent_router
+    from .agents.runner import AgentService
+
+    agents = AgentService(settings, store, manager, dispatch=dispatch,
+                          actor=lambda: getattr(licensing, "agent_actor", lambda: None)(),
+                          gate=lambda: licensing.allowed()
+                          and getattr(licensing, "agent_allowed", lambda: False)())
+
+    def license_locked(reason):
+        message = LICENSE_STOPS.get(reason, "Lisans geçerliliğini yitirdiği için akış durduruldu.")
+        agents.license_changed(message)
+        manager.stop_active(message)
+
+    licensing.on_locked = license_locked
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         with WorkspaceLock(settings.data_dir):
             store.recover_runs()
+            agents.agent_store.recover_runs()
             licensing.start()
             scheduler.start()
             try:
                 yield
             finally:
                 scheduler.stop()
+                agents.close()
+                dispatch.close()
                 licensing.stop()
                 records.close()
                 picks.close()
@@ -141,6 +163,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     app.state.store, app.state.manager, app.state.settings = store, manager, settings
     app.state.picks, app.state.licensing, app.state.records = picks, licensing, records
     app.state.scheduler = scheduler
+    app.state.agents, app.state.dispatch = agents, dispatch
+    app.include_router(agent_router(agents))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 
     @app.middleware("http")

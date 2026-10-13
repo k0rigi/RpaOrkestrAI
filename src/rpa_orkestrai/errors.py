@@ -7,6 +7,10 @@ class WorkflowError(ValueError):
     """An actionable, public error that does not embed connection credentials."""
 
 
+class AgentPolicyStop(WorkflowError):
+    """A mandatory agent boundary; workflow error branches must never recover from it."""
+
+
 class Cancelled(Exception):
     pass
 
