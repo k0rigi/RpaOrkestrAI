@@ -106,3 +106,57 @@ def test_workflow_metadata_hides_parameters_and_allows_configuring_file_grant(cl
     assert items[first.id]["inputs"] == [{"name": "dosya", "required": True}]
     assert items[second.id]["agent_supported"] is False
     assert "gizli-komut-metni" not in response.text
+
+
+@pytest.mark.parametrize("provider", ["ollama", "openai", "shared"])
+def test_secret_in_model_test_override_is_rejected_before_any_external_call(client, monkeypatch, provider):
+    item = connection(client)
+    secret = "private-model-override-key"
+    assert client.client.put(f"/api/agents/connections/{item['id']}/key", json={"key": secret}).status_code == 200
+    target = client.client.post("/api/agents/connections", json={"name": "Denenecek", "provider": provider,
+                                                              "model": "safe-model"}).json()
+    monkeypatch.setattr(client.app.state.agent_connections, "test_connection",
+                        lambda *a, **kw: pytest.fail("Sağlayıcı testi başlatılmamalı."))
+    monkeypatch.setattr(client.app.state.agent_central, "request",
+                        lambda *a, **kw: pytest.fail("Merkezi sunucuya istek gönderilmemeli."))
+    response = client.client.post(f"/api/agents/connections/{target['id']}/test", json={"model": secret})
+    assert response.status_code == 422 and secret not in response.text
+
+
+@pytest.mark.parametrize("field", ["name", "model"])
+def test_known_secret_is_not_persisted_or_echoed_by_metadata_api(client, field):
+    item = connection(client)
+    secret = "private-metadata-key"
+    assert client.client.put(f"/api/agents/connections/{item['id']}/key", json={"key": secret}).status_code == 200
+    store = client.app.state.agent_connections
+    original = store.path.read_bytes()
+    body = {"name": "Yeni", "model": "deneme", "provider": "ollama", field: secret}
+    for response in (client.client.post("/api/agents/connections", json=body),
+                     client.client.put(f"/api/agents/connections/{item['id']}", json=body)):
+        assert response.status_code == 422 and secret not in response.text
+    assert store.path.read_bytes() == original
+    assert secret not in client.client.get("/api/agents/connections").text
+
+
+def test_missing_registered_key_blocks_public_and_test_but_allows_explicit_repair(client, monkeypatch):
+    item = connection(client)
+    path = f"/api/agents/connections/{item['id']}"
+    store = client.app.state.agent_connections
+    assert client.client.put(path + "/key", json={"key": "missing-key"}).status_code == 200
+    store.vault.store.values.clear()
+    monkeypatch.setattr(store, "test_connection", lambda *a, **kw: pytest.fail("Anahtar denetimi atlanmamalı."))
+    assert client.client.get("/api/agents/connections").status_code == 422
+    assert client.client.post(path + "/test", json={"model": "safe-model"}).status_code == 503
+    assert client.client.put(path + "/key", json={"key": "repaired-key"}).status_code == 200
+    assert client.client.get("/api/agents/connections").json()[0]["has_key"] is True
+    store.vault.store.values.clear()
+    assert client.client.delete(path + "/key").status_code == 200
+    assert client.client.get("/api/agents/connections").json()[0]["has_key"] is False
+
+
+@pytest.mark.parametrize("payload", [{"model": {"raw": "secret-model-input"}},
+                                     {"model": "secret-model-input", "secret-model-input": "extra"}])
+def test_model_test_validation_never_echoes_raw_input(client, payload):
+    item = connection(client)
+    response = client.client.post(f"/api/agents/connections/{item['id']}/test", json=payload)
+    assert response.status_code == 422 and "secret-model-input" not in response.text

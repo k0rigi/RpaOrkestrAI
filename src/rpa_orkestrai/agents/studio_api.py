@@ -138,6 +138,10 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
     def test_connection(connection_id: str, body: ConnectionTest):
         identity = actor("agents.manage")
         connection = call(connections.get, connection_id, identity.company_id)
+        redactor = call(service._new_redactor)
+        selected_model = body.model or connection.model
+        if redactor.contains_secret(selected_model):
+            raise HTTPException(422, "Model adı kayıtlı bir gizli değer içeremez.")
         if connection.provider == "shared":
             from .shared_provider import SharedProvider
 
@@ -145,7 +149,7 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
                 raise HTTPException(503, "Kurum modeli henüz etkin değil.")
             response = call(SharedProvider(shared_client).complete,
                             [{"role": "user", "content": "Bağlantı testi. Kısaca tamam yaz."}], [],
-                            model=body.model or connection.model, max_tokens=64,
+                            model=selected_model, max_tokens=64,
                             cancel=threading.Event(), deadline=time.monotonic() + 30)
             return {"ok": True, "message": "Kurum modeli bağlantısı doğrulandı.",
                     "input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens}

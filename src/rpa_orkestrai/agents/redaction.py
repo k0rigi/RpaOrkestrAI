@@ -31,6 +31,10 @@ class Redactor:
             raise TypeError("Gizli veri temizleyicisi bekleniyor.")
         self._secrets.update(other._secrets)
 
+    def contains_secret(self, value: str) -> bool:
+        """Validate raw metadata without exempting existing redaction markers."""
+        return any(secret in value for secret in self._secrets)
+
     def text(self, value: str) -> str:
         if not self._secrets:
             return value

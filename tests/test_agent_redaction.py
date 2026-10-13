@@ -64,6 +64,14 @@ def test_short_secret_masking_is_idempotent_even_inside_mask_word():
     assert redactor.text(redactor.text(masked)) == masked
 
 
+def test_raw_metadata_validation_checks_markers_and_encoded_secrets_without_mutating_them():
+    redactor = Redactor(["[gizlendi]", "özel anahtar"])
+    for value in ("[gizlendi]", "ön-özel anahtar-son", "%C3%B6zel%20anahtar", r"\u00f6zel anahtar"):
+        assert redactor.contains_secret(value)
+    assert not redactor.contains_secret("güvenli model")
+    assert redactor.text("[gizlendi]") == "[gizlendi]"
+
+
 @pytest.fixture
 def memory_vault(tmp_path, monkeypatch):
     class MemoryStore:

@@ -68,6 +68,13 @@ kasa alanında tutulur; akışın `${sifre.ad}` kapsamına açılmaz. Sağlayıc
 kaydı anahtar içermez, arayüz yalnız «kayıtlı» durumunu görür. Anahtar değiştirme
 alanı yazma amaçlıdır; eski değer geri okunmaz.
 
+Kayıtlı bir sağlayıcı anahtarı bağlantı adı, model veya adres alanına yazılamaz;
+bağlantı testindeki model kutusu da aynı denetime tabidir. Kasa kaydı bulunduğu
+hâlde anahtar sistem kasasında yoksa dış çağrı yapılmaz; kayıt sorunu giderilmeden
+yapay zekâ işlemi sürdürülmez. Çalışma sırasında yeni kaydedilen sırlar
+soru yanıtı ve model isteği/yanıtı denetimlerinde mevcut maskeleme listesine
+eklenir; anahtar değişse de aynı çalışmanın eski anahtarı maskelenmeye devam eder.
+
 Akış çıktıları güvenilmeyen veri olarak işaretlenir. Bir e-posta, OCR sonucu veya
 dosya içindeki talimat ajan yetkisini değiştiremez. Metin/CSV/JSON çıktı okumak
 yalnız o ajan çalışmasının oluşturduğu dosyalarda ve boyut sınırıyla mümkündür;

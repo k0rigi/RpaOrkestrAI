@@ -521,6 +521,141 @@ def test_settings_secrets_are_removed_from_prompts_timeline_and_result(runtime):
     assert secret not in runtime.service.agent_store.path("agent_runs", run.id).read_text(encoding="utf-8")
 
 
+def test_rotated_provider_secrets_remask_answer_history_and_saved_audit(runtime, caplog):
+    old_secret = "synthetic-initial-key-for-rotation"
+    new_secret = "synthetic-registered-while-waiting-key"
+    protected = [old_secret]
+    runtime.service.secret_source = lambda: list(protected)
+    item = runtime.agent()
+    question = ToolCall(uid(), "ask_user", {"question": "Metni doğrulayın: " + new_secret})
+    provider = ScriptedProvider([response(question, text=new_secret), response(finish(old_secret + new_secret))])
+    runtime.state["provider"] = provider
+    run = runtime.service.start(item.id, AgentRunRequest(task=old_secret + " " + new_secret))
+    waiting = wait_for(lambda: runtime.service.get_run(run.id), lambda value: value.status == "waiting_user")
+    assert new_secret in waiting.model_dump_json()  # Not registered as a secret yet.
+
+    protected[:] = [new_secret]  # Replacing a key must not forget its previous value.
+    answered = runtime.service.answer(run.id, waiting.pending_question["id"], old_secret + " " + new_secret)
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and len(provider.requests) == 2
+    next_request = json.dumps(provider.requests[1], ensure_ascii=False)
+    records = answered.model_dump_json() + saved.model_dump_json()
+    records += runtime.service.agent_store.task(saved.task_id).model_dump_json()
+    records += runtime.service.agent_store.path("agent_runs", run.id).read_text(encoding="utf-8")
+    for secret in (old_secret, new_secret):
+        assert secret not in next_request and secret not in records and secret not in caplog.text
+    prior_request = next(event.data["payload"] for event in saved.events if event.kind == "provider_request")
+    assert new_secret not in json.dumps(prior_request, ensure_ascii=False)
+
+
+def test_provider_secret_registered_during_limits_discovery_is_masked_before_first_request(runtime):
+    secret = "synthetic-key-registered-by-limits-barrier"
+    protected = []
+    runtime.service.secret_source = lambda: list(protected)
+    item = runtime.agent()
+    provider = ScriptedProvider([response(finish(secret))])
+
+    def limits(*args, **kwargs):
+        protected.append(secret)
+        return None
+
+    provider.request_limits = limits
+    runtime.state["provider"] = provider
+    run = runtime.service.start(item.id, AgentRunRequest(task="Metni incele: " + secret))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and len(provider.requests) == 1
+    assert secret not in json.dumps(provider.requests, ensure_ascii=False)
+    assert secret not in saved.model_dump_json()
+
+
+def test_provider_secret_registered_during_response_is_masked_before_any_new_save(runtime, monkeypatch):
+    secret = "synthetic-key-registered-during-model-response"
+    protected = []
+    runtime.service.secret_source = lambda: list(protected)
+    recorded = []
+    original = runtime.service.agent_store.save_run
+
+    def save(run):
+        recorded.append(run.model_dump_json())
+        return original(run)
+
+    monkeypatch.setattr(runtime.service.agent_store, "save_run", save)
+
+    def first(request):
+        if protected:
+            return None
+        protected.append(secret)
+        return response(ToolCall(uid(), "list_workflows", {}), text=secret)
+
+    item = runtime.agent()
+    runtime.state["provider"] = ScriptedProvider([response(finish(secret))], callback=first)
+    run = runtime.service.start(item.id, AgentRunRequest(task="İncele"))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and len(runtime.state["provider"].requests) == 2
+    assert all(secret not in value for value in recorded)
+    assert secret not in json.dumps(runtime.state["provider"].requests, ensure_ascii=False)
+    assert secret not in runtime.service.agent_store.task(saved.task_id).model_dump_json()
+
+
+def test_unreadable_new_provider_secret_rejects_answer_and_stops_without_new_request(runtime, caplog):
+    secret = "synthetic-unreadable-new-key-and-vault-error"
+    protected = {"unreadable": False}
+
+    def source():
+        if protected["unreadable"]:
+            raise RuntimeError(secret)
+        return []
+
+    runtime.service.secret_source = source
+    question = ToolCall(uid(), "ask_user", {"question": "Nasıl ilerleyelim?"})
+    run = runtime.start(runtime.agent(), response(question), response(finish()))
+    waiting = wait_for(lambda: runtime.service.get_run(run.id), lambda value: value.status == "waiting_user")
+    protected["unreadable"] = True
+    with pytest.raises(AgentServiceError) as caught:
+        runtime.service.answer(run.id, waiting.pending_question["id"], secret)
+    saved = runtime.done(run)
+    assert caught.value.status_code == 503 and secret not in str(caught.value)
+    assert saved.status == "failed" and "sırların güvenli denetimi" in saved.error
+    assert len(runtime.state["provider"].requests) == 1
+    assert not any(event.kind == "user_answer" for event in saved.events)
+    assert secret not in saved.model_dump_json() and secret not in caplog.text
+    assert secret not in runtime.service.agent_store.task(saved.task_id).model_dump_json()
+
+
+@pytest.mark.parametrize("boundary", ["limits", "response"])
+def test_provider_secret_refresh_failure_prevents_new_model_call_and_tool_execution(runtime, boundary):
+    secret = "synthetic-unreadable-key-refresh-boundary"
+    protected = {"unreadable": False}
+
+    def source():
+        if protected["unreadable"]:
+            raise RuntimeError(secret)
+        return []
+
+    runtime.service.secret_source = source
+    item = runtime.agent()
+
+    def reply(request):
+        protected["unreadable"] = True
+        return response(finish(secret), text=secret)
+
+    provider = ScriptedProvider([], callback=reply)
+    if boundary == "limits":
+        def limits(*args, **kwargs):
+            protected["unreadable"] = True
+            return None
+
+        provider.request_limits = limits
+    runtime.state["provider"] = provider
+    run = runtime.service.start(item.id, AgentRunRequest(task="İncele"))
+    saved = runtime.done(run)
+    assert saved.status == "failed" and "sırların güvenli denetimi" in saved.error
+    assert len(provider.requests) == (0 if boundary == "limits" else 1)
+    assert not any(event.kind == "tool_call" for event in saved.events)
+    assert secret not in saved.model_dump_json()
+    assert secret not in runtime.service.agent_store.task(saved.task_id).model_dump_json()
+
+
 def test_vault_secret_and_derived_variables_never_reach_the_model(runtime, monkeypatch):
     secret = "vault-private-unique-value"
     monkeypatch.setattr("rpa_orkestrai.vault.Vault.get", lambda self, name: secret)

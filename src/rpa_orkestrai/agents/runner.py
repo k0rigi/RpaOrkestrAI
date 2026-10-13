@@ -96,6 +96,7 @@ class Context:
     audit_bytes: int = 0
     approval_started: float | None = None
     children_reported: bool = False
+    secret_error: str | None = None
 
 
 class AgentService:
@@ -247,15 +248,29 @@ class AgentService:
 
     def _safe_definition(self, body):
         redactor = self._new_redactor()
-        if redactor.text(body.model) != body.model:
+        if redactor.contains_secret(body.model):
             raise AgentServiceError("Model adı kayıtlı bir gizli değer içeremez.")
         for grant in body.workflows:
-            if any(redactor.text(value) != value for value in [*grant.allowed_roots, *grant.allowed_hosts]):
+            if any(redactor.contains_secret(value) for value in [*grant.allowed_roots, *grant.allowed_hosts]):
                 raise AgentServiceError("İzin verilen dosya veya adres kapsamı gizli değer içeremez.")
         data = body.model_dump()
         for field_name, limit in (("name", 120), ("description", 2000), ("instructions", 16_000), ("department", 120)):
             data[field_name] = redactor.text(data[field_name])[:limit]
         return AgentInput.model_validate(data)
+
+    def _refresh_redactor(self, context: Context) -> None:
+        """Refresh at data boundaries without forgetting rotated or workflow-discovered secrets."""
+        with self._lock:
+            if context.secret_error:
+                raise AgentStopped(context.secret_error)
+            try:
+                current = self._new_redactor()
+            except Exception:
+                # Never retain the failing vault/provider exception or accept new data with an old mask.
+                context.secret_error = "Kayıtlı sırların güvenli denetimi tamamlanamadığı için ajan durduruldu."
+                context.wake.set()
+                raise AgentStopped(context.secret_error) from None
+            context.redactor.merge(current)
 
     def _team_for(self, context):
         if context.agent.role != "manager":
@@ -352,7 +367,8 @@ class AgentService:
         context = Context(agent=agent, run=run, redactor=self._new_redactor(), budget=budget, task=task,
                           deadline=min(deadline, budget.deadline))
         self._contexts[run.id] = context
-        self._event(context, "created", "Ajan görevi kuyruğa alındı.", {"task": run.task, "inputs": run.inputs})
+        self._event(context, "created", "Ajan görevi kuyruğa alındı.", {"task": run.task, "inputs": run.inputs},
+                    refresh_secrets=False)
         self._queue_wake.set()
         return self._view(context)
 
@@ -450,8 +466,10 @@ class AgentService:
             task.approvals = [event for event in task.events if event.kind.startswith("approval_")]
             self.agent_store.save_task(task)
 
-    def _event(self, context: Context, kind: str, message: str = "", data=None) -> None:
+    def _event(self, context: Context, kind: str, message: str = "", data=None, *, refresh_secrets=True) -> None:
         with self._lock:
+            if refresh_secrets:
+                self._refresh_redactor(context)
             clean_data = self._clean_mapping(context, data or {})
             event = AgentEvent(kind=kind, message=context.redactor.text(message)[:20_000], data=clean_data)
             size = len(event.model_dump_json().encode("utf-8"))
@@ -462,6 +480,8 @@ class AgentService:
             self._save(context)
 
     def _check(self, context: Context) -> None:
+        if context.secret_error:
+            raise AgentStopped(context.secret_error)
         if context.cancel.is_set() or self._closed:
             raise AgentCancelled(context.stop_reason)
         try:
@@ -489,6 +509,9 @@ class AgentService:
         raise AgentStopped(message)
 
     def _payload(self, context: Context, *, allowance=None, limits: RequestLimits | None = None) -> dict:
+        self._refresh_redactor(context)
+        if context.redactor.contains_secret(context.agent.model):
+            raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
         system = context.redactor.text(SYSTEM + "\nAjan talimatı:\n" + context.agent.instructions)
         task = self._clean_mapping(context, {"task": context.run.task, "inputs": context.run.inputs})
         first = [{"role": "system", "content": system},
@@ -535,12 +558,13 @@ class AgentService:
     def _work(self, context: Context) -> None:
         try:
             self._check(context)
+            self._refresh_redactor(context)
             if not context.agent.model and self.model_resolver is not None:
                 selected = self.model_resolver(context.agent.model_copy(deep=True))
                 if not isinstance(selected, str) or not selected or len(selected) > 200:
                     raise AgentStopped("Bağlantı için geçerli bir model adı seçin.")
                 context.agent.model = selected
-            if context.redactor.text(context.agent.model) != context.agent.model:
+            if context.redactor.contains_secret(context.agent.model):
                 raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
             provider = self._provider_factory(context.agent.model_copy(deep=True))
             with self._lock:
@@ -655,6 +679,11 @@ class AgentService:
                 self.manager.stop_run(context.active_workflow_id, context.stop_reason)
                 context.active_workflow_id = None
             with self._lock:
+                try:
+                    self._refresh_redactor(context)
+                except AgentStopped as exc:
+                    context.run.status = "failed"
+                    context.run.error = str(exc)
                 if context.run.root_run_id == context.run.id and context.run.status != "succeeded":
                     for child in list(self._contexts.values()):
                         if child is not context and child.run.root_run_id == context.run.id:
@@ -773,9 +802,14 @@ class AgentService:
             if (not question or question["id"] != question_id or question["answered"]
                     or time.monotonic() >= question["deadline"]):
                 raise AgentServiceError("Soru artık yanıt beklemiyor veya süresi doldu.", 409)
+            try:
+                self._refresh_redactor(context)
+            except AgentStopped as exc:
+                raise AgentServiceError(str(exc), 503) from None
             question["answered"], question["answer"] = True, context.redactor.sanitize(answer)
             self._event(context, "user_answer", "Kullanıcı soruyu yanıtladı.",
-                        {"question_id": question_id, "user_id": actor.user_id, "answer": answer})
+                        {"question_id": question_id, "user_id": actor.user_id, "answer": answer},
+                        refresh_secrets=False)
             context.wake.set()
             return self._view(context)
 

@@ -85,6 +85,60 @@ def test_bounded_input_is_never_silently_truncated_for_decision(ai):
     assert json.loads(request["messages"][1]["content"])["untrusted_data"] == value
 
 
+def test_key_registered_during_capability_lookup_is_masked_before_request_and_audit(ai):
+    key = "new-provider-key-during-model-limits"
+    provider = ai.state["provider"]
+
+    def limits(model, **kwargs):
+        ai.connections.set_key(ai.connection.id, key, ai.actor.company_id)
+        return SimpleNamespace(output_budget=lambda messages, tools, requested: requested)
+
+    provider.request_limits = limits
+    assert execute(ai, ai.step(input=key)) == "Tamam"
+    assert key not in json.dumps(provider.requests)
+    assert "[gizlendi]" in json.dumps(provider.requests)
+    artifact = next((ai.settings.data_dir / "artifacts" / ai.executor.run.id).glob("*.json"))
+    assert key not in artifact.read_text(encoding="utf-8")
+    assert key not in ai.executor.run.model_dump_json()
+
+
+def test_key_rotated_during_response_masks_both_old_and_new_values(ai):
+    old, new = "provider-key-before-request", "provider-key-registered-in-flight"
+    ai.connections.set_key(ai.connection.id, old, ai.actor.company_id)
+    provider = ai.state["provider"]
+
+    def complete(*args, **kwargs):
+        ai.connections.set_key(ai.connection.id, new, ai.actor.company_id)
+        return ProviderResponse(text=old + " / " + new)
+
+    provider.complete = complete
+    assert execute(ai) == "[gizlendi] / [gizlendi]"
+    assert old not in ai.executor.run.model_dump_json() and new not in ai.executor.run.model_dump_json()
+
+
+def test_key_missing_after_capability_lookup_blocks_request_and_artifact(ai):
+    key = "provider-key-removed-from-system-store"
+    ai.connections.set_key(ai.connection.id, key, ai.actor.company_id)
+    provider = ai.state["provider"]
+
+    def limits(model, **kwargs):
+        ai.memory.remove(ai.connections.vault.account(ai.connections._key_name(ai.connection.id)))
+        return SimpleNamespace(output_budget=lambda messages, tools, requested: requested)
+
+    provider.request_limits = limits
+    with pytest.raises(WorkflowError, match="Gizli değer denetimi"):
+        execute(ai)
+    assert not provider.requests and not ai.executor.run.artifacts
+
+
+def test_invalid_model_capabilities_still_fail_closed(ai):
+    provider = ai.state["provider"]
+    provider.request_limits = lambda *args, **kwargs: None
+    with pytest.raises(WorkflowError, match="bağlam"):
+        execute(ai)
+    assert not provider.requests and not ai.executor.run.artifacts
+
+
 def test_valid_json_schema_output_drives_workflow_branch(ai):
     ai.state["provider"] = ScriptedProvider([ProviderResponse(text='{"karar":"evet","adet":2}')])
     schema = {"type": "object", "properties": {"karar": {"enum": ["evet", "hayır"]}, "adet": {"type": "integer"}},

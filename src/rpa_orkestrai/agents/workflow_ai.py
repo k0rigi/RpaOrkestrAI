@@ -60,6 +60,20 @@ class WorkflowAIService:
             raise AgentPolicyStop("Yapay zekâ adımı için ajan lisansı ve kullanıcı yetkisi doğrulanamadı.")
         return current
 
+    def _refresh_secrets(self, ctx, actor, redactor):
+        try:
+            secrets = [*ctx._secrets, *ctx.connections.secrets(include_short=True),
+                       *self.connections.secrets(actor.company_id),
+                       *Vault(self.settings.data_dir).secrets_for_redaction()]
+            configured = self.settings.snapshot()
+            secrets.extend(configured.get(key) for key in self.settings.secrets)
+            for secret in secrets:
+                redactor.remember(secret)
+                if isinstance(secret, str) and secret:
+                    ctx.remember_secret(secret)
+        except Exception:
+            raise WorkflowError("Gizli değer denetimi tamamlanamadı; yapay zekâ işlemi durduruldu.") from None
+
     def complete(self, ctx, parameters):
         if ctx.agent_context is not None:
             raise AgentPolicyStop("Ajan akışı başka bir yapay zekâ çağrısı başlatamaz.")
@@ -95,19 +109,12 @@ class WorkflowAIService:
         validator = compile_schema(schema, check=check)
         try:
             connection = self.connections.get(connection_id, actor.company_id)
-            secrets = [*ctx._secrets, *ctx.connections.secrets(include_short=True),
-                       *self.connections.secrets(actor.company_id),
-                       *Vault(self.settings.data_dir).secrets_for_redaction()]
-            configured = self.settings.snapshot()
-            secrets.extend(configured.get(key) for key in self.settings.secrets)
-            redactor = Redactor(secrets, max_bytes=REQUEST_LIMIT, max_string=RESULT_LIMIT)
-            for secret in secrets:
-                if isinstance(secret, str) and secret:
-                    ctx.remember_secret(secret)
         except Exception:
             raise WorkflowError("Sağlayıcı bağlantısı veya gizli değer denetimi tamamlanamadı.") from None
+        redactor = Redactor(max_bytes=REQUEST_LIMIT, max_string=RESULT_LIMIT)
+        self._refresh_secrets(ctx, actor, redactor)
         model = connection.model
-        if not model or redactor.text(model) != model:
+        if not model or redactor.contains_secret(model):
             raise WorkflowError("Sağlayıcı bağlantısında gizli değer içermeyen bir model adı belirtin.")
         if validator is not None and clean_json(schema, redactor) != schema:
             raise WorkflowError("JSON şeması kayıtlı bir gizli değer içeremez.")
@@ -130,8 +137,20 @@ class WorkflowAIService:
             raise WorkflowError("Yapay zekâ sağlayıcısı hazırlanamadı; bağlantı ayarlarını kontrol edin.") from None
         check()
         limits_method = getattr(provider, "request_limits", None)
-        if callable(limits_method):
+        limits = None
+        has_limits = callable(limits_method)
+        if has_limits:
             limits = self._invoke(lambda cancellation: limits_method(model, cancel=cancellation, deadline=deadline), check)
+        # Capability discovery can wait on a server while a user rotates a key.
+        # Refresh before persisting or sending the actual request; retain old secrets too.
+        self._refresh_secrets(ctx, actor, redactor)
+        if redactor.contains_secret(model):
+            raise WorkflowError("Sağlayıcı bağlantısında gizli değer içermeyen bir model adı belirtin.")
+        if validator is not None and clean_json(schema, redactor) != schema:
+            raise WorkflowError("JSON şeması kayıtlı bir gizli değer içeremez.")
+        for message in messages:
+            message["content"] = redactor.text(message["content"])
+        if has_limits:
             try:
                 available = limits.output_budget(messages, [], max_tokens)
                 if type(available) is not int or available < 1:
@@ -140,11 +159,16 @@ class WorkflowAIService:
             except Exception:
                 raise WorkflowError("Girdi modelin bağlam sınırına sığmıyor; daha kısa veri veya talimat kullanın.") from None
             request["max_tokens"] = max_tokens
+        try:
+            validate_json_value(request, max_bytes=REQUEST_LIMIT)
+        except ValueError:
+            raise WorkflowError("Modele gönderilecek maskelenmiş içerik boyut sınırını aşıyor.") from None
         check()
         ctx.save_artifact("yapay-zeka-istegi.json", json.dumps(request, ensure_ascii=False,
                            allow_nan=False, indent=2).encode("utf-8"))
         response = self._invoke(lambda cancellation: provider.complete(
             messages, [], model=model, max_tokens=max_tokens, cancel=cancellation, deadline=deadline), check)
+        self._refresh_secrets(ctx, actor, redactor)
         if not isinstance(response, ProviderResponse) or response.tool_calls:
             raise WorkflowError("Yapay zekâ beklenmeyen bir araç çağrısı döndürdü; sonuç kullanılmadı.")
         if (response.usage.output_tokens > max_tokens or response.usage.total_tokens > TOTAL_TOKEN_LIMIT

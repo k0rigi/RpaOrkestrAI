@@ -29,6 +29,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 Web tıklamasıyla açılan yeni sekmenin ilk yanıtı gecikse de sonraki adım yeni sekmeyi bekler. Süre dolarsa işlem durur; tıklama tekrarlanmaz.
 
+Kayıtlı API anahtarının bağlantı adı veya model alanına yapıştırılması reddedilir. Ajan ve yapay zekâ adımı, çalışma sırasında kaydedilen yeni sırları da dış çağrı ve sonuç denetimlerinde maskeler; kasa doğrulanamazsa işlem durur.
+
 Aynı çalışma alanında paralel ajanlar bağlantı kayıtlarını güvenle paylaşır. **Durdur**, lisans kaybı veya oturum değişikliğinde bağlı akışın kaydı da **İptal edildi** olur; süre ve yetki sınırı ihlalleri hata olarak kalır. Ofisin yerel Three.js dosyaları iki platformda aynı bütünlük denetiminden geçer.
 
 Aynı ajana verilen görevler kuyruğa giriş sırasıyla çalışır; önceki görevin bitiş anı veya bilgisayar saatinin değişmesi sırayı bozmaz. Ortak model yeniden denemeleri bekleme ve toplam süre sınırına uyar. Windows arayüz ve paket sınamaları Türkçe metinleri UTF-8 ile işler.

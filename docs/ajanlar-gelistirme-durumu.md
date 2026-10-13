@@ -25,7 +25,7 @@ raporlama bu kapsamda yayımlanmış değildir.
 
 ## Doğrulama
 
-- İkinci CI düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.749 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı. Görev sırası, yeniden deneme süresi ve Türkçe konsol çıktısı ayrıca deterministik regresyonlarla doğrulandı.
+- Sır denetimi ve yeni sekme düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.809 geçti, 39 atlandı**; `RPA_UI_TESTS=1`, 247,60 saniye. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı. Görev sırası, yeniden deneme süresi ve Türkçe konsol çıktısı ayrıca deterministik regresyonlarla doğrulandı.
 - Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **311 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
 - Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
 - Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
@@ -54,6 +54,21 @@ ilk araç yanıtı 90,17 saniyede zaman aşımına uğradı. Bellek taşması sa
 Servisler geri alındı; erişim ve lisans açılmadı. Aynı sekiz araç ve iki tur
 doğrulaması korunarak 1.7B modelin sınanması hazırlanıyor.
 [Model sınaması](https://github.com/k0rigi/orkestrai/actions/runs/38482010764).
+
+1.7B modelle yeni canlı sınamada ön yükleme 6,97 saniye, ilk araç isteği
+90,20 saniyede zaman aşımı verdi; bellek taşması saptanmadı. Servis ve ayarlar
+geri alındı, model erişimi ve lisans açılmadı. İki modelde de aynı sınırın
+aşılması nedeniyle sonraki tanılama yalnız süre/sayaçlarla hangi aşamanın
+geciktiğini ölçecek; ham model içeriği kayda alınmayacak.
+[1.7B sınaması](https://github.com/k0rigi/orkestrai/actions/runs/38483252059).
+
+Son güvenlik incelemesinde yanlış metadata alanına yapıştırılan kayıtlı anahtar,
+kasada eksilen anahtar ve çalışma sırasında eklenen/değişen sırlar için ek
+korumalar tamamlandı. Bağlantı modeli test kutusu ve akış içi yapay zekâ
+çağrısı da bu denetime dâhil. Bağımsız incelemeler, hedefli testler ve 1.809 testlik
+tam koşu başarılı; iki platform CI ve kurulum doğrulaması bekleniyor.
+Sır incelemesi yalnız sentetik bellek kasasıyla
+yapıldı; gerçek kullanıcı anahtarları okunmadı.
 
 ## Güvenlik kontrol listesi
 
