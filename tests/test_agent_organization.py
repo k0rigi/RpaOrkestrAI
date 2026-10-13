@@ -4,7 +4,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from test_agent_runner import approval_wait, finish, response, run_call, wait_for, write_flow
+from test_agent_runner import (
+    AGENT_TEST_SECONDS,
+    approval_wait,
+    finish,
+    response,
+    run_call,
+    wait_for,
+    write_flow,
+)
 from test_agent_runner import runtime as runtime
 
 from rpa_orkestrai.agents.models import AgentInput, AgentLimits, AgentRunRequest, WorkflowGrant
@@ -16,9 +24,9 @@ from rpa_orkestrai.models import Step, uid
 
 def make_team(runtime, *, manager_limits=None, child_limits=None, grants=None):
     manager = runtime.service.create_agent(AgentInput(name="Yönetici", role="manager", model="test",
-        limits=manager_limits or AgentLimits(max_seconds=5)))
+        limits=manager_limits or AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
     child = runtime.service.create_agent(AgentInput(name="Departman", department="İnceleme", manager_id=manager.id,
-        model="test", workflows=grants or [], limits=child_limits or AgentLimits(max_seconds=5)))
+        model="test", workflows=grants or [], limits=child_limits or AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
     return manager, child
 
 
@@ -190,7 +198,7 @@ def test_cancelling_root_cancels_running_and_queued_children(runtime):
 
 @pytest.mark.parametrize("kind", ["tasks", "turns", "tokens", "workflows", "seconds"])
 def test_root_budget_bounds_the_whole_team(runtime, kind):
-    limits = AgentLimits(max_seconds=5)
+    limits = AgentLimits(max_seconds=AGENT_TEST_SECONDS)
     if kind == "tasks":
         limits.max_tasks = 1
     elif kind == "turns":

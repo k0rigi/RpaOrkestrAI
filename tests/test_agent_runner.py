@@ -14,6 +14,9 @@ from rpa_orkestrai.engine import RunManager
 from rpa_orkestrai.models import Run, Step, Workflow, now, uid
 from rpa_orkestrai.storage import Store
 
+AGENT_TEST_SECONDS = 30
+WAIT_TEST_SECONDS = 15
+
 
 def response(*calls, text="", usage=None):
     return ProviderResponse(text=text, tool_calls=list(calls), usage=usage or Usage())
@@ -28,7 +31,7 @@ def run_call(workflow, *, inputs=None, identity=None):
                                                        "inputs": inputs or {}, "reason": "Görevi tamamla"})
 
 
-def wait_for(get, predicate, timeout=4):
+def wait_for(get, predicate, timeout=WAIT_TEST_SECONDS):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = get()
@@ -60,7 +63,7 @@ def runtime(tmp_path):
         permissions = grants if grants is not None else ([WorkflowGrant(
             workflow_id=flow.id, allow_without_approval=bypass, allowed_roots=[str(business)])] if flow else [])
         return service.create_agent(AgentInput(name="Ajan", model="test", workflows=permissions,
-                                               limits=limits or AgentLimits(max_seconds=5)))
+                                               limits=limits or AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
 
     def start(item, *replies):
         state["provider"] = ScriptedProvider(list(replies))
@@ -73,6 +76,21 @@ def runtime(tmp_path):
                           owner=owner, business=business, workflow=workflow, agent=agent, start=start, done=done)
     service.close()
     manager.close()
+
+
+@pytest.fixture
+def storage_latency(runtime, monkeypatch, request):
+    """Exercise real atomic writes with a slow storage device, without changing deadlines."""
+    delay = request.param
+    original = runtime.service.agent_store._save
+
+    def save(*args, **kwargs):
+        if delay:
+            threading.Event().wait(delay)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runtime.service.agent_store, "_save", save)
+    return delay
 
 
 def test_read_flow_returns_masked_variables_and_preserves_legacy_trigger(runtime):
@@ -218,12 +236,16 @@ def test_shared_context_preserves_unsplittable_latest_result_and_fails_before_ne
     assert not [event for event in saved.events if event.kind == "context_compacted"]
 
 
-def test_direct_and_indirect_unauthorized_flows_are_not_started(runtime):
+@pytest.mark.parametrize("storage_latency", [0, 0.15], indirect=True)
+def test_direct_and_indirect_unauthorized_flows_are_not_started(runtime, storage_latency):
     private = runtime.workflow(Step(action="core.set", params={"name": "private", "value": 1}))
     parent = runtime.workflow(Step(action="control.run_workflow", params={"workflow": private.id}))
     item = runtime.agent(parent)
+    started = time.monotonic()
     run = runtime.start(item, response(run_call(private)), response(run_call(parent)), response(finish()))
     saved = runtime.done(run)
+    if storage_latency:
+        assert time.monotonic() - started >= 4
     assert saved.workflow_count == 0 and not runtime.store.runs()
     assert any(event.kind == "tool_result" and "izni yok" in json.dumps(event.data, ensure_ascii=False)
                for event in saved.events)
@@ -437,7 +459,7 @@ def test_busy_result_does_not_cancel_unrelated_work(runtime):
 @pytest.mark.parametrize("kind", ["turns", "tokens", "duration", "flows", "loop"])
 def test_limits_stop_before_additional_work(runtime, kind):
     flow = runtime.workflow(Step(action="core.set", params={"name": "value", "value": 1}))
-    limits = AgentLimits(max_seconds=5)
+    limits = AgentLimits(max_seconds=AGENT_TEST_SECONDS)
     replies = []
     if kind == "turns":
         limits.max_turns = 1

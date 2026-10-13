@@ -1,10 +1,12 @@
 import hashlib
 import json
 import threading
+import time
 
 import pytest
 from test_agent_runner import approval_wait, finish, response, run_call, write_flow
 from test_agent_runner import runtime as runtime
+from test_agent_runner import storage_latency as storage_latency
 
 from rpa_orkestrai.agents.models import AgentLimits
 from rpa_orkestrai.agents.runner import AgentServiceError
@@ -68,14 +70,18 @@ class ApprovalBackend:
         self.state = "approved" if approved else "rejected"
 
 
-def test_remote_owner_can_approve_for_a_non_owner_initiator(runtime):
+@pytest.mark.parametrize("storage_latency", [0, 0.15], indirect=True)
+def test_remote_owner_can_approve_for_a_non_owner_initiator(runtime, storage_latency):
     flow, target = write_flow(runtime)
     item = runtime.agent(flow)
     runtime.state["actor"] = runtime.owner.model_copy(update={"permissions": ("agents.use",)})
     backend = ApprovalBackend(runtime.service)
     runtime.service.approval_backend = backend
+    started = time.monotonic()
     run = runtime.start(item, response(run_call(flow)), response(finish()))
     saved = runtime.done(run)
+    if storage_latency:
+        assert time.monotonic() - started >= 4
     assert saved.status == "succeeded" and target.exists()
     assert len(backend.consumed) == 1 and not backend.cancelled
     event = next(event for event in saved.events if event.kind == "approval_decision")

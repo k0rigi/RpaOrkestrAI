@@ -163,10 +163,17 @@ def test_office_disposes_webgl_and_stops_polling_when_hidden_or_unmounted(office
 def test_sustained_slow_render_switches_to_2d(office_browser):
     start, _, _, _, _ = office_browser
     page = start()
-    page.evaluate("let tick = 0; performance.now = () => { tick += 120; return tick; }")
+    page.evaluate("let tick = 0; window.officeSlowFrame = 0; performance.now = () => { tick += 120; return tick; }")
     for index in range(12):
-        page.evaluate("theme => document.documentElement.dataset.theme = theme", "dark" if index % 2 else "light")
-        page.wait_for_timeout(80)
+        page.evaluate("""theme => {
+          document.documentElement.dataset.theme = theme;
+          requestAnimationFrame(() => requestAnimationFrame(() => { window.officeSlowFrame += 1; }));
+        }""", "dark" if index % 2 else "light")
+        # A slow CI renderer can coalesce several fixed-interval theme changes.
+        # Wait for actual frame callbacks before requesting the next redraw.
+        page.wait_for_function("expected => window.officeSlowFrame >= expected", arg=index + 1)
+        if page.locator('.office-view[data-mode="2d"]').count():
+            break
     assert page.locator('.office-view[data-mode="2d"]').count() == 1
     assert page.get_by_text("Bu cihazda daha akıcı görüntü için 2D plana geçildi.", exact=True).is_visible()
 
