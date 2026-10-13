@@ -35,6 +35,34 @@ class ProviderTimeout(ProviderError):
 
 
 @dataclass(frozen=True)
+class RequestLimits:
+    """Server-advertised context boundary; prompt_size uses the server's exact estimator."""
+
+    context_tokens: int
+    max_output_tokens: int
+    reserve_tokens: int
+    prompt_size: Callable[[list[dict], list[dict]], int] = field(repr=False, compare=False)
+
+    def __post_init__(self):
+        if (any(type(value) is not int for value in
+                (self.context_tokens, self.max_output_tokens, self.reserve_tokens))
+                or not 512 <= self.context_tokens <= 1_048_576
+                or not 1 <= self.max_output_tokens <= 4096
+                or not 0 <= self.reserve_tokens < self.context_tokens
+                or not callable(self.prompt_size)):
+            raise ProviderError()
+
+    def output_budget(self, messages, tools, requested: int) -> int:
+        if type(requested) is not int or requested < 1:
+            raise ProviderError()
+        size = self.prompt_size(messages, tools)
+        if type(size) is not int or size < 0:
+            raise ProviderError()
+        return max(0, min(requested, self.max_output_tokens,
+                          self.context_tokens - self.reserve_tokens - size))
+
+
+@dataclass(frozen=True)
 class ToolCall:
     id: str
     name: str

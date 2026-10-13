@@ -8,6 +8,7 @@ import pytest
 from rpa_orkestrai.agents.models import Actor, AgentInput, AgentLimits, AgentRunRequest, WorkflowGrant
 from rpa_orkestrai.agents.providers import ProviderResponse, ScriptedProvider, ToolCall, Usage
 from rpa_orkestrai.agents.runner import AgentService, AgentServiceError
+from rpa_orkestrai.agents.shared_provider import SharedProvider
 from rpa_orkestrai.config import Settings
 from rpa_orkestrai.engine import RunManager
 from rpa_orkestrai.models import Run, Step, Workflow, now, uid
@@ -88,6 +89,133 @@ def test_read_flow_returns_masked_variables_and_preserves_legacy_trigger(runtime
     assert "sistem" not in result["untrusted_data"]["variables"]
     audited = [event.data["payload"] for event in saved.events if event.kind == "provider_request"]
     assert audited == runtime.state["provider"].requests
+
+
+def test_registered_vault_secret_is_masked_before_first_request_without_secret_reference(runtime, monkeypatch):
+    from rpa_orkestrai.vault import Vault
+
+    values = {}
+    memory = SimpleNamespace(store=lambda account, value: values.update({account: value}),
+                             load=lambda account: values.get(account))
+    monkeypatch.setattr("rpa_orkestrai.vault.system_store", lambda: memory)
+    secret = "registered-password-not-yet-referenced"
+    Vault(runtime.settings.data_dir).set("saved", secret)
+    flow = runtime.workflow(Step(action="core.set", params={"name": "output", "value": secret}))
+    item = runtime.agent(flow)
+    runtime.state["provider"] = ScriptedProvider([response(run_call(flow)), response(finish(secret))])
+    run = runtime.service.start(item.id, AgentRunRequest(task="Metni incele: " + secret))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.workflow_count == 1
+    assert secret not in json.dumps(runtime.state["provider"].requests, ensure_ascii=False)
+    assert secret not in saved.model_dump_json()
+    assert secret not in runtime.store.run(saved.workflow_run_ids[0]).model_dump_json()
+    assert "[gizlendi]" in saved.task
+
+
+def test_unreadable_vault_blocks_request_without_using_real_system_store(runtime, monkeypatch):
+    item = runtime.agent()
+    (runtime.settings.data_dir / "secrets.json").write_text('{"names":{"saved":{}}}', encoding="utf-8")
+
+    def unavailable():
+        raise RuntimeError("private-store-error")
+
+    monkeypatch.setattr("rpa_orkestrai.vault.system_store", unavailable)
+    with pytest.raises(AgentServiceError) as caught:
+        runtime.service.start(item.id, AgentRunRequest(task="İncele"))
+    assert caught.value.status_code == 503
+    assert "private-store-error" not in str(caught.value)
+    assert not runtime.state["provider"].requests
+    assert not runtime.service.agent_store.runs()
+
+
+class BoundedSharedBackend:
+    """Network-free server boundary: independent Ollama conversion and conservative byte guard."""
+
+    def __init__(self, owner, replies):
+        self.owner, self.replies = owner, list(replies)
+        self.requests, self.prompt_sizes = [], []
+        self.capability_reads = 0
+
+    def actor(self):
+        return self.owner
+
+    def request(self, method, path, body=None, **kwargs):
+        assert kwargs.get("expected_actor") == self.owner
+        if path == "/llm/models":
+            self.capability_reads += 1
+            return {"success": True, "enabled": True, "models": ["test"], "context_tokens": 8192,
+                    "max_output_tokens": 1024, "reserve_tokens": 512, "estimation": "utf8_bytes"}
+        assert method == "POST" and path == "/llm/jobs"
+        converted = []
+        for message in body["messages"]:
+            item = {"role": message["role"], "content": message["content"]}
+            if item["role"] == "tool":
+                item["tool_name"] = message["name"]
+            if message.get("tool_calls"):
+                item["tool_calls"] = [{"type": "function", "function": {
+                    "name": call["name"], "arguments": call["arguments"]}} for call in message["tool_calls"]]
+            converted.append(item)
+        tools = [{"type": "function", "function": {name: tool[name] for name in ("name", "description", "parameters")}}
+                 for tool in body["tools"]]
+        size = len(json.dumps({"messages": converted, "tools": tools}, ensure_ascii=False, sort_keys=True,
+                              separators=(",", ":"), allow_nan=False).encode("utf-8"))
+        assert 0 < body["max_tokens"] <= 1024
+        assert size + body["max_tokens"] + 512 <= 8192
+        self.requests.append(body)
+        self.prompt_sizes.append(size)
+        reply = self.replies.pop(0)
+        return {"success": True, "job": {"id": uid(), "status": "succeeded", "result": {
+            "text": reply.text, "tool_calls": [{"id": call.id, "name": call.name, "arguments": call.arguments}
+                                                for call in reply.tool_calls],
+            "usage": {"input_tokens": 900, "output_tokens": 100, "total_tokens": 1000}}}}
+
+
+def test_shared_model_real_agent_protocol_fits_two_turns_and_audit_matches_exact_request(runtime):
+    from rpa_orkestrai.agents.runner import SYSTEM
+    from rpa_orkestrai.agents.tools import tool_definitions
+
+    flow = runtime.workflow(Step(action="core.set", params={"name": "answer", "value": "Hazır"}))
+    backend = BoundedSharedBackend(runtime.owner, [response(run_call(flow)), response(finish())])
+    runtime.state["provider"] = SharedProvider(backend)
+    run = runtime.service.start(runtime.agent(flow).id, AgentRunRequest(task="İşi tamamla"))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.workflow_count == 1 and saved.turns == 2
+    assert backend.capability_reads == 1 and len(backend.requests) == 2
+    assert backend.requests[0]["tools"] == tool_definitions("department")
+    assert backend.requests[0]["messages"][0]["content"].startswith(SYSTEM)
+    assert backend.prompt_sizes[0] + 4096 + 512 > 8192  # The previous unbounded first request failed.
+    assert all(request["max_tokens"] <= 1024 for request in backend.requests)
+    audited = [event.data["payload"] for event in saved.events if event.kind == "provider_request"]
+    assert audited == [{key: value for key, value in request.items() if key != "request_id"} for request in backend.requests]
+    assert saved.total_tokens == 2000 and saved.team_usage["total_tokens"] == 2000
+
+
+def test_shared_context_discards_only_old_complete_groups_and_records_it(runtime):
+    flow = runtime.workflow(Step(action="core.set", params={"name": "answer", "value": "Hazır"}))
+    old = ToolCall("old-call", "list_workflows", {})
+    recent = ToolCall("recent-call", "describe_workflow", {"workflow_id": flow.id})
+    backend = BoundedSharedBackend(runtime.owner, [response(old, text="Önceki yorum " * 180),
+                                                  response(recent, text="Son değerlendirme " * 160), response(finish())])
+    runtime.state["provider"] = SharedProvider(backend)
+    run = runtime.service.start(runtime.agent(flow).id, AgentRunRequest(task="İşi incele"))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and len(backend.requests) == 3
+    compacted = [event for event in saved.events if event.kind == "context_compacted"]
+    assert compacted and compacted[0].data["removed_groups"] == 1
+    history = backend.requests[-1]["messages"][2:]
+    assert [message["role"] for message in history] == ["assistant", "tool"]
+    assert history[0]["tool_calls"][0]["id"] == history[1]["tool_call_id"] == "recent-call"
+    assert "old-call" not in json.dumps(history)
+
+
+def test_shared_context_preserves_unsplittable_latest_result_and_fails_before_next_request(runtime):
+    backend = BoundedSharedBackend(runtime.owner, [response(ToolCall("large-call", "list_workflows", {}), text="x" * 10_000)])
+    runtime.state["provider"] = SharedProvider(backend)
+    run = runtime.service.start(runtime.agent().id, AgentRunRequest(task="İşi incele"))
+    saved = runtime.done(run)
+    assert saved.status == "failed" and "bağlam sınırına sığmıyor" in saved.error
+    assert len(backend.requests) == 1
+    assert not [event for event in saved.events if event.kind == "context_compacted"]
 
 
 def test_direct_and_indirect_unauthorized_flows_are_not_started(runtime):

@@ -137,8 +137,11 @@ def system_store():
 
 # ----- the names, per workspace -------------------------------------------------------------------
 class Vault:
-    def __init__(self, data_dir: Path, store=None):
-        self.index = Path(data_dir) / "secrets.json"
+    def __init__(self, data_dir: Path, store=None, *, purpose: str | None = None):
+        if purpose is not None and (not isinstance(purpose, str) or not NAME.fullmatch(purpose)):
+            raise VaultError("Şifre kasası kullanım alanı geçersiz.")
+        self.purpose = purpose
+        self.index = Path(data_dir) / (f"{purpose}_secrets.json" if purpose else "secrets.json")
         # Two workspaces on one computer keep separate passwords under the same name.
         self.scope = hashlib.sha256(str(Path(data_dir).resolve()).encode()).hexdigest()[:10]
         self._store = store
@@ -151,7 +154,8 @@ class Vault:
         return self._store
 
     def account(self, name: str) -> str:
-        return f"{self.scope}:{name}"
+        # Preserve every existing flow-secret identity; provider keys use a separate namespace.
+        return f"{self.scope}:{self.purpose}:{name}" if self.purpose else f"{self.scope}:{name}"
 
     def _read(self) -> dict[str, dict]:
         try:
@@ -188,6 +192,36 @@ class Vault:
         if not self.has(name):
             return None
         return self.store.load(self.account(name))
+
+    def secrets_for_redaction(self) -> list[str]:
+        """Trusted in-memory masking input; never expose through Studio or an export."""
+        with self._lock:
+            try:
+                if self.index.is_symlink():
+                    raise ValueError
+                try:
+                    with self.index.open("rb") as handle:
+                        raw = handle.read(256 * 1024 + 1)
+                except FileNotFoundError:
+                    return []
+                if len(raw) > 256 * 1024:
+                    raise ValueError
+                metadata = json.loads(raw)
+                if (type(metadata) is not dict or set(metadata) != {"names"}
+                        or type(metadata["names"]) is not dict or len(metadata["names"]) > 200):
+                    raise ValueError
+                values = []
+                for name, info in metadata["names"].items():
+                    if type(info) is not dict:
+                        raise ValueError
+                    self.check_name(name)
+                    value = self.store.load(self.account(name))
+                    if type(value) is not str or not value or len(value) > MAX_LENGTH or "\x00" in value:
+                        raise ValueError
+                    values.append(value)
+                return values
+            except Exception:
+                raise VaultError("Kayıtlı şifreler güvenli maskeleme için okunamadı. Şifre kasası erişimini kontrol edin.") from None
 
     def delete(self, name: str) -> bool:
         with self._lock:

@@ -14,6 +14,7 @@ from ..connections import Connections
 from ..dispatch import RunDispatch
 from ..errors import AgentPolicyStop, Cancelled, WorkflowError
 from ..models import now, uid
+from ..vault import Vault, VaultError
 from .models import (
     TERMINAL_STATUSES,
     Actor,
@@ -28,7 +29,14 @@ from .models import (
 )
 from .organization import BudgetExceeded, TeamBudget, validate_organization
 from .policy import workflow_fingerprint
-from .providers import Provider, ProviderCancelled, ProviderError, ProviderTimeout, provider_for
+from .providers import (
+    Provider,
+    ProviderCancelled,
+    ProviderError,
+    ProviderTimeout,
+    RequestLimits,
+    provider_for,
+)
 from .redaction import Redactor
 from .storage import AgentStore
 from .tools import AgentTools, call_fingerprint, tool_definitions
@@ -216,6 +224,10 @@ class AgentService:
         secrets = Connections(self.settings.data_dir, self.settings).secrets(include_short=True)
         snapshot = self.settings.snapshot()
         secrets.extend(snapshot.get(key) for key in self.settings.secrets)
+        try:
+            secrets.extend(Vault(self.settings.data_dir).secrets_for_redaction())
+        except VaultError:
+            raise AgentServiceError("Kayıtlı şifrelerin güvenli denetimi tamamlanamadı.", 503) from None
         if self.secret_source is not None:
             try:
                 additional = self.secret_source()
@@ -462,25 +474,37 @@ class AgentService:
     def _stop(self, context: Context, message: str) -> None:
         raise AgentStopped(message)
 
-    def _payload(self, context: Context) -> dict:
+    def _payload(self, context: Context, *, allowance=None, limits: RequestLimits | None = None) -> dict:
         system = context.redactor.text(SYSTEM + "\nAjan talimatı:\n" + context.agent.instructions)
         task = self._clean_mapping(context, {"task": context.run.task, "inputs": context.run.inputs})
         first = [{"role": "system", "content": system},
                  {"role": "user", "content": json.dumps({"untrusted_data": task}, ensure_ascii=False)}]
         definitions = tool_definitions(context.agent.role)
+        requested = allowance if allowance is not None else context.agent.limits.max_tokens - context.run.total_tokens
+        desired = min(requested, limits.max_output_tokens) if limits else requested
+        removed = 0
         while True:
             messages = first + [message for group in context.history for message in group]
             payload = self._mask_payload(context, {
                 "messages": messages, "tools": definitions, "model": context.agent.model,
-                "max_tokens": context.agent.limits.max_tokens - context.run.total_tokens,
+                "max_tokens": desired,
             })
             raw = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
-            if len(raw) <= MAX_REQUEST_BYTES:
+            output = limits.output_budget(payload["messages"], payload["tools"], desired) if limits else desired
+            if len(raw) <= MAX_REQUEST_BYTES and output > 0 and (output == desired or len(context.history) <= 1):
+                payload["max_tokens"] = output
+                if removed:
+                    self._event(context, "context_compacted", "Model bağlamına sığması için eski konuşma grupları çıkarıldı; son araç sonucu korundu.",
+                                {"removed_groups": removed, "max_tokens": output})
+                if output < requested:
+                    self._event(context, "output_limited", "Modelin çıktı bütçesi bağlam sınırına göre azaltıldı.",
+                                {"requested_max_tokens": requested, "max_tokens": output})
                 return payload
             if len(context.history) > 1:
                 context.history.pop(0)
+                removed += 1
             else:
-                raise AgentStopped("Modele gönderilecek veri boyut sınırını aşıyor.")
+                raise AgentStopped("Görev, araç tanımları veya son araç sonucu modelin bağlam sınırına sığmıyor. Daha kısa bir görev veya daha geniş bağlamlı model seçin.")
 
     def _mask_payload(self, context, payload):
         # Re-mask history after a workflow discovers a new vault secret. Preserve protocol fields.
@@ -509,6 +533,10 @@ class AgentService:
                 context.run.status = "running"
                 context.run.started_at = now()
                 self._save(context)
+            limit_reader = getattr(provider, "request_limits", None)
+            limits = limit_reader(context.agent.model, cancel=context.cancel, deadline=context.deadline) if callable(limit_reader) else None
+            if limits is not None and not isinstance(limits, RequestLimits):
+                raise ProviderError()
             tools = AgentTools(self, context)
             while not context.finished:
                 self._check(context)
@@ -523,8 +551,7 @@ class AgentService:
                         context.run.id, context.agent.limits.max_tokens - context.run.total_tokens)
                     if allowance is None:
                         context.cancel.wait(0.05)
-                payload = self._payload(context)
-                payload["max_tokens"] = allowance
+                payload = self._payload(context, allowance=allowance, limits=limits)
                 # Keep the exact sanitized request; per-field sanitization must not change its protocol.
                 with self._lock:
                     event = AgentEvent(kind="provider_request", data={"payload": payload})
