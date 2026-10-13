@@ -424,9 +424,15 @@ def test_artifact_access_is_own_run_only_and_rejects_symlinks(runtime, mode):
 
 
 def test_manager_cannot_start_a_workflow_loop(runtime):
+    flow = runtime.workflow(Step(action="core.set", params={"name": "value", "value": 1}))
     item = runtime.service.create_agent(AgentInput(name="Yönetici", role="manager"))
-    with pytest.raises(AgentServiceError):
-        runtime.service.start(item.id, AgentRunRequest(task="Görev"))
+    run = runtime.start(item, response(run_call(flow)), response(finish()))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.workflow_count == 0
+    assert not runtime.store.runs()
+    assert "run_workflow" not in {tool["name"] for tool in runtime.state["provider"].requests[0]["tools"]}
+    assert any(event.kind == "tool_result" and event.data["untrusted_data"].get("status") == "error"
+               for event in saved.events)
 
 
 def test_other_company_cannot_read_edit_or_cancel(runtime):

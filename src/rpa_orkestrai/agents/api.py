@@ -49,6 +49,22 @@ def router(service: AgentService) -> APIRouter:
     def list_runs(agent_id: str | None = None):
         return call(service.runs, agent_id=agent_id)
 
+    @result.get("/tasks")
+    def list_tasks(agent_id: str | None = None, status: str | None = None):
+        return call(service.tasks, agent_id=agent_id, status=status)
+
+    @result.get("/tasks/{task_id}")
+    def get_task(task_id: str):
+        return call(service.get_task, task_id)
+
+    @result.get("/team")
+    def team():
+        return call(service.team)
+
+    @result.get("/queue")
+    def queue():
+        return call(service.queue)
+
     @result.get("/runs/{run_id}")
     def get_run(run_id: str):
         return call(service.get_run, run_id)

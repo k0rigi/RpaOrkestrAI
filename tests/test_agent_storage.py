@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from rpa_orkestrai.agents.models import Actor, Agent, AgentEvent, AgentRun, AgentTask
 from rpa_orkestrai.agents.storage import AgentStore
-from rpa_orkestrai.models import uid
+from rpa_orkestrai.models import now, uid
 
 
 @pytest.fixture
@@ -151,6 +151,34 @@ def test_restart_preserves_terminal_runs(records, status):
     store.save_run(run)
     store.recover_runs()
     assert store.run(run.id) == run
+
+
+def test_restart_repairs_task_metrics_from_run_after_interrupted_dual_write(records):
+    store, definition, actor = records
+    task = AgentTask(company_id=2, created_by=actor, assignee_id=definition.id,
+                     assigned_agent_id=definition.id, title="İncele")
+    run = AgentRun(agent_id=definition.id, actor=actor, agent_revision=1, task="İncele", task_id=task.id,
+                   status="succeeded", finished_at=now(), summary="Bitti", tokens_in=5, tokens_out=7,
+                   total_tokens=12, approval_wait_seconds=3, workflow_run_ids=[uid()])
+    task.run_id = run.id
+    store.save_task(task)
+    store.save_run(run)
+    store.recover_runs()
+    repaired = store.task(task.id)
+    assert repaired.status == "succeeded" and repaired.finished_at == run.finished_at
+    assert repaired.summary == "Bitti" and repaired.total_tokens == 12
+    assert repaired.workflow_run_ids == run.workflow_run_ids and repaired.approval_wait_seconds == 3
+
+
+def test_task_from_before_provider_snapshots_loads_with_empty_defaults(records):
+    store, definition, actor = records
+    task = AgentTask(company_id=2, created_by=actor, assignee_id=definition.id, title="Eski görev")
+    legacy = task.model_dump()
+    legacy.pop("provider_connection_id")
+    legacy.pop("model")
+    store.path("agent_tasks", task.id).write_text(json.dumps(legacy), encoding="utf-8")
+    loaded = store.task(task.id)
+    assert loaded.provider_connection_id is None and loaded.model == ""
 
 
 def test_restart_preserves_human_tasks_but_interrupts_local_agent_tasks(records):

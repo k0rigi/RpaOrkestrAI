@@ -6,7 +6,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, ValidationError, field_validator
 
@@ -70,6 +70,32 @@ class FinishArgument(Model):
         return validate_json_value(value)
 
 
+class DelegateArgument(Model):
+    agent_id: Identifier
+    title: str = Field(min_length=1, max_length=200)
+    instructions: str = Field(min_length=1, max_length=16_000)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    priority: Literal["high", "normal", "low"] = "normal"
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def valid_inputs(cls, value):
+        return validate_inputs(value)
+
+
+class TaskArgument(Model):
+    task_id: Identifier
+
+
+class TaskFilter(Model):
+    agent_id: Identifier | None = None
+    status: Literal["queued", "running", "waiting_user", "waiting_approval", "succeeded", "failed", "cancelled"] | None = None
+
+
+class TasksArgument(Model):
+    filter: TaskFilter | None = None
+
+
 TOOLS = {
     "list_workflows": (Empty, "Yalnız ajana izin verilen akışları ve beklenen girdilerini listeler."),
     "describe_workflow": (WorkflowArgument, "İzinli akışın güvenli adım ve değişken özetini verir."),
@@ -79,12 +105,19 @@ TOOLS = {
     "read_artifact": (ArtifactArgument, "Yalnız bu ajan çalışmasının metin, CSV veya JSON çıktısını okur."),
     "ask_user": (QuestionArgument, "Belirsizlikte kullanıcıdan yanıt bekler."),
     "finish": (FinishArgument, "Çalışmayı kısa özet ve yapılandırılmış sonuçla bitirir."),
+    "list_team": (Empty, "Yöneticiye doğrudan bağlı departman ajanlarını ve kuyruklarını listeler."),
+    "delegate_task": (DelegateArgument, "Görevi doğrudan bağlı departman ajanının kuyruğuna ekler."),
+    "get_task": (TaskArgument, "Yöneticinin bu çalışma kapsamında devrettiği görevin durumunu verir."),
+    "list_tasks": (TasksArgument, "Yöneticinin bu çalışma kapsamında devrettiği görevleri listeler."),
 }
+MANAGER_TOOLS = frozenset({"list_team", "delegate_task", "get_task", "list_tasks", "ask_user", "finish"})
+DEPARTMENT_TOOLS = frozenset(set(TOOLS) - {"list_team", "delegate_task", "get_task", "list_tasks"})
 
 
-def tool_definitions() -> list[dict]:
+def tool_definitions(role="department") -> list[dict]:
+    allowed = MANAGER_TOOLS if role == "manager" else DEPARTMENT_TOOLS
     return [{"type": "function", "name": name, "description": description,
-             "parameters": model.model_json_schema()} for name, (model, description) in TOOLS.items()]
+             "parameters": model.model_json_schema()} for name, (model, description) in TOOLS.items() if name in allowed]
 
 
 class AgentTools:
@@ -93,7 +126,8 @@ class AgentTools:
 
     def execute(self, call: ToolCall):
         self.service._check(self.context)
-        if call.name not in TOOLS:
+        allowed = MANAGER_TOOLS if self.context.agent.role == "manager" else DEPARTMENT_TOOLS
+        if call.name not in allowed:
             raise WorkflowError("Ajan bu aracı kullanamaz.")
         try:
             arguments = TOOLS[call.name][0].model_validate(call.arguments)
@@ -160,10 +194,17 @@ class AgentTools:
                                              prepared.inputs, actor=context.run.actor)
                 if refreshed.digest != prepared.digest:
                     service._stop(context, "Akış, girdi veya izin değişti; önceki onay geçersizleşti.")
+                if approval is not None:
+                    service._consume_approval(context, approval, prepared.digest)
+                service._check(context)
+                current = service.agent_store.agent(context.agent.id)
+                refreshed = prepare_workflow(current, arguments.workflow_id, service.store,
+                                             prepared.inputs, actor=context.run.actor)
+                if refreshed.digest != prepared.digest:
+                    service._stop(context, "Onay tüketilirken akış veya izin değişti; akış başlatılmadı.")
                 with service._lock:
                     service._check(context)
-                    if approval is not None:
-                        service._consume_approval(context, approval, prepared.digest)
+                    context.budget.add_workflow()
                     child = service.manager.start(prepared.root, variables=prepared.inputs, trigger="manual",
                                                   agent_context=policy, desktop_reservation=reservation)
                     context.active_workflow_id = child.id
@@ -265,10 +306,35 @@ class AgentTools:
         return self.service._wait_question(self.context, arguments.question, arguments.options)
 
     def finish(self, arguments):
+        if self.context.agent.role == "manager" and self.context.run.delegated_task_ids:
+            if not self.context.children_reported:
+                tasks = self.service._wait_children(self.context)
+                self.context.children_reported = True
+                return {"status": "children_completed", "tasks": tasks,
+                        "message": "Alt görev sonuçlarını birleştirin ve finish aracını yeniden çağırın."}
         self.context.run.summary = self.context.redactor.text(arguments.summary)
         self.context.run.result = self.context.redactor.sanitize(arguments.result)
         self.context.finished = True
         return {"finished": True}
+
+    def list_team(self, arguments):
+        return {"agents": self.service._team_for(self.context)}
+
+    def delegate_task(self, arguments):
+        return self.service._delegate(self.context, arguments)
+
+    def get_task(self, arguments):
+        return self.service._delegated_task(self.context, arguments.task_id)
+
+    def list_tasks(self, arguments):
+        tasks = [self.service._delegated_task(self.context, identity)
+                 for identity in self.context.run.delegated_task_ids]
+        if arguments.filter:
+            if arguments.filter.agent_id:
+                tasks = [task for task in tasks if task["agent_id"] == arguments.filter.agent_id]
+            if arguments.filter.status:
+                tasks = [task for task in tasks if task["status"] == arguments.filter.status]
+        return {"tasks": tasks}
 
 
 def call_fingerprint(call: ToolCall) -> str:

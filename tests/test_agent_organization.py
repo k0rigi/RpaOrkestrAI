@@ -1,0 +1,240 @@
+import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+from test_agent_runner import approval_wait, finish, response, run_call, wait_for, write_flow
+from test_agent_runner import runtime as runtime
+
+from rpa_orkestrai.agents.models import AgentInput, AgentLimits, AgentRunRequest, WorkflowGrant
+from rpa_orkestrai.agents.organization import BudgetExceeded, OrganizationError, TeamBudget
+from rpa_orkestrai.agents.providers import ScriptedProvider, ToolCall, Usage
+from rpa_orkestrai.agents.runner import AgentServiceError
+from rpa_orkestrai.models import Step, uid
+
+
+def make_team(runtime, *, manager_limits=None, child_limits=None, grants=None):
+    manager = runtime.service.create_agent(AgentInput(name="Yönetici", role="manager", model="test",
+        limits=manager_limits or AgentLimits(max_seconds=5)))
+    child = runtime.service.create_agent(AgentInput(name="Departman", department="İnceleme", manager_id=manager.id,
+        model="test", workflows=grants or [], limits=child_limits or AgentLimits(max_seconds=5)))
+    return manager, child
+
+
+def delegate(agent, title="İncele"):
+    return ToolCall(uid(), "delegate_task", {"agent_id": agent.id, "title": title,
+                                             "instructions": "Görevi kendi yetkilerinle tamamla."})
+
+
+def providers(runtime, mapping):
+    runtime.service._provider_factory = lambda agent: mapping[agent.id]
+
+
+def test_one_manager_per_company_and_parent_must_be_same_company_manager(runtime):
+    manager, child = make_team(runtime)
+    with pytest.raises(OrganizationError):
+        runtime.service.create_agent(AgentInput(name="İkinci", role="manager"))
+    with pytest.raises(OrganizationError):
+        runtime.service.create_agent(AgentInput(name="Alt yönetici", manager_id=child.id))
+    with pytest.raises(OrganizationError):
+        runtime.service.update_agent(manager.id, AgentInput(name="Artık departman"))
+    with pytest.raises(AgentServiceError):
+        runtime.service.delete_agent(manager.id)
+    with pytest.raises(OrganizationError):
+        runtime.service.update_agent(child.id, AgentInput(name="Döngü", manager_id=child.id))
+    runtime.state["actor"] = runtime.owner.model_copy(update={"company_id": 3})
+    with pytest.raises(OrganizationError):
+        runtime.service.create_agent(AgentInput(name="Yabancı", manager_id=manager.id))
+    assert runtime.service.create_agent(AgentInput(name="Başka firma", role="manager")).company_id == 3
+
+
+def test_manager_delegates_and_combines_completed_children_without_elevating_permissions(runtime):
+    allowed = runtime.workflow(Step(action="core.set", params={"name": "result", "value": "Özet"}))
+    forbidden = runtime.workflow(Step(action="core.set", params={"name": "private", "value": "Gizli"}))
+    manager, child = make_team(runtime, grants=[WorkflowGrant(workflow_id=allowed.id)])
+    manager_provider = ScriptedProvider([response(ToolCall(uid(), "list_team", {}), delegate(child)),
+                                         response(finish()), response(finish("Ekip işi tamamladı"))])
+    child_provider = ScriptedProvider([response(run_call(forbidden)), response(run_call(allowed)), response(finish())])
+    providers(runtime, {manager.id: manager_provider, child.id: child_provider})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="Ekibi koordine et"))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.workflow_count == 0
+    assert len(saved.delegated_task_ids) == 1
+    child_task = runtime.service.get_task(saved.delegated_task_ids[0])
+    assert child_task.status == "succeeded" and child_task.parent_task_id == saved.task_id
+    assert child_task.root_run_id == run.id and len(child_task.workflow_run_ids) == 1
+    assert runtime.store.run(child_task.workflow_run_ids[0]).workflow_id == allowed.id
+    assert saved.team_usage["workflow_count"] == 1 and saved.team_usage["task_count"] == 1
+    assert saved.team_usage["turns"] == 6
+    result = manager_provider.requests[-1]["messages"]
+    assert any("children_completed" in message.get("content", "") for message in result)
+    assert runtime.service.get_task(saved.task_id).summary == "Ekip işi tamamladı"
+    tools = {tool["name"] for tool in manager_provider.requests[0]["tools"]}
+    assert tools == {"list_team", "delegate_task", "get_task", "list_tasks", "ask_user", "finish"}
+
+
+def test_manager_cannot_delegate_to_self_unrelated_or_other_company(runtime):
+    manager, child = make_team(runtime)
+    unrelated = runtime.agent()
+    parent_provider = ScriptedProvider([response(delegate(manager), delegate(unrelated)), response(finish())])
+    providers(runtime, {manager.id: parent_provider})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="Görev dağıt"))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.delegated_task_ids == []
+    assert len(runtime.service.tasks()) == 1
+    errors = [event.data["untrusted_data"] for event in saved.events if event.kind == "tool_result"]
+    assert sum(item.get("status") == "error" for item in errors) == 2
+    # A child cannot delegate back to its manager or to a sibling.
+    runtime.service._provider_factory = lambda agent: runtime.state["provider"]
+    run = runtime.start(child, response(delegate(manager)), response(finish()))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.delegated_task_ids == []
+
+
+def test_child_risky_work_still_waits_for_owner_approval(runtime):
+    flow, target = write_flow(runtime)
+    manager, child = make_team(runtime, grants=[WorkflowGrant(workflow_id=flow.id,
+                                                             allowed_roots=[str(runtime.business)])])
+    providers(runtime, {manager.id: ScriptedProvider([response(delegate(child)), response(finish()), response(finish())]),
+                        child.id: ScriptedProvider([response(run_call(flow)), response(finish())])})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="İşi devret"))
+    task = wait_for(lambda: runtime.service.tasks(child.id), lambda items: bool(items))[0]
+    pending = approval_wait(runtime, runtime.service.get_run(task.run_id))
+    assert not target.exists()
+    runtime.service.approve(task.run_id, pending.pending_approval["id"], False)
+    assert runtime.done(run).status == "succeeded"
+    child_task = runtime.service.get_task(task.id)
+    assert child_task.workflow_run_ids == [] and child_task.approval_wait_seconds > 0
+    assert any(event.kind == "approval_decision" for event in child_task.approvals)
+
+
+def test_same_agent_jobs_are_fifo_and_queue_is_only_metadata(runtime):
+    agent = runtime.agent()
+    provider = ScriptedProvider([response(ToolCall(uid(), "ask_user", {"question": "Devam?"})),
+                                  response(finish("Bir")), response(finish("İki")), response(finish("Üç"))])
+    runtime.service._provider_factory = lambda _: provider
+    first = runtime.service.start(agent.id, AgentRunRequest(task="Birinci gizli iş"))
+    wait_for(lambda: runtime.service.get_run(first.id), lambda run: run.status == "waiting_user")
+    second = runtime.service.start(agent.id, AgentRunRequest(task="İkinci gizli iş"))
+    third = runtime.service.start(agent.id, AgentRunRequest(task="Üçüncü gizli iş"))
+    queue = runtime.service.queue()
+    assert [(item["run_id"], item["position"]) for item in queue] == [(first.id, 0), (second.id, 1), (third.id, 2)]
+    assert "gizli" not in json.dumps(queue)
+    pending = runtime.service.get_run(first.id)
+    runtime.service.answer(first.id, pending.pending_question["id"], "Evet")
+    runs = [runtime.done(item) for item in (first, second, third)]
+    assert [item.summary for item in runs] == ["Bir", "İki", "Üç"]
+    assert runs[0].finished_at <= runs[1].started_at <= runs[2].started_at
+    assert runtime.service.queue() == []
+    assert {task.status for task in runtime.service.tasks()} == {"succeeded"}
+
+
+def test_cancelling_root_cancels_running_and_queued_children(runtime):
+    manager, child = make_team(runtime)
+    providers(runtime, {manager.id: ScriptedProvider([response(delegate(child, "Bir"), delegate(child, "İki")),
+                                                       response(finish())]),
+                        child.id: ScriptedProvider([response(ToolCall(uid(), "ask_user", {"question": "Bekle?"}))])})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="İki görev"))
+    wait_for(lambda: runtime.service.tasks(child.id), lambda tasks: len(tasks) == 2)
+    runtime.service.cancel(run.id)
+    assert runtime.done(run).status == "cancelled"
+    tasks = wait_for(lambda: runtime.service.tasks(child.id), lambda tasks: all(task.finished_at for task in tasks))
+    assert {task.status for task in tasks} == {"cancelled"}
+    assert not runtime.service.queue()
+
+
+@pytest.mark.parametrize("kind", ["tasks", "turns", "tokens", "workflows", "seconds"])
+def test_root_budget_bounds_the_whole_team(runtime, kind):
+    limits = AgentLimits(max_seconds=5)
+    if kind == "tasks":
+        limits.max_tasks = 1
+    elif kind == "turns":
+        limits.max_turns = 1
+    elif kind == "tokens":
+        limits.max_tokens = 5
+    elif kind == "workflows":
+        limits.max_workflow_runs = 1
+    else:
+        limits.max_seconds = 0.12
+    flow = runtime.workflow(Step(action="core.set", params={"name": "value", "value": 1}))
+    manager, child = make_team(runtime, manager_limits=limits, grants=[WorkflowGrant(workflow_id=flow.id)])
+    calls = [delegate(child, "Bir"), delegate(child, "İki")] if kind in {"tasks", "workflows"} else [delegate(child)]
+    parent_provider = ScriptedProvider([response(*calls), response(finish()), response(finish())])
+    if kind == "tokens":
+        child_provider = ScriptedProvider([response(finish(), usage=Usage(4, 4))])
+    elif kind == "seconds":
+        child_provider = ScriptedProvider([response(ToolCall(uid(), "ask_user", {"question": "Bekle?"}))])
+    else:
+        child_provider = ScriptedProvider([response(run_call(flow)), response(finish()),
+                                           response(run_call(flow)), response(finish())])
+    providers(runtime, {manager.id: parent_provider, child.id: child_provider})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="Ekibin bütçesini aşmayı dene"))
+    saved = runtime.done(run)
+    assert saved.status == "failed"
+    assert len(runtime.store.runs()) <= limits.max_workflow_runs
+    wait_for(lambda: runtime.service.tasks(), lambda tasks: all(task.finished_at for task in tasks))
+    assert runtime.service.queue() == []
+
+
+def test_token_reservations_are_atomic_across_parallel_children():
+    budget = TeamBudget(AgentLimits(max_tokens=10), time.monotonic() + 5)
+    barrier = threading.Barrier(3)
+
+    def reserve(identity):
+        barrier.wait()
+        return budget.reserve_turn(identity, 10)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(reserve, identity) for identity in ("one", "two")]
+        barrier.wait()
+        allowances = [future.result() for future in futures]
+    assert sorted(value or 0 for value in allowances) == [0, 10]
+    used = next(identity for identity in ("one", "two") if identity in budget.reserved)
+    budget.release_turn(used, Usage(8, 2))
+    with pytest.raises(BudgetExceeded):
+        budget.reserve_turn("next", 1)
+
+
+def test_model_default_is_resolved_without_mutating_saved_agent(runtime):
+    connection_id = uid()
+    item = runtime.service.create_agent(AgentInput(name="Varsayılan bağlantı", model="",
+                                                  provider_connection_id=connection_id))
+    runtime.service.model_resolver = lambda agent: "yerel-model"
+    run = runtime.start(item, response(finish()))
+    assert runtime.done(run).status == "succeeded"
+    assert runtime.state["provider"].requests[0]["model"] == "yerel-model"
+    assert runtime.service.get_agent(item.id).model == ""
+    task_id = runtime.service.get_run(run.id).task_id
+    task = runtime.service.get_task(task_id)
+    assert task.model == "yerel-model" and task.provider_connection_id == connection_id
+    runtime.service.model_resolver = lambda agent: "başka-model"
+    runtime.service.update_agent(item.id, AgentInput(name="Değişti", model="yeni-model",
+                                                     provider_connection_id=uid()))
+    assert runtime.service.get_task(task_id).model == "yerel-model"
+    assert runtime.service.get_task(task_id).provider_connection_id == connection_id
+
+
+def test_provider_key_source_is_masked_in_all_task_and_run_records(runtime):
+    secret = "provider-only-private-key"
+    runtime.service.secret_source = lambda: [secret]
+    item = runtime.agent()
+    runtime.state["provider"] = ScriptedProvider([response(finish(secret))])
+    run = runtime.service.start(item.id, AgentRunRequest(task=secret, inputs={"value": secret}))
+    saved = runtime.done(run)
+    assert secret not in json.dumps(runtime.state["provider"].requests)
+    assert secret not in saved.model_dump_json()
+    assert secret not in runtime.service.get_task(saved.task_id).model_dump_json()
+    runtime.service.secret_source = lambda: (_ for _ in ()).throw(RuntimeError(secret))
+    with pytest.raises(AgentServiceError) as denied:
+        runtime.service.start(item.id, AgentRunRequest(task="İş"))
+    assert secret not in str(denied.value)
+
+
+def test_provider_key_accidentally_pasted_in_agent_definition_is_not_saved(runtime):
+    secret = "provider-only-private-key"
+    runtime.service.secret_source = lambda: [secret]
+    item = runtime.service.create_agent(AgentInput(name=secret, description=secret, instructions=secret))
+    assert secret not in runtime.service.agent_store.agent(item.id).model_dump_json()
+    with pytest.raises(AgentServiceError):
+        runtime.service.update_agent(item.id, AgentInput(name="Ajan", model=secret))

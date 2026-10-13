@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -11,7 +12,7 @@ from typing import Any, Callable
 
 from ..connections import Connections
 from ..dispatch import RunDispatch
-from ..errors import Cancelled, WorkflowError
+from ..errors import AgentPolicyStop, Cancelled, WorkflowError
 from ..models import now, uid
 from .models import (
     TERMINAL_STATUSES,
@@ -21,9 +22,11 @@ from .models import (
     AgentInput,
     AgentRun,
     AgentRunRequest,
+    AgentTask,
     PermissionChange,
     validate_json_value,
 )
+from .organization import BudgetExceeded, TeamBudget, validate_organization
 from .policy import workflow_fingerprint
 from .providers import Provider, ProviderCancelled, ProviderError, ProviderTimeout, provider_for
 from .redaction import Redactor
@@ -47,7 +50,7 @@ class AgentServiceError(ValueError):
         self.status_code = status_code
 
 
-class AgentStopped(Exception):
+class AgentStopped(AgentPolicyStop):
     def __init__(self, message: str, *, cancelled: bool = False):
         super().__init__(message)
         self.cancelled = cancelled
@@ -59,6 +62,8 @@ class Context:
     run: AgentRun
     redactor: Redactor
     deadline: float
+    budget: TeamBudget
+    task: AgentTask
     cancel: threading.Event = field(default_factory=threading.Event)
     wake: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
@@ -74,22 +79,32 @@ class Context:
     failed_workflows: set[str] = field(default_factory=set)
     history: list[list[dict]] = field(default_factory=list)
     audit_bytes: int = 0
+    approval_started: float | None = None
+    children_reported: bool = False
 
 
 class AgentService:
     def __init__(self, settings, store, manager, *, agent_store=None, dispatch=None,
                  actor: Callable[[], Actor | None], gate: Callable[[], bool],
-                 provider_factory: Callable[[Agent], Provider] | None = None):
+                 provider_factory: Callable[[Agent], Provider] | None = None,
+                 model_resolver: Callable[[Agent], str] | None = None, approval_backend=None,
+                 secret_source: Callable[[], list[str]] | None = None):
         self.settings, self.store, self.manager = settings, store, manager
         self.agent_store = agent_store or AgentStore(settings.data_dir)
         self.dispatch = dispatch or RunDispatch(manager)
         self._owns_dispatch = dispatch is None
         self._actor, self._gate = actor, gate
         self._provider_factory = provider_factory or (lambda agent: provider_for(None))
+        self.model_resolver = model_resolver
+        self.approval_backend = approval_backend
+        self.secret_source = secret_source
         self._lock = threading.RLock()
         self._contexts: dict[str, Context] = {}
         self._closed = False
         self.agent_store.recover_runs()
+        self._queue_wake = threading.Event()
+        self._queue_thread = threading.Thread(target=self._schedule_loop, name="rpa-agent-queue", daemon=True)
+        self._queue_thread.start()
 
     def _authorize(self, permission: str | None = "agents.use") -> Actor:
         try:
@@ -158,7 +173,9 @@ class AgentService:
 
     def create_agent(self, body: AgentInput) -> Agent:
         actor = self._authorize("agents.manage")
+        body = self._safe_definition(body)
         with self._lock:
+            validate_organization(body, actor, self.agent_store)
             revisions = self._grant_revisions(body, actor)
             result = Agent(**body.model_dump(), company_id=actor.company_id, user_id=actor.user_id,
                            grant_revisions=revisions, permission_audit=self._permission_audit(body, actor, revisions))
@@ -166,8 +183,10 @@ class AgentService:
 
     def update_agent(self, identity: str, body: AgentInput) -> Agent:
         actor = self._authorize("agents.manage")
+        body = self._safe_definition(body)
         with self._lock:
             previous = self._find_agent(identity, actor)
+            validate_organization(body, actor, self.agent_store, identity=identity)
             revisions = self._grant_revisions(body, actor, previous)
             result = Agent(**body.model_dump(), id=previous.id, created_at=previous.created_at,
                            updated_at=now(), company_id=previous.company_id, user_id=previous.user_id,
@@ -175,7 +194,7 @@ class AgentService:
                            grant_revisions=revisions,
                            permission_audit=self._permission_audit(body, actor, revisions, previous))
             saved = self.agent_store.save_agent(result)
-            for context in self._contexts.values():
+            for context in list(self._contexts.values()):
                 if context.agent.id == identity:
                     self._cancel_context(context, "Ajan ayarları değiştiği için çalışma durduruldu.")
             return saved
@@ -184,7 +203,10 @@ class AgentService:
         actor = self._authorize("agents.manage")
         with self._lock:
             self._find_agent(identity, actor)
-            for context in self._contexts.values():
+            if any(agent.manager_id == identity for agent in self.agent_store.agents()
+                   if agent.company_id == actor.company_id):
+                raise AgentServiceError("Önce bağlı departman ajanlarının yönetici bağlantısını kaldırın.", 409)
+            for context in list(self._contexts.values()):
                 if context.agent.id == identity:
                     self._cancel_context(context, "Ajan kaldırıldığı için çalışma durduruldu.")
             self.agent_store.delete_agent(identity)
@@ -194,7 +216,94 @@ class AgentService:
         secrets = Connections(self.settings.data_dir, self.settings).secrets(include_short=True)
         snapshot = self.settings.snapshot()
         secrets.extend(snapshot.get(key) for key in self.settings.secrets)
+        if self.secret_source is not None:
+            try:
+                additional = self.secret_source()
+                if type(additional) is not list or not all(type(value) is str for value in additional):
+                    raise ValueError
+                secrets.extend(additional)
+            except Exception:
+                raise AgentServiceError("Sağlayıcı sırlarının güvenli denetimi tamamlanamadı.", 503) from None
         return Redactor(secrets, max_bytes=16_000, max_string=12_000)
+
+    def _safe_definition(self, body):
+        redactor = self._new_redactor()
+        if redactor.text(body.model) != body.model:
+            raise AgentServiceError("Model adı kayıtlı bir gizli değer içeremez.")
+        for grant in body.workflows:
+            if any(redactor.text(value) != value for value in [*grant.allowed_roots, *grant.allowed_hosts]):
+                raise AgentServiceError("İzin verilen dosya veya adres kapsamı gizli değer içeremez.")
+        data = body.model_dump()
+        for field_name, limit in (("name", 120), ("description", 2000), ("instructions", 16_000), ("department", 120)):
+            data[field_name] = redactor.text(data[field_name])[:limit]
+        return AgentInput.model_validate(data)
+
+    def _team_for(self, context):
+        if context.agent.role != "manager":
+            raise WorkflowError("Yalnız yönetici ajan ekip araçlarını kullanabilir.")
+        result = []
+        for agent in self.agent_store.agents():
+            if (agent.company_id != context.run.actor.company_id or agent.manager_id != context.agent.id
+                    or agent.role != "department"):
+                continue
+            capabilities = []
+            for grant in agent.workflows:
+                try:
+                    flow = self.store.workflow(grant.workflow_id)
+                    capabilities.append({"name": flow.name, "description": flow.description})
+                except (KeyError, ValueError):
+                    continue
+            with self._lock:
+                work = [item for item in self._contexts.values() if item.agent.id == agent.id]
+                active = next((item for item in work if item.thread is not None), None)
+                queued = sum(item.thread is None for item in work)
+            result.append({"id": agent.id, "name": agent.name, "department": agent.department,
+                           "capabilities": capabilities, "status": active.run.status if active else "idle",
+                           "queued": queued})
+        return context.redactor.sanitize(result)
+
+    def _delegate(self, context, arguments):
+        self._check(context)
+        if context.agent.role != "manager" or context.run.parent_run_id is not None:
+            raise WorkflowError("Görev devri yalnız kök yönetici ajandan bir departman ajanına yapılabilir.")
+        with self._lock:
+            try:
+                child = self.agent_store.agent(arguments.agent_id)
+            except (KeyError, ValueError):
+                raise WorkflowError("Görev devredilecek departman ajanı bulunamadı.") from None
+            if (child.company_id != context.run.actor.company_id or child.role != "department"
+                    or child.manager_id != context.agent.id or child.id == context.agent.id):
+                raise WorkflowError("Yönetici yalnız kendisine doğrudan bağlı departman ajanına görev devredebilir.")
+            if len(self._contexts) >= 128:
+                raise WorkflowError("Görev kuyruğu dolu; önce açık görevlerin tamamlanmasını bekleyin.")
+            context.budget.add_task()
+            run = self._enqueue(child, AgentRunRequest(task=arguments.instructions, title=arguments.title,
+                                                       inputs=arguments.inputs), context.run.actor,
+                                parent=context, priority=arguments.priority)
+            context.run.delegated_task_ids.append(run.task_id)
+            self._event(context, "task_delegated", "Görev departman ajanına devredildi.",
+                        {"task_id": run.task_id, "agent_id": child.id, "run_id": run.id})
+            return {"task_id": run.task_id, "run_id": run.id, "agent_id": child.id, "status": run.status}
+
+    def _delegated_task(self, context, identity):
+        if context.agent.role != "manager" or identity not in context.run.delegated_task_ids:
+            raise WorkflowError("Yönetici yalnız bu çalışmada kendi devrettiği görevleri görebilir.")
+        task = self.agent_store.task(identity)
+        if task.company_id != context.run.actor.company_id or task.root_run_id != context.run.root_run_id:
+            raise WorkflowError("Görev bu yönetici çalışmasına ait değil.")
+        return {"id": task.id, "agent_id": task.assigned_agent_id, "status": task.status,
+                "summary": context.redactor.text(task.summary), "result": context.redactor.sanitize(task.result),
+                "error": context.redactor.text(task.error) if task.error else None,
+                "workflow_run_ids": task.workflow_run_ids,
+                "tokens_in": task.tokens_in, "tokens_out": task.tokens_out}
+
+    def _wait_children(self, context):
+        while True:
+            self._check(context)
+            tasks = [self._delegated_task(context, identity) for identity in context.run.delegated_task_ids]
+            if all(task["status"] in TERMINAL_STATUSES for task in tasks):
+                return tasks
+            context.cancel.wait(0.05)
 
     def start(self, agent_id: str, body: AgentRunRequest) -> AgentRun:
         actor = self._authorize()
@@ -202,22 +311,63 @@ class AgentService:
             if self._closed:
                 raise AgentServiceError("Ajan servisi kapatılıyor.", 409)
             agent = self._find_agent(agent_id, actor)
-            if agent.role == "manager":
-                raise AgentServiceError("Yönetici ajanın görev devri organizasyon aşamasında etkinleşecek.", 409)
             active = [context for context in self._contexts.values()
                       if context.run.status not in TERMINAL_STATUSES]
-            if len(active) >= 8 or any(context.agent.id == agent_id for context in active):
-                raise AgentServiceError("Ajanın önceki çalışması veya eşzamanlı çalışma sınırı bekleniyor.", 409)
-            run = AgentRun(agent_id=agent.id, task=body.task, title=body.title, inputs=body.inputs,
-                           actor=actor, agent_revision=agent.revision)
-            context = Context(agent=agent, run=run, redactor=self._new_redactor(),
-                              deadline=time.monotonic() + agent.limits.max_seconds)
-            self._contexts[run.id] = context
-            self._event(context, "created", "Ajan görevi oluşturuldu.", {"task": run.task, "inputs": run.inputs})
-            context.thread = threading.Thread(target=self._work, args=(context,),
-                                              name=f"rpa-agent-{run.id[:8]}", daemon=True)
-            context.thread.start()
-            return self._view(context)
+            if len(active) >= 128:
+                raise AgentServiceError("Ajan görev kuyruğu dolu; açık görevlerin tamamlanmasını bekleyin.", 409)
+            return self._enqueue(agent, body, actor)
+
+    def _enqueue(self, agent, body, actor, *, parent=None, priority="normal"):
+        run = AgentRun(agent_id=agent.id, task=body.task, title=body.title, inputs=body.inputs,
+                       actor=actor, agent_revision=agent.revision, task_id=uid(),
+                       parent_run_id=parent.run.id if parent else None)
+        run.root_run_id = parent.run.root_run_id if parent else run.id
+        deadline = time.monotonic() + agent.limits.max_seconds
+        budget = parent.budget if parent else TeamBudget(agent.limits, deadline)
+        task = AgentTask(id=run.task_id, company_id=actor.company_id, created_by=actor,
+                         parent_task_id=parent.run.task_id if parent else None,
+                         assigned_agent_id=agent.id, assignee_id=agent.id, assignee_type="agent",
+                         title=body.title or body.task[:200], instructions=body.task, run_id=run.id,
+                         root_run_id=run.root_run_id, agent_name=agent.name, department=agent.department,
+                         priority=priority)
+        context = Context(agent=agent, run=run, redactor=self._new_redactor(), budget=budget, task=task,
+                          deadline=min(deadline, budget.deadline))
+        self._contexts[run.id] = context
+        self._event(context, "created", "Ajan görevi kuyruğa alındı.", {"task": run.task, "inputs": run.inputs})
+        self._queue_wake.set()
+        return self._view(context)
+
+    def _finish_queued(self, context, error, *, cancelled):
+        context.run.status = "cancelled" if cancelled else "failed"
+        context.run.error = error
+        context.run.finished_at = now()
+        self._save(context)
+        self._contexts.pop(context.run.id, None)
+
+    def _schedule_loop(self):
+        while not self._closed:
+            with self._lock:
+                pending = sorted([context for context in self._contexts.values() if context.thread is None],
+                                 key=lambda context: context.run.created_at)
+            for context in pending:
+                try:
+                    self._check(context)
+                except (AgentStopped, BudgetExceeded) as exc:
+                    with self._lock:
+                        if context.run.id in self._contexts and context.thread is None:
+                            self._finish_queued(context, str(exc), cancelled=getattr(exc, "cancelled", False))
+                    continue
+                with self._lock:
+                    if context.run.id not in self._contexts or context.thread is not None:
+                        continue
+                    running = [item for item in self._contexts.values() if item.thread is not None]
+                    if len(running) >= 8 or any(item.agent.id == context.agent.id for item in running):
+                        continue
+                    context.thread = threading.Thread(target=self._work, args=(context,),
+                                                      name=f"rpa-agent-{context.run.id[:8]}", daemon=True)
+                    context.thread.start()
+            self._queue_wake.wait(0.1)
+            self._queue_wake.clear()
 
     def _clean_mapping(self, context, value):
         result = context.redactor.sanitize(value)
@@ -225,6 +375,7 @@ class AgentService:
 
     def _view(self, context: Context) -> AgentRun:
         clean = context.run.model_copy(deep=True)
+        clean.actor = clean.actor.model_copy(update={"name": context.redactor.text(clean.actor.name)})
         clean.task = context.redactor.text(clean.task)
         clean.title = context.redactor.text(clean.title)
         clean.inputs = {name: context.redactor.sanitize(value) for name, value in clean.inputs.items()
@@ -250,7 +401,27 @@ class AgentService:
 
     def _save(self, context: Context) -> None:
         with self._lock:
-            self.agent_store.save_run(self._view(context))
+            context.run.team_usage = context.budget.snapshot()
+            clean = self._view(context)
+            self.agent_store.save_run(clean)
+            task = context.task.model_copy(deep=True)
+            task.title = context.redactor.text(task.title)
+            task.instructions = context.redactor.text(task.instructions)
+            task.agent_name = context.redactor.text(task.agent_name)
+            task.department = context.redactor.text(task.department)
+            task.created_by = clean.actor
+            task.provider_connection_id = context.agent.provider_connection_id
+            task.model = context.redactor.text(context.agent.model)[:200]
+            for name in ("status", "started_at", "finished_at", "workflow_run_ids", "tokens_in", "tokens_out",
+                         "total_tokens", "approval_wait_seconds", "summary", "result", "error"):
+                setattr(task, name, getattr(clean, name))
+            # Keep business/protocol payloads in AgentRun; tasks retain lifecycle/approval audit references.
+            task.events = [event for event in clean.events if event.kind in {
+                "created", "workflow_started", "question", "user_answer", "approval_requested",
+                "approval_decision", "approval_consumed", "approval_expired", "task_delegated",
+            }]
+            task.approvals = [event for event in task.events if event.kind.startswith("approval_")]
+            self.agent_store.save_task(task)
 
     def _event(self, context: Context, kind: str, message: str = "", data=None) -> None:
         with self._lock:
@@ -283,6 +454,10 @@ class AgentService:
             raise AgentStopped("Ajan yetkileri değiştiği için çalışma durduruldu.", cancelled=True)
         if time.monotonic() >= context.deadline:
             raise AgentStopped("Ajanın azami çalışma süresi doldu.")
+        try:
+            context.budget.check()
+        except BudgetExceeded as exc:
+            raise AgentStopped(str(exc)) from None
 
     def _stop(self, context: Context, message: str) -> None:
         raise AgentStopped(message)
@@ -292,7 +467,7 @@ class AgentService:
         task = self._clean_mapping(context, {"task": context.run.task, "inputs": context.run.inputs})
         first = [{"role": "system", "content": system},
                  {"role": "user", "content": json.dumps({"untrusted_data": task}, ensure_ascii=False)}]
-        definitions = tool_definitions()
+        definitions = tool_definitions(context.agent.role)
         while True:
             messages = first + [message for group in context.history for message in group]
             payload = self._mask_payload(context, {
@@ -322,6 +497,13 @@ class AgentService:
     def _work(self, context: Context) -> None:
         try:
             self._check(context)
+            if not context.agent.model and self.model_resolver is not None:
+                selected = self.model_resolver(context.agent.model_copy(deep=True))
+                if not isinstance(selected, str) or not selected or len(selected) > 200:
+                    raise AgentStopped("Bağlantı için geçerli bir model adı seçin.")
+                context.agent.model = selected
+            if context.redactor.text(context.agent.model) != context.agent.model:
+                raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
             provider = self._provider_factory(context.agent.model_copy(deep=True))
             with self._lock:
                 context.run.status = "running"
@@ -334,7 +516,15 @@ class AgentService:
                     raise AgentStopped("Ajanın azami tur sayısına ulaşıldı.")
                 if context.run.total_tokens >= context.agent.limits.max_tokens:
                     raise AgentStopped("Ajanın token sınırına ulaşıldı.")
+                allowance = None
+                while allowance is None:
+                    self._check(context)
+                    allowance = context.budget.reserve_turn(
+                        context.run.id, context.agent.limits.max_tokens - context.run.total_tokens)
+                    if allowance is None:
+                        context.cancel.wait(0.05)
                 payload = self._payload(context)
+                payload["max_tokens"] = allowance
                 # Keep the exact sanitized request; per-field sanitization must not change its protocol.
                 with self._lock:
                     event = AgentEvent(kind="provider_request", data={"payload": payload})
@@ -346,13 +536,18 @@ class AgentService:
                     context.run.turns += 1
                     # _save masks known secrets; the request itself is already cleaned before this point.
                     self._save(context)
-                response = provider.complete(payload["messages"], payload["tools"], model=payload["model"],
-                                             max_tokens=payload["max_tokens"], cancel=context.cancel,
-                                             deadline=context.deadline)
-                self._check(context)
+                try:
+                    response = provider.complete(payload["messages"], payload["tools"], model=payload["model"],
+                                                 max_tokens=payload["max_tokens"], cancel=context.cancel,
+                                                 deadline=context.deadline)
+                except BaseException:
+                    context.budget.release_turn(context.run.id)
+                    raise
                 context.run.tokens_in += response.usage.input_tokens
                 context.run.tokens_out += response.usage.output_tokens
                 context.run.total_tokens = context.run.tokens_in + context.run.tokens_out
+                context.budget.release_turn(context.run.id, response.usage)
+                self._check(context)
                 if context.run.total_tokens > context.agent.limits.max_tokens:
                     raise AgentStopped("Sağlayıcı yanıtıyla token sınırı aşıldı; araç çalıştırılmadı.")
                 self._event(context, "assistant", response.text,
@@ -379,6 +574,8 @@ class AgentService:
                                     {"id": call.id, "name": call.name, "arguments": call.arguments})
                         try:
                             result = tools.execute(call)
+                        except (AgentStopped, BudgetExceeded):
+                            raise
                         except WorkflowError as exc:
                             result = {"status": "error", "error": context.redactor.text(str(exc))[:2000]}
                         result = context.redactor.sanitize(result)
@@ -394,6 +591,9 @@ class AgentService:
         except AgentStopped as exc:
             context.run.status = "cancelled" if exc.cancelled else "failed"
             context.run.error = context.redactor.text(str(exc))[:2000]
+        except BudgetExceeded as exc:
+            context.run.status = "failed"
+            context.run.error = context.redactor.text(str(exc))[:2000]
         except (Cancelled, ProviderCancelled):
             context.run.status = "cancelled"
             context.run.error = context.stop_reason
@@ -408,10 +608,16 @@ class AgentService:
             context.run.status = "failed"
             context.run.error = "Ajan çalışması güvenli biçimde tamamlanamadı. Çalışma kaydını inceleyin."
         finally:
+            context.budget.release_turn(context.run.id)
+            self._cancel_remote_approval(context)
             if context.active_workflow_id:
                 self.manager.stop_run(context.active_workflow_id, context.stop_reason)
                 context.active_workflow_id = None
             with self._lock:
+                if context.run.root_run_id == context.run.id and context.run.status != "succeeded":
+                    for child in list(self._contexts.values()):
+                        if child is not context and child.run.root_run_id == context.run.id:
+                            self._cancel_context(child, "Üst görev durdurulduğu için alt görev iptal edildi.")
                 context.run.pending_question = None
                 context.run.pending_approval = None
                 context.question = context.approval = None
@@ -419,6 +625,7 @@ class AgentService:
                 self._save(context)
                 context.wake.set()
                 self._contexts.pop(context.run.id, None)
+                self._queue_wake.set()
 
     def _find_run(self, identity: str, actor: Actor) -> AgentRun:
         try:
@@ -439,6 +646,47 @@ class AgentService:
         return [run for run in self.agent_store.runs() if run.actor.company_id == actor.company_id
                 and (agent_id is None or run.agent_id == agent_id)]
 
+    def tasks(self, agent_id: str | None = None, status: str | None = None) -> list[AgentTask]:
+        actor = self._authorize()
+        if agent_id:
+            self._find_agent(agent_id, actor)
+        return [task for task in self.agent_store.tasks() if task.company_id == actor.company_id
+                and (not agent_id or task.assigned_agent_id == agent_id) and (not status or task.status == status)]
+
+    def get_task(self, identity: str) -> AgentTask:
+        actor = self._authorize()
+        try:
+            task = self.agent_store.task(identity)
+        except KeyError:
+            raise AgentServiceError("Görev bulunamadı.", 404) from None
+        if task.company_id != actor.company_id:
+            raise AgentServiceError("Görev bulunamadı.", 404)
+        return task
+
+    def team(self) -> dict:
+        actor = self._authorize()
+        agents = [agent for agent in self.agent_store.agents() if agent.company_id == actor.company_id]
+        return {"agents": [{"id": agent.id, "name": agent.name, "role": agent.role,
+                            "department": agent.department, "manager_id": agent.manager_id} for agent in agents]}
+
+    def queue(self) -> list[dict]:
+        actor = self._authorize()
+        with self._lock:
+            contexts = sorted([context for context in self._contexts.values()
+                               if context.run.actor.company_id == actor.company_id],
+                              key=lambda context: context.run.created_at)
+            positions = {}
+            result = []
+            for context in contexts:
+                queued = context.thread is None
+                position = positions.get(context.agent.id, 0) + 1 if queued else 0
+                if queued:
+                    positions[context.agent.id] = position
+                result.append({"run_id": context.run.id, "task_id": context.run.task_id,
+                               "agent_id": context.agent.id, "status": "queued" if queued else context.run.status,
+                               "position": position, "created_at": context.run.created_at})
+            return result
+
     def _cancel_context(self, context, reason):
         if context.run.status in TERMINAL_STATUSES:
             return
@@ -447,6 +695,10 @@ class AgentService:
         context.wake.set()
         if context.active_workflow_id:
             self.manager.stop_run(context.active_workflow_id, reason)
+        if context.run.id == context.run.root_run_id:
+            for child in list(self._contexts.values()):
+                if child is not context and child.run.root_run_id == context.run.id:
+                    self._cancel_context(child, "Üst görev durdurulduğu için alt görev iptal edildi.")
 
     def cancel(self, identity: str) -> AgentRun:
         actor = self._authorize()
@@ -455,6 +707,11 @@ class AgentService:
             context = self._contexts.get(identity)
             if context:
                 self._cancel_context(context, "Çalışma kullanıcı tarafından durduruldu.")
+                if context.run.root_run_id == identity:
+                    for child in list(self._contexts.values()):
+                        if child.run.root_run_id == identity and child is not context:
+                            self._cancel_context(child, "Üst görev kullanıcı tarafından durduruldu.")
+                self._queue_wake.set()
             return run
 
     def _pending_context(self, identity: str, actor: Actor) -> Context:
@@ -491,11 +748,25 @@ class AgentService:
             if (not approval or approval["id"] != approval_id or approval["decision"] is not None
                     or approval["used"] or time.monotonic() >= approval["deadline"]):
                 raise AgentServiceError("Onay artık beklenmiyor veya süresi doldu.", 409)
-            approval["decision"] = approved
-            approval["approver"] = actor
-            self._event(context, "approval_decision", "İşlem onaylandı." if approved else "İşlem reddedildi.",
-                        {"approval_id": approval_id, "digest": approval["digest"], "approved": approved,
-                         "user_id": actor.user_id, "company_id": actor.company_id, "at": now()})
+            remote = approval.get("remote")
+            if remote is not None:
+                # The central owner decision is authoritative; do not set the local decision here.
+                pass
+            else:
+                approval["decision"] = approved
+                approval["approver"] = actor
+                self._event(context, "approval_decision", "İşlem onaylandı." if approved else "İşlem reddedildi.",
+                            {"approval_id": approval_id, "digest": approval["digest"], "approved": approved,
+                             "user_id": actor.user_id, "company_id": actor.company_id, "at": now()})
+                context.wake.set()
+                return self._view(context)
+        try:
+            self.approval_backend.decide(remote["id"], approved)
+        except Exception:
+            raise AgentServiceError("Merkezi onay kararı kaydedilemedi; işlem başlatılmadı.", 503) from None
+        with self._lock:
+            self._event(context, "approval_submitted", "Karar merkezi onay hizmetine gönderildi.",
+                        {"approval_id": approval_id, "user_id": actor.user_id, "approved": approved})
             context.wake.set()
             return self._view(context)
 
@@ -532,15 +803,55 @@ class AgentService:
                    "inputs": prepared.inputs, "reason": reason, "digest": prepared.digest,
                    "expires_at": (datetime.now(timezone.utc) + timedelta(
                        seconds=max(0, deadline - time.monotonic()))).isoformat()}
+        remote = None
+        if self.approval_backend is not None:
+            try:
+                remote = self.approval_backend.request(context, prepared, reason,
+                                                       expires_in=max(1, deadline - time.monotonic()))
+                inputs_digest = hashlib.sha256(json.dumps(prepared.inputs, sort_keys=True,
+                                                          separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+                if (not isinstance(remote, dict) or not remote.get("id")
+                        or remote.get("workflow_digest") != prepared.digest
+                        or remote.get("inputs_digest") != inputs_digest or remote.get("run_id") != context.run.id):
+                    raise ValueError
+            except Exception:
+                raise AgentStopped("Merkezi onay isteği doğrulanamadı; yerel onaya geçilmedi.") from None
+            pending["remote_id"] = remote["id"]
         with self._lock:
-            approval = {**pending, "deadline": deadline, "decision": None, "used": False, "approver": None}
+            approval = {**pending, "deadline": deadline, "decision": None, "used": False, "approver": None,
+                        "remote": remote}
             context.approval = approval
+            context.approval_started = time.monotonic()
             context.run.pending_approval = pending
             context.run.status = "waiting_approval"
             self._event(context, "approval_requested", "Riskli akış için kullanıcı onayı bekleniyor.", pending)
         try:
+            next_poll = 0.0
             while True:
                 self._check(context)
+                if remote is not None and time.monotonic() >= next_poll:
+                    try:
+                        state = self.approval_backend.status(context, remote)
+                        if not isinstance(state, dict) or state.get("status") not in {
+                            "pending", "approved", "rejected", "consumed",
+                        }:
+                            raise ValueError
+                    except Exception:
+                        raise AgentStopped("Merkezi onay durumu doğrulanamadı; işlem başlatılmadı.") from None
+                    self._check(context)
+                    next_poll = time.monotonic() + 2
+                    if state["status"] == "consumed":
+                        raise AgentStopped("Merkezi onay daha önce kullanılmış; akış başlatılmadı.")
+                    if state["status"] in {"approved", "rejected"}:
+                        owner = state.get("approver_user_id")
+                        if state["status"] == "approved" and (type(owner) is not int or owner < 1):
+                            raise AgentStopped("Merkezi onaylayan kullanıcı doğrulanamadı.")
+                        with self._lock:
+                            approval["decision"] = state["status"] == "approved"
+                            approval["remote_decision"] = state
+                            self._event(context, "approval_decision", "Merkezi onay kararı alındı.",
+                                        {"approval_id": approval["id"], "approved": approval["decision"],
+                                         "user_id": owner, "remote_id": remote["id"], "at": now()})
                 with self._lock:
                     decision = approval["decision"]
                 if decision is not None:
@@ -553,26 +864,55 @@ class AgentService:
                 context.wake.clear()
         finally:
             with self._lock:
+                if context.approval_started is not None:
+                    context.run.approval_wait_seconds += time.monotonic() - context.approval_started
+                    context.approval_started = None
                 context.run.pending_approval = None
                 context.run.status = "running"
                 self._save(context)
+            if approval["decision"] is not True:
+                self._cancel_remote_approval(context)
 
     def _consume_approval(self, context, approval, digest):
-        if (approval is not context.approval or approval["used"] or approval["decision"] is not True
-                or approval["digest"] != digest or time.monotonic() >= approval["deadline"]):
-            raise AgentStopped("Onay geçersizleşti; akış başlatılmadı.")
-        current = self._authorize(None)
-        approver = approval["approver"]
-        if not current.can_approve or current != approver:
-            raise AgentStopped("Onay yetkisi veya onaylayan oturum değişti; akış başlatılmadı.")
-        approval["used"] = True
-        self._event(context, "approval_consumed", "Tek kullanımlık onay kullanıldı.",
-                    {"approval_id": approval["id"], "digest": digest})
+        with self._lock:
+            if (approval is not context.approval or approval["used"] or approval["decision"] is not True
+                    or approval["digest"] != digest or time.monotonic() >= approval["deadline"]):
+                raise AgentStopped("Onay geçersizleşti; akış başlatılmadı.")
+            remote = approval.get("remote")
+            if remote is None:
+                current = self._authorize(None)
+                approver = approval["approver"]
+                if not current.can_approve or current != approver:
+                    raise AgentStopped("Onay yetkisi veya onaylayan oturum değişti; akış başlatılmadı.")
+        if remote is not None:
+            try:
+                self.approval_backend.consume(context, remote, digest=digest)
+            except Exception:
+                raise AgentStopped("Merkezi onay tüketimi doğrulanamadı; akış başlatılmadı.") from None
+            self._check(context)
+        with self._lock:
+            if approval["used"] or time.monotonic() >= approval["deadline"]:
+                raise AgentStopped("Onay süresi doldu veya daha önce kullanıldı; akış başlatılmadı.")
+            approval["used"] = True
+            self._event(context, "approval_consumed", "Tek kullanımlık onay kullanıldı.",
+                        {"approval_id": approval["id"], "digest": digest})
+
+    def _cancel_remote_approval(self, context):
+        approval = context.approval
+        if not approval or not approval.get("remote") or approval.get("used") or approval.get("cancelled"):
+            return
+        try:
+            self.approval_backend.cancel(context, approval["remote"])
+            approval["cancelled"] = True
+        except Exception:
+            # The signed expiry remains authoritative if the cancellation response is lost.
+            pass
 
     def license_changed(self, reason: str = "Lisans veya kullanıcı oturumu değişti.") -> None:
         with self._lock:
-            for context in self._contexts.values():
+            for context in list(self._contexts.values()):
                 self._cancel_context(context, reason)
+            self._queue_wake.set()
 
     def close(self, reason: str = "Studio kapandığı için ajan çalışması durduruldu.") -> None:
         with self._lock:
@@ -580,9 +920,14 @@ class AgentService:
             contexts = list(self._contexts.values())
             for context in contexts:
                 self._cancel_context(context, reason)
+                if context.thread is None:
+                    self._finish_queued(context, reason, cancelled=True)
+            self._queue_wake.set()
         if self._owns_dispatch:
             self.dispatch.close()
         deadline = time.monotonic() + 2
         for context in contexts:
             if context.thread and context.thread is not threading.current_thread():
                 context.thread.join(timeout=max(0, deadline - time.monotonic()))
+        if self._queue_thread is not threading.current_thread():
+            self._queue_thread.join(timeout=max(0, deadline - time.monotonic()))

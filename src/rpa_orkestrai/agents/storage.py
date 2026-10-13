@@ -123,21 +123,36 @@ class AgentStore:
         """An interrupted approval or execution never silently becomes a new attempt."""
         message = "Studio kapandığı için çalışma kesildi. Bekleyen onaylar geçersiz kılındı."
         with self._lock:
+            recovered = {}
             for run in self.runs():
-                if run.status in TERMINAL_STATUSES:
-                    continue
-                run.status = "failed"
-                run.finished_at = now()
-                run.error = message
-                run.pending_approval = None
-                run.pending_question = None
-                run.events = [*run.events[-1999:], AgentEvent(kind="interrupted", message=message)]
-                self.save_run(run)
+                if run.status not in TERMINAL_STATUSES:
+                    run.status = "failed"
+                    run.finished_at = now()
+                    run.error = message
+                    run.pending_approval = None
+                    run.pending_question = None
+                    run.events = [*run.events[-1999:], AgentEvent(kind="interrupted", message=message)]
+                    self.save_run(run)
+                recovered[run.id] = run
             for task in self.tasks():
                 # Human tasks survive a Studio restart; only local agent execution was interrupted.
-                if task.assignee_type != "agent" or task.status in TERMINAL_STATUSES:
+                if task.assignee_type != "agent":
                     continue
-                task.status = "failed"
-                task.finished_at = now()
-                task.summary = message
-                self.save_task(task)
+                run = recovered.get(task.run_id)
+                if (run and run.actor.company_id == task.company_id and run.task_id == task.id
+                        and run.agent_id == task.assigned_agent_id):
+                    # A crash between the two atomic writes is repaired from the execution record.
+                    for name in ("status", "started_at", "finished_at", "workflow_run_ids", "tokens_in", "tokens_out",
+                                 "total_tokens", "approval_wait_seconds", "summary", "result", "error"):
+                        setattr(task, name, getattr(run, name))
+                    task.events = [event for event in run.events if event.kind in {
+                        "created", "workflow_started", "question", "user_answer", "approval_requested",
+                        "approval_decision", "approval_consumed", "approval_expired", "task_delegated", "interrupted",
+                    }]
+                    task.approvals = [event for event in task.events if event.kind.startswith("approval_")]
+                    self.save_task(task)
+                elif task.status not in TERMINAL_STATUSES:
+                    task.status = "failed"
+                    task.finished_at = now()
+                    task.summary = message
+                    self.save_task(task)

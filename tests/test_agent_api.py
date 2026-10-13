@@ -129,3 +129,22 @@ def test_reserved_inputs_are_blocked_before_any_work_starts(api):
     result = api.client.post(f"/api/agents/{agent['id']}/runs", json={"task": "İş", "inputs": {"sifre": {}}})
     assert result.status_code == 422
     assert api.client.get("/api/agents/runs").json() == []
+
+
+def test_tasks_team_and_queue_are_company_scoped_and_license_gated(api):
+    agent = create(api)
+    response = api.client.post(f"/api/agents/{agent['id']}/runs", json={"task": "İşi yap"})
+    assert response.status_code == 202
+    task_id = response.json()["task_id"]
+    assert api.client.get("/api/agents/tasks").json()[0]["id"] == task_id
+    assert api.client.get(f"/api/agents/tasks/{task_id}").status_code == 200
+    assert api.client.get("/api/agents/team").json()["agents"][0]["id"] == agent["id"]
+    assert api.client.get("/api/agents/queue").status_code == 200
+    api.licensing.actor = api.licensing.actor.model_copy(update={"company_id": 99})
+    assert api.client.get("/api/agents/tasks").json() == []
+    assert api.client.get(f"/api/agents/tasks/{task_id}").status_code == 404
+    assert api.client.get("/api/agents/team").json() == {"agents": []}
+    assert api.client.get("/api/agents/queue").json() == []
+    api.licensing.agents = False
+    for path in ("tasks", "team", "queue"):
+        assert api.client.get(f"/api/agents/{path}").status_code == 403

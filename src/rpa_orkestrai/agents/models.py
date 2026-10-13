@@ -103,6 +103,7 @@ class AgentLimits(Model):
     max_seconds: float = Field(default=1800, gt=0, le=86_400)
     max_tokens: int = Field(default=50_000, ge=1, le=10_000_000)
     max_retries: int = Field(default=1, ge=0, le=10)
+    max_tasks: int = Field(default=20, ge=1, le=1000)
     busy_wait_seconds: float = Field(default=60, ge=0, le=3600)
     approval_timeout_seconds: float = Field(default=900, gt=0, le=86_400)
     question_timeout_seconds: float = Field(default=900, gt=0, le=86_400)
@@ -195,6 +196,10 @@ class AgentRun(AgentRunRequest):
     agent_id: Identifier
     actor: Actor
     agent_revision: int = Field(ge=1)
+    task_id: Identifier | None = None
+    parent_run_id: Identifier | None = None
+    root_run_id: Identifier | None = None
+    delegated_task_ids: list[Identifier] = Field(default_factory=list, max_length=1000)
     status: RunStatus = "queued"
     created_at: str = Field(default_factory=now)
     started_at: str | None = None
@@ -206,6 +211,8 @@ class AgentRun(AgentRunRequest):
     tokens_in: int = Field(default=0, ge=0)
     tokens_out: int = Field(default=0, ge=0)
     total_tokens: int = Field(default=0, ge=0)
+    approval_wait_seconds: float = Field(default=0, ge=0)
+    team_usage: dict[str, int | float] = Field(default_factory=dict)
     error: str | None = Field(default=None, max_length=2000)
     summary: str = Field(default="", max_length=20_000)
     result: Any = None
@@ -231,11 +238,24 @@ class AgentTask(Model):
     title: str = Field(min_length=1, max_length=200)
     instructions: str = Field(default="", max_length=16_000)
     run_id: Identifier | None = None
+    root_run_id: Identifier | None = None
+    agent_name: str = Field(default="", max_length=120)
+    department: str = Field(default="", max_length=120)
+    provider_connection_id: Identifier | None = None
+    model: str = Field(default="", max_length=200)
+    priority: Literal["high", "normal", "low"] = "normal"
     status: RunStatus = "queued"
     created_at: str = Field(default_factory=now)
     started_at: str | None = None
     finished_at: str | None = None
     workflow_run_ids: list[Identifier] = Field(default_factory=list, max_length=1000)
+    tokens_in: int = Field(default=0, ge=0)
+    tokens_out: int = Field(default=0, ge=0)
+    total_tokens: int = Field(default=0, ge=0)
+    approval_wait_seconds: float = Field(default=0, ge=0)
+    events: list[AgentEvent] = Field(default_factory=list, max_length=2000)
+    approvals: list[AgentEvent] = Field(default_factory=list, max_length=1000)
+    error: str | None = Field(default=None, max_length=2000)
     summary: str = Field(default="", max_length=20_000)
     result: Any = None
 
@@ -260,7 +280,7 @@ class ProviderConnection(Model):
 
     id: Identifier = Field(default_factory=uid)
     name: str = Field(min_length=1, max_length=120)
-    provider: Literal["fake", "openai", "gemini", "anthropic", "ollama", "local_openai"]
+    provider: Literal["fake", "openai", "gemini", "anthropic", "ollama", "local_openai", "shared"]
     model: str = Field(default="", max_length=200)
     base_url: str | None = Field(default=None, max_length=2000)
     company_id: int = Field(ge=1)
