@@ -33,7 +33,7 @@ def _check_office_assets(static_root: Path | None = None) -> None:
             raise ValueError
         if "const REVISION = '160'" not in (vendor / "three.module.js").read_text(encoding="utf-8"):
             raise ValueError
-        for name in ("office.js", "office.css", "agents.js", "agents.css"):
+        for name in ("office.js", "office.css", "agents.js", "agents.css", "native-office-check.js"):
             if not (root / name).is_file():
                 raise ValueError
     except (OSError, KeyError, TypeError, ValueError):

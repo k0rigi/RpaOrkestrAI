@@ -100,6 +100,10 @@ def main(*, workspace: Path | None = None, argv: list[str] | None = None) -> int
         from .package_check import run_check
 
         return run_check(Path(args[1]).resolve())
+    if len(args) == 2 and args[0] == "--self-test-office":
+        from .native_office_check import run_native_check
+
+        return run_native_check(Path(args[1]).resolve())
     previous_stdout, previous_stderr, previous_cwd = sys.stdout, sys.stderr, Path.cwd()
     logger, log_path, updater = None, None, None
     try:

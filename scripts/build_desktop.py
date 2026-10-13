@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def office_assets() -> Path:
     """The entire static tree is bundled, including licensed Three.js ES modules."""
     folder = ROOT / "src" / "rpa_orkestrai" / "static"
-    for name in ("office.js", "office.css", "vendor/three/three.module.js",
+    for name in ("office.js", "office.css", "native-office-check.js", "vendor/three/three.module.js",
                  "vendor/three/addons/controls/OrbitControls.js", "vendor/three/LICENSE",
                  "vendor/three/manifest.json", "vendor/three/KAYNAK.md"):
         if not (folder / name).is_file():

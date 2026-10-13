@@ -56,6 +56,7 @@ jobs:
         run: |
           dist/RpaOrkestrAI.app/Contents/MacOS/RpaOrkestrAI --self-test "$PWD/build/package-check.json"
           python -c "import json; d=json.load(open('build/package-check.json')); assert d['ok'] and d['frozen']"
+          python scripts/check_native_office.py dist/RpaOrkestrAI.app/Contents/MacOS/RpaOrkestrAI build/package-office-check.json
           python scripts/build_macos_dmg.py dist/RpaOrkestrAI.app "dist/RpaOrkestrAI-macOS-$(uname -m).dmg"
       - name: Check the silent update installation
         if: runner.os == 'Windows'
@@ -82,6 +83,8 @@ jobs:
               throw "Missing after the silent installation: $name"
             }
           }
+          python scripts/check_native_office.py (Join-Path $target 'RpaOrkestrAI.exe') build/package-office-check.json
+          if ($LASTEXITCODE -ne 0) { throw 'Yerel ofis paket kontrolü başarısız oldu' }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -105,6 +108,7 @@ jobs:
           name: build-check-${{ matrix.artifact }}
           path: |
             build/package-check.json
+            build/package-office-check.json
             build/pyinstaller/RpaOrkestrAI/warn-RpaOrkestrAI.txt
           if-no-files-found: ignore
           retention-days: 1
