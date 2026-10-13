@@ -46,6 +46,10 @@ Tek masaüstü çalışanı kuralı devam eder. Ajan akışları sırayla çalı
 meşgulse sınırlı süre bekler ve sonunda modele «meşgul» sonucu döner. Zamanlanmış
 akışın geri sayımı da masaüstünü ayırır; araya başka ajan veya manuel akış giremez.
 
+Web akışında tıklamanın başlattığı yeni sekme yavaş yanıt verirse adım sekmenin
+açılmasını bekler. Süre aşımında önceki sayfada çalışmayı sürdürmez ve tıklamayı
+tekrarlamaz. Bu davranış ajan üzerinden ve elle çalıştırılan akışlarda aynıdır.
+
 ## Girdiler, çıktılar ve gizli bilgiler
 
 Akış dosyasına zorunlu girdi/çıktı alanı eklenmez. Beklenen girdiler, akışın okuyup

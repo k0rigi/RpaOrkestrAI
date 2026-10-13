@@ -264,9 +264,75 @@ class WebSession:
 
             self._run(click_and_wait, "Yeni sekme açılmadı")
         else:
-            self._run(lambda: item.click(timeout=target.timeout_ms), "Tıklanamadı")
-            # Let a tab opened by the page's own script (window.open) arrive before the next step.
-            self._run(lambda: page.wait_for_timeout(150), "Sayfa yanıt vermiyor")
+            self._run(lambda: self._click_with_popup_watch(item, page, target), "Tıklanamadı")
+
+    def _popup_client(self, item: Any, page: Any, target: Target) -> Any:
+        from playwright.sync_api import Error as PlaywrightError
+
+        if target.frame:
+            handle = item.element_handle(timeout=target.timeout_ms)
+            if handle is None:
+                raise WorkflowError("Tıklanacak öğenin çerçevesi bulunamadı; işlem yapılmadı.")
+            try:
+                frame = handle.owner_frame()
+            finally:
+                handle.dispose()
+            if frame is None:
+                raise WorkflowError("Tıklanacak öğenin çerçevesi kapandı; işlem yapılmadı.")
+            while frame is not None and frame != page.main_frame:
+                self._cancelled()
+                try:
+                    return self._context.new_cdp_session(frame)
+                except PlaywrightError as exc:
+                    # Same-process frames share their ancestor's protocol session.
+                    # Any other attach failure stops before the click.
+                    if "does not have a separate CDP session" not in str(exc):
+                        raise
+                    frame = frame.parent_frame
+        return self._context.new_cdp_session(page)
+
+    def _click_with_popup_watch(self, item: Any, page: Any, target: Target) -> None:
+        """Wait for an observed window.open, not for a guessed destination or a fixed load delay."""
+        from playwright.sync_api import Error as PlaywrightError
+
+        # Playwright emits popup only after the initial HTTP response arrives.
+        # Chromium's earlier windowOpen event tells us a popup is actually pending.
+        # Chrome and Edge are the only supported browsers; no page scripts are replaced.
+        client = self._popup_client(item, page, target)
+        pending, opened = 0, 0
+
+        def opening(_event: Any) -> None:
+            nonlocal pending
+            pending += 1
+
+        def available(_popup: Any) -> None:
+            nonlocal opened
+            opened += 1
+
+        client.on("Page.windowOpen", opening)
+        page.on("popup", available)
+        try:
+            client.send("Page.enable")
+            self._cancelled()
+            deadline = time.monotonic() + target.timeout_ms / 1000
+            item.click(timeout=target.timeout_ms)  # Exactly once, including timeout/cancellation paths.
+            # Preserve the short event-delivery grace for scripts scheduled by the click.
+            # Slow network responses wait only when the browser observed a new window.
+            if not pending and not opened:
+                page.wait_for_timeout(min(150, max(0, deadline - time.monotonic()) * 1000))
+            while opened < pending:
+                self._cancelled()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WorkflowError("Yeni sekme açılmadı: süre doldu; önceki sayfada işleme devam edilmedi.")
+                page.wait_for_timeout(min(50, remaining * 1000))
+            self._cancelled()
+        finally:
+            page.remove_listener("popup", available)
+            try:
+                client.detach()
+            except PlaywrightError:
+                pass  # Closing the page also closes its diagnostic session.
 
     def fill(self, target: Target, text: str) -> None:
         item = self.single(target)

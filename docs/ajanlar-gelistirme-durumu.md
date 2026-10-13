@@ -26,7 +26,7 @@ raporlama bu kapsamda yayımlanmış değildir.
 ## Doğrulama
 
 - İkinci CI düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.749 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı. Görev sırası, yeniden deneme süresi ve Türkçe konsol çıktısı ayrıca deterministik regresyonlarla doğrulandı.
-- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **270 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
+- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **311 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
 - Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
 - Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
 - UI testleri Chromium'da sahte HTTP yanıtlarıyla çalıştı; gerçek sağlayıcı/ERP hesabı kullanılmadı.
@@ -39,6 +39,21 @@ raporlama bu kapsamda yayımlanmış değildir.
 - Canlı MariaDB lisans ön kontrolü onaylanan hesap, firma ve dönem için başarılı; değişiklik yapılmadı. [Ön kontrol](https://github.com/k0rigi/orkestrai/actions/runs/38477834671).
 - İlk gerçek model kurulumu araç sınaması aşamasında başarısız oldu; servis ve ayarlar otomatik geri alındı. Model erişimi açılmadı, lisans verilmedi. İş içeriği göstermeyen alt aşama tanılaması dağıtıldı. [İlk kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38476989144).
 - İkinci model sınaması yapılandırma, soket ve istek denetimlerini geçti; ilk çıkarım 90,18 saniyede erişim hatasıyla durdu. Bu, çıkarım süre sınırına karşılık geliyor; zaman aşımı ayrımı ve soğuk yükleme ölçümü hazırlanıyor. Servis ve ayarlar geri alındı, lisans ataması hâlâ uygulanmadı. [İkinci kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38479036763).
+
+Üçüncü CI turunda Windows ve macOS paketleri başarılı; her ikisinde 16 paket
+kontrolü ve gerçek WebView2/WKWebView ile 9/9 ofis kontrolü geçti.
+[Paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38480628152).
+Testlerdeki disk hızı ve çizim zamanlaması bağımlılıkları giderildi; üretim süre
+sınırları değiştirilmedi. Ayrıca yavaş HTTP yanıtında yeni sekme açılmadan
+önceki sayfada devam etme yarışı düzeltildi: ana sayfa ve iki çerçeve türüyle
+20 tarayıcı, tek tıklama/iptal/zaman aşımı için 7 birim testi geçti.
+Son değişikliklerin tam CI ve paket doğrulaması bekleniyor.
+
+Üçüncü canlı model sınamasında 4B model 17,53 saniyede yüklendi; yüklü modelin
+ilk araç yanıtı 90,17 saniyede zaman aşımına uğradı. Bellek taşması saptanmadı.
+Servisler geri alındı; erişim ve lisans açılmadı. Aynı sekiz araç ve iki tur
+doğrulaması korunarak 1.7B modelin sınanması hazırlanıyor.
+[Model sınaması](https://github.com/k0rigi/orkestrai/actions/runs/38482010764).
 
 ## Güvenlik kontrol listesi
 

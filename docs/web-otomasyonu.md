@@ -31,7 +31,7 @@ Hedef, bir kişinin söyleyeceği adla seçilir: önce alan etiketi, yer tutucu 
 | Adım | Ne işe yarar |
 | --- | --- |
 | Web sayfası aç | Adresi açar; sonraki adımlar bu sekmede çalışır. |
-| Web öğesine tıkla | Düğme, bağlantı veya metne tıklar. Bağlantı yeni sekme açarsa sonraki adımlar o sekmeye geçer. |
+| Web öğesine tıkla | Düğme, bağlantı veya metne tıklar. Tıklamayla başlatılan yeni sekmenin ilk yanıtı beklenir; sonraki adımlar o sekmeye geçer. Yeni sekme süresinde açılmazsa işlem durur, tıklama tekrarlanmaz. |
 | Web alanını doldur | Yazı alanının değerini değiştirir. |
 | Web'den metin oku | Öğenin metnini veya alanın değerini okur. |
 | Web listesinden seç | Açılır listede (select) seçenek seçer. |

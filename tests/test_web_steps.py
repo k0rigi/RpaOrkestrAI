@@ -2,6 +2,7 @@
 import http.server
 import platform
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -234,6 +235,62 @@ def test_new_tab_is_followed_and_tabs_can_be_switched(portal, web):
     # A tab opened by the page's own script is followed too.
     web_click(web, target("button", "Açılır pencere"))
     assert web_read(web, target("css", "h1")) == "Sipariş detayı"
+
+
+@pytest.mark.parametrize("frame", ["", "same_origin", "cross_origin"])
+def test_script_popup_waits_for_slow_initial_response_before_next_read(web, frame):
+    requested, responded = threading.Event(), threading.Event()
+    requests = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/delayed":
+                requests.append(self.path)
+                requested.set()
+                # Playwright's popup event is withheld until these headers arrive.
+                # The former 150 ms pause returned while the opener was still active.
+                deadline, pause = time.monotonic() + 0.6, threading.Event()
+                while (remaining := deadline - time.monotonic()) > 0:
+                    pause.wait(remaining)
+                body = "<!doctype html><meta charset='utf-8'><h1>Yeni sayfa</h1>".encode("utf-8")
+                responded.set()
+            else:
+                body = ("<!doctype html><meta charset='utf-8'><h1>Eski sayfa</h1>"
+                        "<button onclick=\"window.clicks=(window.clicks||0)+1;window.open('/delayed')\">"
+                        "Yeni pencere</button>").encode("utf-8")
+                if frame and self.path != "/frame":
+                    host = "localhost" if frame == "cross_origin" else "127.0.0.1"
+                    body = ("<!doctype html><h1>Eski sayfa</h1>"
+                            f"<iframe id='frame' src='http://{host}:{self.server.server_port}/frame'></iframe>").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        web_open(web, {"url": f"http://127.0.0.1:{server.server_address[1]}/", "headless": True})
+        opener = web.web().page
+        params = target("button", "Yeni pencere", **({"frame": "#frame"} if frame else {}))
+        started = time.monotonic()
+        web_click(web, params)
+        assert requested.is_set() and responded.is_set()
+        assert time.monotonic() - started >= 0.6
+        assert web_read(web, target("css", "h1")) == "Yeni sayfa"
+        scope = opener.frame_locator("#frame") if frame else opener
+        assert scope.get_by_role("button", name="Yeni pencere").evaluate("() => window.clicks") == 1
+        assert requests == ["/delayed"]
+        assert web.web().page is not opener
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=5)
 
 
 def test_script_receives_input_and_returns_values(portal, web):
