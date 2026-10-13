@@ -11,6 +11,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def office_assets() -> Path:
+    """The entire static tree is bundled, including licensed Three.js ES modules."""
+    folder = ROOT / "src" / "rpa_orkestrai" / "static"
+    for name in ("office.js", "office.css", "vendor/three/three.module.js",
+                 "vendor/three/addons/controls/OrbitControls.js", "vendor/three/LICENSE",
+                 "vendor/three/manifest.json", "vendor/three/KAYNAK.md"):
+        if not (folder / name).is_file():
+            raise SystemExit(f"Yerel ofis kaynağı pakete eklenemiyor: {name}")
+    return folder
+
+
 def app_version() -> str:
     import tomllib
 
@@ -93,7 +104,7 @@ def main() -> None:
                "--name", "RpaOrkestrAI", "--icon", str(icon),
                "--specpath", str(ROOT / "build"), "--distpath", str(destination),
                "--workpath", str(ROOT / "build" / "pyinstaller"), "--paths", str(ROOT / "src"),
-               "--add-data", f"{ROOT / 'src' / 'rpa_orkestrai' / 'static'}:rpa_orkestrai/static",
+               "--add-data", f"{office_assets()}:rpa_orkestrai/static",
                "--collect-data", "webview", "--collect-data", "certifi",
                "--collect-submodules", "uvicorn", "--collect-submodules", "rpa_orkestrai",
                "--collect-submodules", "openpyxl",

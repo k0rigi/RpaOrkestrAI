@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import socket
@@ -13,6 +14,30 @@ from pathlib import Path
 from random import Random
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, build_opener
+
+
+def _check_office_assets(static_root: Path | None = None) -> None:
+    """Check actual frozen resources; never fetch a missing vendor file from a CDN."""
+    root = static_root or Path(__file__).parent / "static"
+    vendor = root / "vendor" / "three"
+    required = {"three.module.js", "addons/controls/OrbitControls.js", "LICENSE"}
+    try:
+        manifest = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("version") != "0.160.0" or set(manifest.get("files", {})) != required:
+            raise ValueError
+        for name in required:
+            content = (vendor / name).read_bytes()
+            if hashlib.sha256(content).hexdigest() != manifest["files"][name]["sha256"]:
+                raise ValueError
+        if "MIT License" not in (vendor / "LICENSE").read_text(encoding="utf-8"):
+            raise ValueError
+        if "const REVISION = '160'" not in (vendor / "three.module.js").read_text(encoding="utf-8"):
+            raise ValueError
+        for name in ("office.js", "office.css", "agents.js", "agents.css"):
+            if not (root / name).is_file():
+                raise ValueError
+    except (OSError, KeyError, TypeError, ValueError):
+        raise RuntimeError("Paket içindeki yerel ofis kaynakları, Three.js sürümü veya lisansı doğrulanamadı.") from None
 
 
 def _check_accessibility() -> None:
@@ -277,6 +302,7 @@ def run_check(report: Path) -> int:
             _check_windows_identity()
             _check_login_item()
             _check_password_store()
+            _check_office_assets()
 
             # Exercise the packaged crop/matching dependencies using generated
             # pixels only; never read or control the real desktop during checks.
@@ -315,6 +341,10 @@ def run_check(report: Path) -> int:
             opener = build_opener(ProxyHandler({}))
             for route, expected in (("/", b"RpaOrkestrAI"), ("/app.js", b"showLicenseGate"),
                                     ("/styles.css", b"step-library"), ("/theme.js", b"rpa.theme"),
+                                    ("/office.js", b"mountOffice"), ("/office.css", b"office-frame"),
+                                    ("/vendor/three/three.module.js", b"const REVISION = '160'"),
+                                    ("/vendor/three/addons/controls/OrbitControls.js", b"class OrbitControls"),
+                                    ("/vendor/three/LICENSE", b"MIT License"),
                                     ("/fonts/barlow-400-latin.woff2", b"wOF2"),
                                     ("/api/license", b"login_required")):
                 with opener.open(url + route, timeout=5) as response:
@@ -334,7 +364,7 @@ def run_check(report: Path) -> int:
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
                                  "screen-table-target", "excel-tables", "http-api", "login-item", "password-store",
-                                 "bundled-static-files"]}
+                                 "bundled-static-files", "local-three-office-assets"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

@@ -1,0 +1,30 @@
+.office-title { margin-bottom: 18px; }
+.office-title h2 { font-size: 28px; margin: 5px 0 7px; }
+.office-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.office-mode-label { font-size: 13px; color: var(--muted); }
+.office-toolbar button[aria-pressed="true"] { background: var(--accent-tint); color: var(--accent-text); border-color: var(--accent-line); }
+.office-frame { border: 1px solid var(--line-strong); border-radius: var(--r-l); background: var(--bg); position: relative; overflow: hidden; }
+.office-view { width: 100%; height: clamp(390px, 54vw, 650px); position: relative; }
+.office-view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.office-preview { position: absolute; top: 20px; left: 22px; font-size: 10px; letter-spacing: 1.7px; font-weight: 600; padding: 8px 11px; background: var(--surface); color: var(--muted); border: 1px solid var(--line); border-radius: var(--r-m); pointer-events: none; }
+.office-legend { position: absolute; bottom: 16px; left: 22px; color: var(--muted); background: var(--surface); font-size: 11px; border-radius: var(--r-m); padding: 5px 9px; pointer-events: none; }
+.office-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.office-room-label { position: absolute; left: 0; top: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); font-size: 10px; letter-spacing: .25px; font-weight: 600; padding: 5px 8px; }
+.office-room-label.main { color: var(--accent-text); border-color: var(--accent-line); }
+.office-summary { margin-top: 16px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.office-loading { padding: 90px 32px; color: var(--muted); text-align: center; }
+.office-list { margin-top: 22px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--surface); }
+.office-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.office-table caption { text-align: left; padding: 16px; font-weight: 650; color: var(--ink); }
+.office-table th { font-size: 11px; color: var(--muted); background: var(--surface-2); }
+.office-table :is(th, td) { padding: 12px 16px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.office-list-primary { margin-top: 8px; }
+.office-plan { height: 100%; width: 100%; }
+.office-plan text { fill: var(--ink-2); font-size: 16px; font-family: inherit; }
+.office-plan-floor { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 2; }
+.office-plan-room { fill: var(--surface-3); stroke: var(--line); stroke-width: 2; }
+.office-plan-desk { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+.office-plan-chair { fill: var(--accent); }
+.office-plan-manager { fill: var(--accent-tint); stroke: var(--accent-line); stroke-width: 2; }
+@media (max-width: 640px) { .office-view { height: 400px; } .office-preview { left: 10px; top: 10px; } .office-legend { left: 10px; bottom: 10px; font-size: 10px; } }
+@media (prefers-reduced-motion: reduce) { .office-root * { scroll-behavior: auto; } }
