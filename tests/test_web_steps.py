@@ -282,7 +282,8 @@ def pick_site():
 
 def pick(tmp_path, url, action):
     manager = SimpleNamespace(reserve_desktop=lambda cancel: "token", release_desktop=lambda token: None)
-    picks = WebPicks(manager, tmp_path / "profil", timeout_ms=10_000, headless=True, on_ready=action)
+    # Generous: a slow CI runner may take seconds per browser action.
+    picks = WebPicks(manager, tmp_path / "profil", timeout_ms=30_000, headless=True, on_ready=action)
     job = picks.start(url)
     deadline = __import__("time").monotonic() + 60
     while (state := picks.status(job["id"]))["status"] in {"starting", "waiting"}:
