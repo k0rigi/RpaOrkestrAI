@@ -53,6 +53,7 @@ raporlama bu kapsamda yayımlanmış değildir.
 - Ofis yerleşimi onayı ve karakter/animasyon aşaması.
 - Zamanlayıcı kapsamına yanıt.
 - Canlı firmanın/kullanıcının `MOD_AJAN` kaydı ve bitiş tarihi için somut lisans planı; seçilen onaycının kalıcı hesap kimliğine bağlanması.
+- Sunucu seed'i yalnız modül kataloğunu oluşturuyor, lisans vermiyor. Bu depoda genel modül atama ekranı/yazma API'si bulunmadığından canlı atama ayrıca denetlenen yönetim işlemiyle yapılmalı; mevcut panelden atanabildiği doğrulanmadı.
 - GitHub Actions üzerinden kurulum/yayın öncesi inceleme, gerçek model ölçümü, iki platform CI ve paket öz testleri.
 - Yeni sürüm numarası, imzalı dağıtım ve geri dönüş doğrulaması. `credentials/` dosyaları okunmadı veya paketlenmedi.
 
