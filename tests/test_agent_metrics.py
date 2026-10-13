@@ -93,7 +93,10 @@ def test_settings_are_company_scoped_and_symlink_safe(tmp_path):
     store.save(2, MetricSettings())
     assert store.get(3).prices == []
     store.path(2).unlink()
-    store.path(2).symlink_to(tmp_path / "unrelated.json")
+    try:
+        store.path(2).symlink_to(tmp_path / "unrelated.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("Bu test ortamı sembolik bağlantı oluşturmaya izin vermiyor.")
     with pytest.raises(ValueError):
         store.get(2)
 

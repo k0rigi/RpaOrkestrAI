@@ -6,7 +6,7 @@ import json
 import time
 
 from ..models import uid
-from .central import CentralError, record_id
+from .central import CentralError, identity_key, record_id
 from .models import validate_json_value
 from .providers import (
     ProviderCancelled,
@@ -43,6 +43,23 @@ class SharedProvider:
         self.client = client
         self._limits = {}
 
+    def _model_request(self, method, path, body=None, *, actor, cancel, deadline):
+        # Only model submission (stable request_id) and read-only model/status requests use retries.
+        for attempt in range(3):
+            if cancel.is_set():
+                raise ProviderCancelled()
+            if time.monotonic() >= deadline:
+                raise ProviderTimeout()
+            if identity_key(self.client.actor()) != identity_key(actor):
+                raise ProviderError()
+            try:
+                return self.client.request(method, path, body, expected_actor=actor,
+                                           cancel=cancel, deadline=deadline)
+            except CentralError as exc:
+                if attempt == 2 or not (exc.status == 429 or 500 <= exc.status <= 599):
+                    raise
+                cancel.wait(min((0.1, 0.25)[attempt], max(0, deadline - time.monotonic())))
+
     def request_limits(self, model, *, cancel, deadline):
         if cancel.is_set():
             raise ProviderCancelled()
@@ -53,8 +70,7 @@ class SharedProvider:
         if key in self._limits:
             return self._limits[key]
         try:
-            answer = self.client.request("GET", "/llm/models", expected_actor=actor,
-                                         cancel=cancel, deadline=deadline)
+            answer = self._model_request("GET", "/llm/models", actor=actor, cancel=cancel, deadline=deadline)
             models = answer.get("models")
             if (answer.get("enabled") is not True or type(models) is not list
                     or not all(type(name) is str for name in models) or model not in models
@@ -86,8 +102,8 @@ class SharedProvider:
             payload = {"request_id": uid(), "model": model, "messages": messages,
                        "tools": tools, "max_tokens": max_tokens}
             validate_json_value(payload, max_bytes=64 * 1024)
-            job = self.client.request("POST", "/llm/jobs", payload, expected_actor=actor,
-                                      cancel=cancel, deadline=deadline).get("job", {})
+            job = self._model_request("POST", "/llm/jobs", payload, actor=actor,
+                                       cancel=cancel, deadline=deadline).get("job", {})
             job_id = record_id(job.get("id"))
             while True:
                 check()
@@ -101,8 +117,8 @@ class SharedProvider:
                     raise ProviderError("Kurum modeli geçersiz bir çalışma durumu döndürdü.")
                 cancel.wait(min(1, max(0, deadline - time.monotonic())))
                 check()
-                job = self.client.request("GET", "/llm/jobs/" + job_id, expected_actor=actor,
-                                          cancel=cancel, deadline=deadline).get("job", {})
+                job = self._model_request("GET", "/llm/jobs/" + job_id, actor=actor,
+                                           cancel=cancel, deadline=deadline).get("job", {})
                 if job.get("id") != job_id:
                     raise ProviderError("Kurum modeli yanıtının çalışma kimliği doğrulanamadı.")
         except CentralError as exc:

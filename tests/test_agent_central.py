@@ -243,3 +243,119 @@ def test_shared_direct_request_does_not_silently_reduce_output_or_truncate_conte
         SharedProvider(client).complete([{"role": "user", "content": "x" * 8000}], [], model="kurum-modeli",
                                         max_tokens=1024, cancel=threading.Event(), deadline=time.monotonic() + 5)
     assert [call[1] for call in client.calls] == ["/llm/models"]
+
+
+def shared_success():
+    return {"text": "Bitti", "tool_calls": [], "usage": {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14}}
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_shared_submission_retries_transient_failure_with_same_id_and_payload(status, monkeypatch):
+    client = ModelClient(shared_success())
+    original, submitted = client.request, []
+
+    def flaky(method, path, body=None, **kwargs):
+        if method == "POST":
+            submitted.append(json.loads(json.dumps(body)))
+            if len(submitted) == 1:
+                raise CentralError("Geçici hata", status)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr(client, "request", flaky)
+    result = SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128,
+                                              cancel=threading.Event(), deadline=time.monotonic() + 5)
+    assert result.text == "Bitti"
+    assert len(submitted) == 2 and submitted[0] == submitted[1]
+    assert len(submitted[0]["request_id"]) == 32
+
+
+@pytest.mark.parametrize("status,attempts", [(401, 1), (403, 1), (404, 1), (409, 1), (422, 1), (429, 3), (503, 3)])
+def test_shared_submission_failure_has_bounded_attempts(status, attempts, monkeypatch):
+    client = ModelClient(shared_success())
+    original, submitted = client.request, []
+
+    def failure(method, path, body=None, **kwargs):
+        if method == "POST":
+            submitted.append(body["request_id"])
+            raise CentralError("private-upstream-error", status)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr(client, "request", failure)
+    with pytest.raises(ProviderError) as caught:
+        SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128,
+                                        cancel=threading.Event(), deadline=time.monotonic() + 5)
+    assert len(submitted) == attempts and len(set(submitted)) == 1
+    assert "private-upstream-error" not in str(caught.value)
+
+
+@pytest.mark.parametrize("path", ["/llm/models", "/llm/jobs/" + "a" * 32])
+def test_shared_read_only_capabilities_and_job_status_retry(path, monkeypatch):
+    client = ModelClient(shared_success())
+    original, reads = client.request, []
+
+    def flaky(method, current, body=None, **kwargs):
+        if method == "POST" and path != "/llm/models":
+            return {"success": True, "job": {"id": "a" * 32, "status": "queued"}}
+        if method == "GET" and current == path:
+            reads.append(current)
+            if len(reads) < 3:
+                raise CentralError("Geçici ağ hatası", 503)
+        return original(method, current, body, **kwargs)
+
+    monkeypatch.setattr(client, "request", flaky)
+    result = SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128,
+                                              cancel=threading.Event(), deadline=time.monotonic() + 5)
+    assert result.text == "Bitti" and len(reads) == 3
+
+
+@pytest.mark.parametrize("mode", ["cancel", "deadline", "actor"])
+def test_shared_backoff_stops_on_cancel_deadline_or_changed_actor(mode, monkeypatch):
+    client, cancel = ModelClient(shared_success()), threading.Event()
+    original, submitted, timer = client.request, [], None
+    deadline = time.monotonic() + (0.02 if mode == "deadline" else 5)
+
+    def failure(method, path, body=None, **kwargs):
+        nonlocal timer
+        if method == "POST":
+            submitted.append(body["request_id"])
+            if mode == "cancel":
+                timer = threading.Timer(0.02, cancel.set)
+                timer.start()
+            elif mode == "actor":
+                monkeypatch.setattr(client, "actor", lambda: actor().model_copy(update={"session_id": "new-session"}))
+            raise CentralError("Kuyruk dolu", 429)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr(client, "request", failure)
+    expected = {"cancel": ProviderCancelled, "deadline": ProviderTimeout, "actor": ProviderError}[mode]
+    try:
+        with pytest.raises(expected):
+            SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128, cancel=cancel, deadline=deadline)
+    finally:
+        if timer:
+            timer.cancel()
+            timer.join()
+    assert len(submitted) == 1
+
+
+@pytest.mark.parametrize("operation", ["karar", "tuket"])
+def test_model_retry_policy_does_not_repeat_approval_decision_or_consumption(operation, monkeypatch):
+    client = ApprovalClient()
+    backend = CentralApprovalBackend(client)
+    prepared, context = prepared_context()
+    remote = backend.request(context, prepared, "Gerekçe", expires_in=60)
+    original, attempts = client.request, []
+
+    def unavailable(method, path, body=None, **kwargs):
+        if method == "POST" and path.endswith("/" + operation):
+            attempts.append(path)
+            raise CentralError("Geçici yanıt kaybı", 503)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr(client, "request", unavailable)
+    with pytest.raises(CentralError):
+        if operation == "karar":
+            backend.decide(remote["id"], True)
+        else:
+            backend.consume(context, remote, digest=prepared.digest)
+    assert len(attempts) == 1
