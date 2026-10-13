@@ -1,0 +1,7 @@
+.agent-metric-table { overflow-x: auto; margin: 1rem 0; }
+.agent-metric-table table { width: 100%; border-collapse: collapse; text-align: left; }
+.agent-metric-table th, .agent-metric-table td { padding: .65rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.agent-metric-table th { color: var(--muted); font-size: .8rem; }
+.agent-metric-chart { display: block; width: 100%; max-width: 700px; margin-block: 1rem; }
+.agent-metric-chart text { fill: var(--ink); font-size: 13px; }
+.agent-metric-chart rect { fill: var(--accent); }
