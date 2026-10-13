@@ -1,8 +1,9 @@
-# Ajan geliştirmesi — 13 Ekim 2026
+# Ajan geliştirmesi — 14 Ekim 2026
 
 Bu rapor yerel geliştirme durumudur. Yeni kurulum paketi veya ajan sunucu hizmeti
-henüz yayımlanmadı; Studio sürümü hâlâ 0.9.22. Kapasite tanılama iş akışı dışında
-bu özellik için canlı sunucu işlemi yapılmadı.
+henüz yayımlanmadı; 0.9.23 kaynak sürümü kullanıcı onayıyla hazırlanıyor. Donanım
+ve hizmet/lisans metadata tanılamaları dışında bu özellik için canlı sunucu
+değişikliği yapılmadı.
 
 ## Aşamalar
 
@@ -12,24 +13,25 @@ bu özellik için canlı sunucu işlemi yapılmadı.
 | 2 — Sağlayıcı ve Studio | Bulut/yerel/kurum bağlantısı, yazma amaçlı anahtar alanı, zaman çizelgesi, form ve soru/onay kartları hazır | `agents/provider_adapters.py`, `connections.py`, `shared_provider.py`, `central.py`, `studio_api.py`, `vault.py`, `static/agents.js`, `agents.css`, `app.py` |
 | 3 — Organizasyon | Tek yönetici, departmanlara görev devri, ortak bütçe, kuyruk ve insan görevleri hazır | `agents/organization.py`, `runner.py`, `models.py`, `team_api.py`, `static/agent-team.js`; sunucuda `api/ajanlar/` |
 | 4 — Performans | Görev kayıtlarından ajan/departman ve insan ölçümleri, tarih filtresi, fiyat tahmini, CSV hazır | `agents/metrics.py`, `metrics_api.py`, `static/agent-metrics.js`, `agent-metrics.css`; sunucuda `api/ajanlar/metrics.py` |
-| 5 — Ofis | Yerel Three.js ve boş ofis, koyu/açık tema, 2D/listeli yedek hazır; yerleşim onayı bekleniyor | `agents/office.py`, `static/office.js`, `office.css`, `vendor/three/`, `package_check.py`, `scripts/build_desktop.py` |
+| 5 — Ofis | Yerleşim onaylandı; karakterler, durum animasyonları, insan görünümü, salt okunur ayrıntı paneli ve native paket kontrolü hazır | `agents/office.py`, `static/office.js`, `office.css`, `vendor/three/`, `native_office_check.py`, `scripts/check_native_office.py`, `package_check.py`, `scripts/build_desktop.py` |
 | 6 — Akış içi AI | `ai.ask`, araçsız çağrı, şema doğrulaması, bilinmeyen önizleme sonucu ve form hazır | `actions/ai.py`, `agents/workflow_ai.py`, `schema.py`, `catalog.py`, `guide.py`, `engine.py`, `static/app.js` |
-| 7 — Zamanlanmış ajan | Başlatılmadı; ilk sürüme dahil edilmesi soruldu | Henüz değişiklik yok |
+| 7 — Zamanlanmış ajan | İlk sürüm Studio'dan elle başlatma önerisini esas alıyor; zamanlanmış ajanlar ayrı aşamada | Henüz değişiklik yok |
 
 Ofis karakterleri, insan çalışanların ofiste temsili ve durum animasyonları
-yerleşim onayından sonra yapılacak. İnsan hesaplarında departman alanı olmadığı
+yerleşim onayıyla tamamlandı. İnsan hesaplarında departman alanı olmadığı
 için bu aşamada insan departman performansı türetilmiyor. Ajan ayrıntılı kayıtları
 yerelde kalıyor; tüm bilgisayarların ajan verilerini web panelinde birleştiren
 raporlama bu kapsamda yayımlanmış değildir.
 
 ## Doğrulama
 
-- Studio tam ağsız test koşusu: **1.662 geçti, 39 atlandı**; `RPA_UI_TESTS=1`.
-- Sunucu ajan/ekip/LLM testleri: **123 geçti**; Python 3.6 uyumluluğu statik olarak denetlendi.
-- Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`: Node sözdizimi kontrolü temiz.
+- Studio tam ağsız test koşusu: **1.730 geçti, 39 atlandı**; `RPA_UI_TESTS=1`. Son insan durumu biçim denetimi ayrıca 15 ofis testiyle doğrulandı.
+- Sunucu ajan/ekip/LLM ve lisans atama testleri: **184 geçti**; kurulum denetimleri ayrıca çalışıyor. Python 3.6 uyumluluğu statik olarak denetlendi.
+- Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
 - Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
 - UI testleri Chromium'da sahte HTTP yanıtlarıyla çalıştı; gerçek sağlayıcı/ERP hesabı kullanılmadı.
-- Gerçek Windows WebView2, macOS WKWebView ofis açılışı, paketlenmiş EXE/DMG öz testi ve iki platform CI sonuçları henüz tamamlanmadı.
+- Gerçek macOS WKWebView kaynak çalışması: **9/9 kontrol geçti**, 633 WebGL çizim çağrısı, hata yok; sürüm 0.9.23, `frozen=false`. Paketlenmiş uygulama kanıtı değildir. Ofis Chromium testleri **10/10**, native kontrol regresyonları **56** test geçti.
+- Gerçek Windows WebView2, paketlenmiş EXE/DMG öz testi ve iki platform CI sonuçları henüz tamamlanmadı.
 - Gerçek MariaDB geçişi, Ollama çıkarımı ve sunucu hizmet kurulumu henüz yapılmadı.
 
 ## Güvenlik kontrol listesi
@@ -49,12 +51,12 @@ raporlama bu kapsamda yayımlanmış değildir.
 
 ## Yayın için açık işler
 
-- Sunucu yükseltmesinin tamamlandığının bildirilmesi. Başlangıç önerisi **4 vCPU, 16 GB RAM**; GPU zorunlu değil. 8 GB daha dar başlangıç seçeneğidir. Mevcut yaklaşık 27 GB boş disk ilk küçük model için yeterlidir; gerçek kullanım ölçülecek.
-- Ofis yerleşimi onayı ve karakter/animasyon aşaması.
-- Zamanlayıcı kapsamına yanıt.
-- Canlı firmanın/kullanıcının `MOD_AJAN` kaydı ve bitiş tarihi için somut lisans planı; seçilen onaycının kalıcı hesap kimliğine bağlanması.
+- Sunucu yükseltmesi salt okunur Actions tanılamasıyla doğrulandı: **6 mantıksal işlemci, 7,5 GiB toplam / 6,8 GiB kullanılabilir RAM, 81,6 GiB boş disk**, AlmaLinux 8.10 x86_64. NVIDIA yönetim aracı bulunmaması GPU olmadığını kanıtlamaz; ilk model CPU ile, tek çıkarım sırasında ölçülecek. Donanım artışı tek başına model hızı veya araç çağrısı doğruluğunun doğrulandığı anlamına gelmez. [Tanılama kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472031645).
+- Mevcut web hizmeti ve lisans metadata incelemesi tamamlandı; mevcut systemd web hizmeti korunacak. Ortak model henüz kurulu değil. [İnceleme kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472777304).
+- Ofis karakterleri ve yerel pencere testi tamamlandı; paketler içindeki gerçek motor kontrolleri bekliyor.
+- Seçilen firma/kullanıcı için `MOD_AJAN` bitişini mevcut RPA firma bitişiyle eşleme ve tek onaycı bağlama işlemi kullanıcı tarafından onaylandı; canlı atama henüz yapılmadı. Hesap kimlikleri ve lisans tarihleri genel uygulama koduna veya bu açık depo belgesine gömülmez.
 - Sunucu seed'i yalnız modül kataloğunu oluşturuyor, lisans vermiyor. Bu depoda genel modül atama ekranı/yazma API'si bulunmadığından canlı atama ayrıca denetlenen yönetim işlemiyle yapılmalı; mevcut panelden atanabildiği doğrulanmadı.
 - GitHub Actions üzerinden kurulum/yayın öncesi inceleme, gerçek model ölçümü, iki platform CI ve paket öz testleri.
-- Yeni sürüm numarası, imzalı dağıtım ve geri dönüş doğrulaması. `credentials/` dosyaları okunmadı veya paketlenmedi.
+- Kullanıcının seçtiği 0.9.23 sürüm numarası dört yayın dosyasına işlendi. İmzalı dağıtım ve geri dönüş doğrulaması bekliyor; `credentials/` dosyaları okunmadı veya paketlenmedi.
 
 Kullanım ayrıntıları: [Ajanlar ve dijital ekip](ajanlar.md).
