@@ -92,7 +92,12 @@ class SharedProvider:
             except CentralError as exc:
                 if attempt == 2 or not (exc.status == 429 or 500 <= exc.status <= 599):
                     raise
-                cancel.wait(min((0.1, 0.25)[attempt], max(0, deadline - time.monotonic())))
+                retry_at = min(deadline, time.monotonic() + (0.1, 0.25)[attempt])
+                # Windows waits can return before their requested interval ends.
+                # Recheck the monotonic clock rather than submitting early.
+                while (remaining := retry_at - time.monotonic()) > 0:
+                    if cancel.wait(remaining):
+                        raise ProviderCancelled()
 
     def request_limits(self, model, *, cancel, deadline):
         if cancel.is_set():

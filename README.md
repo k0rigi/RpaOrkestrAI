@@ -29,6 +29,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 Aynı çalışma alanında paralel ajanlar bağlantı kayıtlarını güvenle paylaşır. **Durdur**, lisans kaybı veya oturum değişikliğinde bağlı akışın kaydı da **İptal edildi** olur; süre ve yetki sınırı ihlalleri hata olarak kalır. Ofisin yerel Three.js dosyaları iki platformda aynı bütünlük denetiminden geçer.
 
+Aynı ajana verilen görevler kuyruğa giriş sırasıyla çalışır; önceki görevin bitiş anı veya bilgisayar saatinin değişmesi sırayı bozmaz. Ortak model yeniden denemeleri bekleme ve toplam süre sınırına uyar. Windows arayüz ve paket sınamaları Türkçe metinleri UTF-8 ile işler.
+
 **0.9.21:** **Adım numaraları** (1, 2, 3.1 …) liste, diyagram, ayar paneli, Adıma git ve çalışma günlüğünde. **Web otomasyonu** genişledi: **Tarayıcıda seç** (öğeye tıklayarak hedef belirleme), çerçeve (iframe) desteği, yeni sekmeye kendiliğinden geçiş ve yeni adımlar — Web'de bekle, tuşa bas, geri/ileri/yenile, sekmeye geç, Web tablosunu oku, Web'den dosya indir, Web'e dosya yükle, sayfa görüntüsü ve **Web'de JavaScript çalıştır**. [Web otomasyonu rehberi](docs/web-otomasyonu.md).
 
 **0.9.20:** Yeni adımlar: **Onay kutusu**, **PDF'ten oku**, **Zip aç / oluştur**, **E-posta gönder**, **Web sayfası aç / Web öğesine tıkla / Web alanını doldur / Web'den metin oku / Web listesinden seç**. **Hata olursa** bloğuna hata anında ekran görüntüsü seçeneği eklendi. Bu adımları veya seçeneği kullanan akışlar 0.9.20 öncesi sürümlerde açılmaz. [Adımlar](docs/adimlar.md).

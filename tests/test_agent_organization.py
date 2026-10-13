@@ -109,15 +109,19 @@ def test_child_risky_work_still_waits_for_owner_approval(runtime):
     assert any(event.kind == "approval_decision" for event in child_task.approvals)
 
 
-def test_same_agent_jobs_are_fifo_and_queue_is_only_metadata(runtime):
+@pytest.mark.parametrize("clock_moves_back", [False, True])
+def test_same_agent_jobs_are_fifo_and_queue_is_only_metadata(runtime, clock_moves_back):
     agent = runtime.agent()
     provider = ScriptedProvider([response(ToolCall(uid(), "ask_user", {"question": "Devam?"})),
                                   response(finish("Bir")), response(finish("İki")), response(finish("Üç"))])
     runtime.service._provider_factory = lambda _: provider
     first = runtime.service.start(agent.id, AgentRunRequest(task="Birinci gizli iş"))
     wait_for(lambda: runtime.service.get_run(first.id), lambda run: run.status == "waiting_user")
-    second = runtime.service.start(agent.id, AgentRunRequest(task="İkinci gizli iş"))
-    third = runtime.service.start(agent.id, AgentRunRequest(task="Üçüncü gizli iş"))
+    with runtime.service._lock:
+        second = runtime.service.start(agent.id, AgentRunRequest(task="İkinci gizli iş"))
+        third = runtime.service.start(agent.id, AgentRunRequest(task="Üçüncü gizli iş"))
+        if clock_moves_back:
+            runtime.service._contexts[third.id].run.created_at = "2000-01-01T00:00:00+00:00"
     queue = runtime.service.queue()
     assert [(item["run_id"], item["position"]) for item in queue] == [(first.id, 0), (second.id, 1), (third.id, 2)]
     assert "gizli" not in json.dumps(queue)
@@ -128,6 +132,46 @@ def test_same_agent_jobs_are_fifo_and_queue_is_only_metadata(runtime):
     assert runs[0].finished_at <= runs[1].started_at <= runs[2].started_at
     assert runtime.service.queue() == []
     assert {task.status for task in runtime.service.tasks()} == {"succeeded"}
+
+
+def test_fifo_survives_running_job_finishing_between_two_queue_candidates(runtime, monkeypatch):
+    agent = runtime.agent()
+    provider = ScriptedProvider([response(ToolCall(uid(), "ask_user", {"question": "Devam?"})),
+                                response(finish("Bir")), response(finish("İki")), response(finish("Üç"))])
+    runtime.service._provider_factory = lambda _: provider
+    first = runtime.service.start(agent.id, AgentRunRequest(task="Birinci"))
+    pending = wait_for(lambda: runtime.service.get_run(first.id), lambda run: run.status == "waiting_user")
+    original_check = runtime.service._check
+    candidates = {}
+    saw_second, forced_completion = threading.Event(), threading.Event()
+
+    def check(context):
+        if threading.current_thread() is runtime.service._queue_thread:
+            if context.run.id == candidates.get("second"):
+                saw_second.set()
+            if context.run.id == candidates.get("third") and not forced_completion.is_set():
+                assert saw_second.is_set()
+                forced_completion.set()
+                # The earlier candidate was skipped because the first job was
+                # running. Finish that job before checking the later candidate.
+                runtime.service.answer(first.id, pending.pending_question["id"], "Evet")
+                runtime.done(first)
+                with runtime.service._lock:
+                    assert first.id not in runtime.service._contexts
+        return original_check(context)
+
+    monkeypatch.setattr(runtime.service, "_check", check)
+    # Both candidates must belong to the same scheduler pass.
+    with runtime.service._lock:
+        second = runtime.service.start(agent.id, AgentRunRequest(task="İkinci"))
+        third = runtime.service.start(agent.id, AgentRunRequest(task="Üçüncü"))
+        candidates.update(second=second.id, third=third.id)
+    runs = [runtime.done(item) for item in (first, second, third)]
+    assert forced_completion.is_set()
+    assert [item.summary for item in runs] == ["Bir", "İki", "Üç"]
+    assert all(item.status == "succeeded" for item in runs)
+    assert runs[0].finished_at <= runs[1].started_at <= runs[2].started_at
+    assert runtime.service.queue() == []
 
 
 def test_cancelling_root_cancels_running_and_queued_children(runtime):

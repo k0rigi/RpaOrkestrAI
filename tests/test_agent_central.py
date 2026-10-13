@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 
 import pytest
 
+from rpa_orkestrai.agents import shared_provider
 from rpa_orkestrai.agents.central import BASE_URL, CentralApprovalBackend, CentralClient, CentralError, digest
 from rpa_orkestrai.agents.models import Actor
 from rpa_orkestrai.agents.providers import ProviderCancelled, ProviderError, ProviderTimeout
@@ -311,31 +312,62 @@ def test_shared_read_only_capabilities_and_job_status_retry(path, monkeypatch):
 @pytest.mark.parametrize("mode", ["cancel", "deadline", "actor"])
 def test_shared_backoff_stops_on_cancel_deadline_or_changed_actor(mode, monkeypatch):
     client, cancel = ModelClient(shared_success()), threading.Event()
-    original, submitted, timer = client.request, [], None
-    deadline = time.monotonic() + (0.02 if mode == "deadline" else 5)
+    original, submitted, waits = client.request, [], []
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(shared_provider, "time", SimpleNamespace(monotonic=lambda: clock.now))
+    deadline = 0.02 if mode == "deadline" else 5
+
+    def early_wait(seconds):
+        waits.append(seconds)
+        clock.now += min(seconds, 0.005)
+        if mode == "cancel":
+            cancel.set()
+        return cancel.is_set()
+
+    monkeypatch.setattr(cancel, "wait", early_wait)
 
     def failure(method, path, body=None, **kwargs):
-        nonlocal timer
         if method == "POST":
             submitted.append(body["request_id"])
-            if mode == "cancel":
-                timer = threading.Timer(0.02, cancel.set)
-                timer.start()
-            elif mode == "actor":
+            if mode == "actor":
                 monkeypatch.setattr(client, "actor", lambda: actor().model_copy(update={"session_id": "new-session"}))
             raise CentralError("Kuyruk dolu", 429)
         return original(method, path, body, **kwargs)
 
     monkeypatch.setattr(client, "request", failure)
     expected = {"cancel": ProviderCancelled, "deadline": ProviderTimeout, "actor": ProviderError}[mode]
-    try:
-        with pytest.raises(expected):
-            SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128, cancel=cancel, deadline=deadline)
-    finally:
-        if timer:
-            timer.cancel()
-            timer.join()
+    with pytest.raises(expected):
+        SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128, cancel=cancel, deadline=deadline)
     assert len(submitted) == 1
+    assert waits and all(value > 0 for value in waits)
+    if mode == "deadline":
+        assert len(waits) > 1 and clock.now == deadline
+
+
+def test_shared_retry_keeps_backoff_when_event_wait_returns_early(monkeypatch):
+    client, cancel = ModelClient(shared_success()), threading.Event()
+    original, attempts = client.request, []
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(shared_provider, "time", SimpleNamespace(monotonic=lambda: clock.now))
+
+    def early_wait(seconds):
+        clock.now += min(seconds, 0.01)
+        return False
+
+    def failure(method, path, body=None, **kwargs):
+        if method == "POST":
+            attempts.append((clock.now, body["request_id"]))
+            if len(attempts) < 3:
+                raise CentralError("Kuyruk dolu", 429)
+        return original(method, path, body, **kwargs)
+
+    monkeypatch.setattr(cancel, "wait", early_wait)
+    monkeypatch.setattr(client, "request", failure)
+    result = SharedProvider(client).complete([], [], model="kurum-modeli", max_tokens=128,
+                                             cancel=cancel, deadline=5)
+    assert result.text == "Bitti"
+    assert [instant for instant, _ in attempts] == pytest.approx([0, 0.1, 0.35])
+    assert len({request_id for _, request_id in attempts}) == 1
 
 
 @pytest.mark.parametrize("operation", ["karar", "tuket"])

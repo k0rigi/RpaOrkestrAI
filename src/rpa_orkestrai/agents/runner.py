@@ -366,8 +366,9 @@ class AgentService:
     def _schedule_loop(self):
         while not self._closed:
             with self._lock:
-                pending = sorted([context for context in self._contexts.values() if context.thread is None],
-                                 key=lambda context: context.run.created_at)
+                # Insertion order is the enqueue order under this lock. Wall
+                # clock corrections must not reorder a department's queue.
+                pending = [context for context in self._contexts.values() if context.thread is None]
             for context in pending:
                 try:
                     self._check(context)
@@ -378,6 +379,13 @@ class AgentService:
                     continue
                 with self._lock:
                     if context.run.id not in self._contexts or context.thread is not None:
+                        continue
+                    # An earlier candidate may have been skipped while another
+                    # job was running. If it finishes during this pass, a later
+                    # candidate must not overtake the still-queued first one.
+                    first = next((item for item in self._contexts.values()
+                                  if item.agent.id == context.agent.id and item.thread is None), None)
+                    if first is not context:
                         continue
                     running = [item for item in self._contexts.values() if item.thread is not None]
                     if len(running) >= 8 or any(item.agent.id == context.agent.id for item in running):
@@ -708,9 +716,8 @@ class AgentService:
     def queue(self) -> list[dict]:
         actor = self._authorize()
         with self._lock:
-            contexts = sorted([context for context in self._contexts.values()
-                               if context.run.actor.company_id == actor.company_id],
-                              key=lambda context: context.run.created_at)
+            contexts = [context for context in self._contexts.values()
+                        if context.run.actor.company_id == actor.company_id]
             positions = {}
             result = []
             for context in contexts:

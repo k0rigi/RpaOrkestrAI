@@ -117,8 +117,9 @@ Birden fazla ajan aynı çalışma alanındaki bağlantı kayıtlarını paylaş
 
 Yönetici yalnız görev devreder; departman ajanının akış ve onay izinlerini
 genişletemez. Hiyerarşi tek seviyelidir. Devirler kök görevin tur, token, süre,
-akış ve görev bütçesini paylaşır. Aynı ajanın görevleri sıraya girer; masaüstü
-akışları tek çalışan kuralını korur. Kuyruk durumu Studio'da görünür.
+akış ve görev bütçesini paylaşır. Aynı ajanın görevleri kuyruğa giriş sırasıyla
+çalışır; önceki görevin bitiş anı veya bilgisayar saatinin değişmesi bu sırayı
+bozmaz. Masaüstü akışları tek çalışan kuralını korur. Kuyruk durumu Studio'da görünür.
 
 Her insan çalışan kendi Studio hesabıyla giriş yapar. Kurum yetkilisi **Görevler**
 sekmesinden lisanslı çalışana görev atar. Atanan kişi başlatma, bekleme, bitirme
@@ -215,6 +216,11 @@ sırasını paylaşır. Sırada beklemek işlemin süre sınırına dahildir; ip
 değişmesi veya lisansın kapanması bekleyen isteği modele göndermeden durdurur.
 Sıra bekleyen bir işlem önceki isteği kesmez. Yanıt token sınırında kesilmişse
 tamamlanmış sonuç olarak kabul edilmez.
+
+Geçici sunucu hatasında yeniden deneme beklemesi erken bitirilmez. Toplam süre
+dolduğunda veya kullanıcı durdurduğunda yeni istek gönderilmez; aynı isteğin
+tekrarı aynı istek kimliğini kullanır. Onay kararı ve onay tüketimi bu otomatik
+yeniden denemeye dahil değildir.
 
 Başlangıç bağlamı 8192, yanıt sınırı 1024 tokendır. Studio sunucunun bildirdiği
 sınırları istekten önce uygular. İstek büyürse eski konuşmanın yalnız tamamlanmış
