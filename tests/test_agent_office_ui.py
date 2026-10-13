@@ -39,6 +39,17 @@ def office_browser():
             route.fulfill(json={"actor": {"name": "Çalışan"}, "can_manage": False, "can_approve": False})
         elif path == "/api/agents/office":
             route.fulfill(json=data)
+        elif path == "/api/agents/central/office":
+            route.fulfill(status=503 if data.get("_human_error") else 200,
+                          json={"success": True, "people": data.get("_people", [])})
+        elif path == "/api/agents/tasks":
+            route.fulfill(json=data.get("_tasks", []))
+        elif path == "/api/agents/central/tasks":
+            route.fulfill(json={"tasks": data.get("_human_tasks", [])})
+        elif path == "/api/agents/metrics":
+            route.fulfill(json={"agents": data.get("_metrics", [])})
+        elif path == "/api/agents/central/metrics":
+            route.fulfill(json={"metrics": {"users": data.get("_human_metrics", [])}})
         elif path.startswith("/api/"):
             route.fulfill(json=[])
         else:
@@ -66,7 +77,7 @@ def office_browser():
             page.goto("http://office.test/", wait_until="networkidle")
             page.evaluate("""async () => {
               window.officeOptions = {initialTab: 'office', api: async (path, options) => {
-                const response = await fetch(path, options); return response.json(); }, toast: () => {},
+                const response = await fetch(path, options); if (!response.ok) throw new Error("Bağlantı hatası"); return response.json(); }, toast: () => {},
                 openRun: () => { throw new Error('Ofis çalışma başlatamaz'); }};
               await window.RpaAgents.mount(document.getElementById('test-root'), window.officeOptions);
             }""")
@@ -74,18 +85,19 @@ def office_browser():
             return page
 
         yield start, page, calls, errors, data
-        page.evaluate("window.RpaAgents?.unmount()")
+        page.evaluate("window.officeDirectCleanup?.(); window.RpaAgents?.unmount()")
         browser.close()
     assert not errors
 
 
 def interactive_ids(page):
-    values = page.locator("button, input, select, textarea, summary, canvas[tabindex]").evaluate_all("items => items.map(item => item.id)")
+    values = page.locator("button, input, select, textarea, summary, canvas[tabindex], svg [tabindex]").evaluate_all("items => items.map(item => item.id)")
     assert all(values) and len(values) == len(set(values))
 
 
-def test_empty_3d_office_uses_local_modules_theme_tokens_and_csp(office_browser):
-    start, _, calls, _, _ = office_browser
+def test_live_3d_office_uses_local_modules_theme_tokens_and_csp(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
     page = start()
     assert page.locator('.office-view[data-mode="3d"] canvas').count() == 1
     page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
@@ -99,13 +111,13 @@ def test_empty_3d_office_uses_local_modules_theme_tokens_and_csp(office_browser)
     if target:
         folder = Path(target)
         folder.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=str(folder / "ofis-bos-acik.png"), full_page=True)
+        page.screenshot(path=str(folder / "ofis-canli-acik.png"), full_page=True)
     light = page.locator(".office-frame").evaluate("node => getComputedStyle(node).backgroundColor")
     page.evaluate("document.documentElement.dataset.theme = 'dark'")
     page.wait_for_timeout(250)
     assert page.locator(".office-frame").evaluate("node => getComputedStyle(node).backgroundColor") != light
     if target:
-        page.screenshot(path=str(folder / "ofis-bos-koyu.png"), full_page=True)
+        page.screenshot(path=str(folder / "ofis-canli-koyu.png"), full_page=True)
     page.get_by_role("button", name="2D plan", exact=True).click()
     assert page.locator(".office-plan").count() == 1
     page.get_by_role("button", name="Liste", exact=True).click()
@@ -157,3 +169,147 @@ def test_sustained_slow_render_switches_to_2d(office_browser):
         page.wait_for_timeout(80)
     assert page.locator('.office-view[data-mode="2d"]').count() == 1
     assert page.get_by_text("Bu cihazda daha akıcı görüntü için 2D plana geçildi.", exact=True).is_visible()
+
+
+def populated(data):
+    manager = data["agents"][0]
+    manager["activity"] = "thinking"
+    manager["status"] = "running"
+    statuses = [("Belge ajanı", "running", "workflow"), ("Kontrol ajanı", "waiting_approval", "waiting_approval"),
+                ("Araştırma ajanı", "waiting_user", "waiting_user"), ("Rapor ajanı", "failed", "failed")]
+    for index, (name, status, activity) in enumerate(statuses):
+        data["agents"].append({"id": str(index + 1) * 32, "kind": "agent", "name": name, "role": "department",
+                               "department": data["departments"][index]["name"], "status": status, "activity": activity,
+                               "manager_id": manager["id"], "run_id": "f" * 32, "task_id": "e" * 32,
+                               "task_label": "Görev üzerinde çalışıyor", "queue_count": index})
+    data["_people"] = [{"id": "human-18", "user_id": 18, "kind": "human", "role": "human", "name": "Deniz",
+                        "department": "", "status": "running", "task_id": "t18", "task_label": "Görev üzerinde çalışıyor",
+                        "can_view_tasks": True, "queue_count": 1},
+                       {"id": "human-19", "user_id": 19, "kind": "human", "role": "human", "name": "Ekin",
+                        "department": "", "status": "unknown", "task_id": None, "task_label": "Görev durumu paylaşılmıyor",
+                        "can_view_tasks": False, "queue_count": 0}]
+
+
+def test_characters_show_states_and_load_private_details_only_after_click(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    identity = data["agents"][2]["id"]
+    data["_tasks"] = [{"id": "e" * 32, "assigned_agent_id": identity, "title": ATTACK, "status": "waiting_approval"}]
+    data["_metrics"] = [{"id": identity, "succeeded": 9, "failed": 1, "cancelled": 0, "average_seconds": 12, "total_seconds": 120}]
+    page = start()
+    assert page.locator(".office-person-label").count() == 7
+    assert page.locator('.office-person-label[data-activity="workflow"] .office-person-bubble').inner_text() == "↻"
+    assert page.locator('.office-person-label[data-status="waiting_approval"] .office-person-bubble').inner_text() == "!"
+    assert page.locator('.office-person-label[data-status="waiting_user"] .office-person-bubble').inner_text() == "?"
+    assert page.locator(".office-root").inner_text().find(ATTACK) == -1
+    assert not any(path in ("/api/agents/tasks", "/api/agents/metrics", "/api/agents/central/tasks") for _, path, _ in calls)
+    page.locator(f'.office-person-label[data-person="{identity}"]').click()
+    page.get_by_text("9 tamamlandı · 1 başarısız · 0 iptal", exact=True).wait_for()
+    assert page.locator(".office-detail").get_by_text(ATTACK, exact=True).count() == 1
+    assert page.locator("img").count() == 0
+    assert page.get_by_role("button", name="Onay kartına git", exact=True).is_visible()
+    assert all(method == "GET" for method, _, _ in calls)
+    interactive_ids(page)
+    page.get_by_role("button", name="Kapat", exact=True).click()
+    page.get_by_role("button", name="2D plan", exact=True).click()
+    assert page.locator(".office-plan-person").count() == 7
+    page.locator('.office-plan-person[data-person="human-19"]').focus()
+    page.keyboard.press("Enter")
+    assert page.get_by_text("Bu çalışanın görev ayrıntılarını görüntüleme yetkiniz yok.", exact=True).is_visible()
+    assert not any(path == "/api/agents/central/tasks" for _, path, _ in calls)
+    interactive_ids(page)
+
+
+def test_human_connection_failure_clears_stale_people_without_breaking_agent_scene(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    data["_human_tasks"] = [{"id": "t18", "assignee_user_id": 18, "title": "Kişisel görev", "status": "running"}]
+    page = start()
+    page.locator('.office-person-label[data-person="human-18"]').click()
+    page.locator(".office-detail").get_by_text("Kişisel görev", exact=True).wait_for()
+    data["_human_error"] = True
+    page.locator('.office-person-label[data-person="human-18"]').wait_for(state="hidden")
+    assert page.locator('.office-view[data-mode="3d"] canvas').count() == 1
+    assert page.locator(".office-person-label").count() == 5
+    assert page.locator(".office-detail").is_hidden()
+    assert page.locator(".office-human-warning").is_visible()
+    assert page.locator(".office-root").inner_text().find("Kişisel görev") == -1
+    assert all(method == "GET" for method, _, _ in calls)
+
+
+def test_human_permission_revocation_removes_open_business_details(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    data["_human_tasks"] = [{"id": "t18", "assignee_user_id": 18, "title": "Kişisel görev", "status": "running"}]
+    page = start()
+    page.locator('.office-person-label[data-person="human-18"]').click()
+    page.locator(".office-detail").get_by_text("Kişisel görev", exact=True).wait_for()
+    data["_people"][0].update(can_view_tasks=False, task_id=None, status="unknown", task_label="Görev durumu paylaşılmıyor")
+    page.get_by_text("Bu çalışanın görev ayrıntılarını görüntüleme yetkiniz yok.", exact=True).wait_for()
+    assert "Kişisel görev" not in page.locator(".office-detail").inner_text()
+    assert all(method == "GET" for method, _, _ in calls)
+
+
+def test_reduced_motion_and_hidden_state_pause_character_drawing(office_browser):
+    start, page, _, _, data = office_browser
+    populated(data)
+    page.emulate_media(reduced_motion="reduce")
+    page.add_init_script("""(() => { window.officeDraws = 0;
+      for (const type of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+        if (!type) continue;
+        for (const key of ['drawArrays','drawElements']) { const original = type.prototype[key];
+          type.prototype[key] = function(...args) { window.officeDraws++; return original.apply(this,args); };
+        }
+      }
+    })();""")
+    start()
+    page.wait_for_timeout(500)
+    before = page.evaluate("window.officeDraws")
+    assert before > 0
+    page.wait_for_timeout(400)
+    assert page.evaluate("window.officeDraws") == before
+    page.emulate_media(reduced_motion="no-preference")
+    page.wait_for_timeout(450)
+    assert page.evaluate("window.officeDraws") > before
+    page.evaluate("Object.defineProperty(document, 'hidden', {configurable: true, value: true}); document.dispatchEvent(new Event('visibilitychange'))")
+    before = page.evaluate("window.officeDraws")
+    page.wait_for_timeout(450)
+    assert page.evaluate("window.officeDraws") == before
+
+
+def test_office_navigation_only_opens_existing_work_and_task_screens(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    page = start()
+    page.evaluate("""async () => {
+      window.RpaAgents.unmount(); window.officeNavigation = [];
+      const {mountOffice} = await import('/office.js');
+      window.officeDirectCleanup = mountOffice(document.getElementById('test-root'), {
+        ...window.officeOptions, openAgentRun: id => window.officeNavigation.push(['run', id]),
+        openTab: name => window.officeNavigation.push(['tab', name]) });
+    }""")
+    page.locator('.office-person-label[data-status="waiting_approval"]').wait_for()
+    page.locator('.office-person-label[data-status="waiting_approval"]').click()
+    page.get_by_role("button", name="Onay kartına git", exact=True).click()
+    assert page.evaluate("window.officeNavigation") == [["run", "f" * 32]]
+    assert page.get_by_role("button", name="Onayla", exact=True).count() == 0
+    page.locator('.office-person-label[data-person="human-18"]').click()
+    page.get_by_role("button", name="Görevler ekranına git", exact=True).click()
+    assert page.evaluate("window.officeNavigation")[-1] == ["tab", "tasks"]
+    assert all(method == "GET" for method, _, _ in calls)
+
+
+def test_list_and_svg_keyboard_focus_survives_status_refresh(office_browser):
+    start, _, _, _, data = office_browser
+    populated(data)
+    page = start()
+    page.get_by_role("button", name="Liste", exact=True).click()
+    page.locator('.office-table button[data-person="human-18"]').focus()
+    page.wait_for_timeout(3200)
+    assert page.evaluate("document.activeElement.dataset.person") == "human-18"
+    page.get_by_role("button", name="2D plan", exact=True).click()
+    page.locator('.office-plan-person[data-person="human-18"]').focus()
+    page.wait_for_timeout(3200)
+    assert page.evaluate("document.activeElement.dataset.person") == "human-18"
+    page.keyboard.press("Enter")
+    assert page.locator(".office-detail").is_visible()

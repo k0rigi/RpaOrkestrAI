@@ -650,6 +650,9 @@ class AgentService:
                 context.question = context.approval = None
                 context.run.finished_at = now()
                 self._save(context)
+                from .office import remember_completion
+
+                remember_completion(self, context)
                 context.wake.set()
                 self._contexts.pop(context.run.id, None)
                 self._queue_wake.set()

@@ -156,18 +156,39 @@ Saklama önerisi ayrıntılar için 90 gün, iş verisi çıkarılmış performa
 için 365 gündür. Otomatik temizleme henüz etkin değildir; mevcut kayıtlar sessizce
 silinmez. Temizleme eklendiğinde açık görev ve bekleyen onaylar korunmalıdır.
 
-## Ofis önizlemesi
+## Ofis
 
 Three.js 0.160.0 ve OrbitControls, MIT lisanslarıyla uygulamaya dahildir. CDN,
 uzak model, doku veya yazı tipi yüklenmez. Açık/koyu temada kamera döndürülebilir,
 yakınlaştırılabilir; pencere gizlenince çizim durur. WebGL yoksa veya çizim yavaşsa
 2D plana geçilir; aynı durum bilgileri liste görünümünde de bulunur.
 
-Bu aşamada boş ofis yerleşimi gösterilir. Karakter ve durum animasyonları
-yerleşim onayından sonraki aşamadır. Ofis yalnız durum okur; işlem başlatmaz.
+Her ajan ve çalışan kodla üretilmiş bir karakterle temsil edilir. Ajan düşünürken
+üç nokta, soru sorarken soru işareti, onay beklerken ünlem ve kaldırılmış el
+görünür. Akış sırasında ekranı ve durum halkası canlanır; başarılı görev tesliminde
+karakter yöneticiye dosya taşır, görev devrinde bir görev kartı departmana gider.
+Başarısız veya iptal edilen iş teslim edilmiş gibi gösterilmez. İşletim sisteminin
+hareket azaltma tercihi açıkken yürüyüş ve uçuşlar kaldırılır, durum simgeleri korunur.
+
+Ofis yalnız durum okur; işlem başlatmaz. Ajanlar kendi departmanlarında, insan
+çalışanlar ortak çalışan alanında gösterilir. İnsan hesaplarının departman bilgisi
+bulunmadığından ofis bu bilgiyi tahmin etmez. İnsanların durumları bildirdikleri
+görev kayıtlarından gelir; bilgisayarlarının çevrimiçi olduğunu veya o anda klavye
+kullandıklarını göstermez. Yönetici şirketindeki görev durumlarını, diğer çalışanlar
+kendi görev durumlarını görebilir; yetkisiz görevler için durum bilinmiyor olarak kalır.
+
 Ofis durum cevabı görev metni, müşteri adı, tutar, girdi veya model yanıtı içermez.
+Ajanın düşünmesi ve bir akış çalıştırması ayrı durum olarak aktarılır. Tamamlanan
+çalışmanın yalnız kimlik/durum bilgisi teslim animasyonu için en fazla 60 saniye
+bellekte kalır; performans sayacı tutulmaz. Ayrıntılar yalnız kişi seçildiğinde
+yetkili kayıtlardan okunur. İnsan hizmetine ulaşılamazsa durum bilgisi yenilenmiş
+gibi gösterilmez; yerel ajan görünümü çalışmaya devam eder.
 Yerel Chromium testleri geçse bile gerçek macOS WKWebView ve Windows WebView2
-kontrolleri ayrıca yapılmalıdır.
+kontrolleri ayrıca yapılmalıdır. Paket derlemesi `--self-test-office` ile gerçek
+pencere motorunu ve en az bir WebGL çizimini doğrular; yalnız 2D yedeğin çalışması
+3D testinin geçtiği anlamına gelmez. Bu test yapay verili ayrı bir yerel sunucu
+kullanır; normal Studio lisans kapısına istisna eklemez, kullanıcı çalışma alanını
+ve şifre kasasını okumaz.
 
 ## Ortak model için kurulum koşulları
 
@@ -182,6 +203,12 @@ Sunucudaki model işçisi web işçilerinden ayrıdır; özel yerel soket üzeri
 çıkarım ve sınırlı kuyruk yönetir. Prompt ve yanıt işçi belleğinde süreli tutulur;
 iş kayıtları başka bir bulut sağlayıcısına gönderilmez. Ayrı ajan lisansı ve kurum
 onaycısı sunucu yöneticisi tarafından tanımlanmadan bu uçlar etkinleşmez.
+
+Aynı Studio oturumundaki ajanlar ve **Yapay zekâya sor** adımları ortak model
+sırasını paylaşır. Sırada beklemek işlemin süre sınırına dahildir; iptal, oturum
+değişmesi veya lisansın kapanması bekleyen isteği modele göndermeden durdurur.
+Sıra bekleyen bir işlem önceki isteği kesmez. Yanıt token sınırında kesilmişse
+tamamlanmış sonuç olarak kabul edilmez.
 
 Başlangıç bağlamı 8192, yanıt sınırı 1024 tokendır. Studio sunucunun bildirdiği
 sınırları istekten önce uygular. İstek büyürse eski konuşmanın yalnız tamamlanmış

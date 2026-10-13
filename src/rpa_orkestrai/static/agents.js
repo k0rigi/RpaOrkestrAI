@@ -197,7 +197,8 @@
     else if (extensions.has(tab)) {
       view.pane.replaceChildren();
       const result = extensions.get(tab).mount(view.pane, { ...view.options, session: view.session,
-        agents: view.agents, openAgentRun: (identity) => openRun(view, identity) });
+        agents: view.agents, openAgentRun: (identity) => openRun(view, identity),
+        openTab: (name) => { if (view.tabButtons.has(name)) showTab(view, name); } });
       if (typeof result === "function") view.extensionCleanup = result;
       else if (result?.then) result.then((cleanup) => {
         if (!view.alive || view.tab !== tab) cleanup?.();

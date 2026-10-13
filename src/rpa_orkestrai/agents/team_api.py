@@ -69,6 +69,13 @@ def router(service, client, approval_backend):
     def members():
         return call(request, "GET", "/uyeler")
 
+    @result.get("/office")
+    def office():
+        from .office import human_snapshot
+
+        # Explicit projection prevents future central fields from leaking into the public scene.
+        return call(human_snapshot, call(request, "GET", "/ofis"))
+
     @result.get("/tasks")
     def tasks():
         return call(request, "GET", "/gorevler")

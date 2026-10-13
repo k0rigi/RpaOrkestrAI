@@ -12,8 +12,8 @@ from types import SimpleNamespace
 import pytest
 from test_agent_api import api as agent_api  # noqa: F401
 
-from rpa_orkestrai.agents.models import Actor, Agent, AgentRun
-from rpa_orkestrai.agents.office import snapshot
+from rpa_orkestrai.agents.models import Actor, Agent, AgentEvent, AgentRun
+from rpa_orkestrai.agents.office import human_snapshot, remember_completion, snapshot
 from rpa_orkestrai.agents.redaction import Redactor
 from rpa_orkestrai.agents.storage import AgentStore
 from rpa_orkestrai.package_check import _check_office_assets
@@ -41,7 +41,8 @@ def test_office_snapshot_uses_explicit_safe_fields_and_company_scope(tmp_path):
     result = snapshot(service)
     assert set(result) == {"agents", "departments", "totals"}
     item = result["agents"][0]
-    assert set(item) == {"id", "name", "department", "role", "status", "task_id", "task_label", "queue_count"}
+    assert set(item) == {"id", "name", "department", "role", "status", "task_id", "task_label", "queue_count",
+                         "kind", "manager_id", "run_id", "activity", "event"}
     assert item["id"] == ours.id and item["name"] == "Yerel [gizlendi]" and item["status"] == "running"
     assert item["queue_count"] == 2 and item["task_label"] == "Görev üzerinde çalışıyor"
     assert result["departments"] == [{"name": "Operasyon", "agent_count": 1}]
@@ -49,6 +50,68 @@ def test_office_snapshot_uses_explicit_safe_fields_and_company_scope(tmp_path):
     encoded = json.dumps(result, ensure_ascii=False)
     for hidden in ("müşteri", "özel başlık", "private", "girdi", "sonuç", "iş özeti", "session-secret", "Diğer firma", foreign.id):
         assert hidden not in encoded
+
+
+def test_activity_delegation_and_short_lived_completion_are_metadata_only(tmp_path, monkeypatch):
+    actor = Actor(user_id=1, company_id=1, session_id="session", permissions=("agents.use",))
+    store = AgentStore(tmp_path)
+    manager = store.save_agent(Agent(name="Yönetici", role="manager", company_id=1, user_id=1))
+    child = store.save_agent(Agent(name="Ajan", department="İşler", company_id=1, user_id=1, manager_id=manager.id))
+    run = AgentRun(agent_id=manager.id, agent_revision=1, actor=actor, task="ÖZEL İŞ", status="running",
+                   events=[AgentEvent(kind="task_delegated", message="GİZLİ", data={"agent_id": child.id, "secret": "SIR"})])
+    context = SimpleNamespace(run=run, agent=manager, thread=object(), active_workflow_id=None)
+    service = SimpleNamespace(agent_store=store, _authorize=lambda: actor, _new_redactor=Redactor,
+                              _contexts={run.id: context}, _lock=threading.RLock())
+    item = next(row for row in snapshot(service)["agents"] if row["id"] == manager.id)
+    assert item["activity"] == "thinking" and item["event"]["to_agent_id"] == child.id
+    context.active_workflow_id = "c" * 32
+    assert next(row for row in snapshot(service)["agents"] if row["id"] == manager.id)["activity"] == "workflow"
+    run = AgentRun(agent_id=child.id, agent_revision=1, actor=actor, task="ÖZEL İŞ", status="succeeded", summary="SIR")
+    context = SimpleNamespace(run=run, agent=child)
+    monkeypatch.setattr("rpa_orkestrai.agents.office.time.monotonic", lambda: 100)
+    remember_completion(service, context)
+    value = snapshot(service)
+    completed = next(row for row in value["agents"] if row["id"] == child.id)
+    assert completed["status"] == "succeeded" and completed["event"]["to_agent_id"] == manager.id
+    assert all(text not in json.dumps(value, ensure_ascii=False) for text in ("SIR", "ÖZEL İŞ", "GİZLİ"))
+    monkeypatch.setattr("rpa_orkestrai.agents.office.time.monotonic", lambda: 161)
+    assert next(row for row in snapshot(service)["agents"] if row["id"] == child.id)["status"] == "idle"
+    assert service._office_recent == {}
+
+
+def test_human_office_strips_new_fields_and_hidden_task_metadata():
+    raw = {"success": True, "people": [{"id": "human-10", "user_id": 10, "name": "Çalışan",
+           "status": "running", "task_id": "a" * 32, "queue_count": 4, "can_view_tasks": False,
+           "instructions": "ÖZEL", "task_label": "SIR", "department": "ÖZEL", "api_key": "SIR"}]}
+    value = human_snapshot(raw)
+    item = value["people"][0]
+    assert item["status"] == "unknown" and item["task_id"] is None and item["queue_count"] == 0
+    assert "SIR" not in json.dumps(value) and "ÖZEL" not in json.dumps(value, ensure_ascii=False)
+    raw["people"][0]["can_view_tasks"] = True
+    assert human_snapshot(raw)["people"][0]["task_id"] == "a" * 32
+    raw["people"][0]["task_id"] = "https://evil.invalid"
+    with pytest.raises(ValueError):
+        human_snapshot(raw)
+
+
+def test_human_office_endpoint_is_readonly_masked_and_license_gated(agent_api, monkeypatch):  # noqa: F811
+    calls = []
+
+    def respond(method, path, body, **kwargs):
+        calls.append((method, path, body, kwargs["expected_actor"].company_id))
+        return {"success": True, "people": [{"id": "human-10", "user_id": 10, "name": "Çalışan SIR",
+                "status": "idle", "task_id": None, "queue_count": 0, "can_view_tasks": True,
+                "instructions": "ÖZEL"}]}
+
+    monkeypatch.setattr(agent_api.app.state.agent_central, "request", respond)
+    monkeypatch.setattr(agent_api.app.state.agents, "_new_redactor", lambda: Redactor(["SIR"]))
+    response = agent_api.client.get("/api/agents/central/office")
+    assert response.status_code == 200 and response.json()["people"][0]["name"] == "Çalışan [gizlendi]"
+    assert "ÖZEL" not in response.text and calls == [("GET", "/ofis", None, 2)]
+    assert agent_api.client.post("/api/agents/central/office", json={}).status_code == 405
+    agent_api.licensing.agents = False
+    assert agent_api.client.get("/api/agents/central/office").status_code == 403
+    assert len(calls) == 1
 
 
 def test_office_snapshot_requires_current_license_and_user_permission(tmp_path):
@@ -93,13 +156,13 @@ def test_three_files_license_and_revision_are_bundled():
 
 
 @pytest.mark.parametrize("name", ["vendor/three/three.module.js", "vendor/three/addons/controls/OrbitControls.js",
-                                  "vendor/three/LICENSE", "office.js"])
+                                  "vendor/three/LICENSE", "office.js", "native-office-check.js"])
 def test_packaged_office_check_detects_missing_or_changed_files(tmp_path, name):
     root = Path(__file__).resolve().parents[1] / "src" / "rpa_orkestrai" / "static"
     shutil.copytree(root / "vendor" / "three", tmp_path / "vendor" / "three")
-    for item in ("office.js", "office.css", "agents.js", "agents.css"):
+    for item in ("office.js", "office.css", "agents.js", "agents.css", "native-office-check.js"):
         (tmp_path / item).write_text("test", encoding="utf-8")
-    if name == "office.js":
+    if name in {"office.js", "native-office-check.js"}:
         (tmp_path / name).unlink()
     else:
         (tmp_path / name).write_text("değiştirilmiş dosya", encoding="utf-8")
