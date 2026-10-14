@@ -236,7 +236,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Windows/macOS 0.9.23 paketleri yayımlandı. Ortak
+  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.24. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
 - [Adım rehberi: 88 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
