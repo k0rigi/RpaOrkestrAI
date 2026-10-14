@@ -25,7 +25,9 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.22:** Windows'ta görev çubuğuna sabitleme ve Başlat aramasında uygulama artık **RpaOrkestrAI Studio** adı ve simgesiyle görünür (önceden yalnız `RpaOrkestrAI.exe`). Uygulama ile masaüstü/Başlat kısayolları aynı uygulama kimliğini taşır; EXE'ye ad, sürüm ve yayıncı bilgisi eklendi. Daha önce sabitlenmiş eski öğeyi bir kez kaldırıp uygulama açıkken yeniden sabitleyin.
 
-**0.9.23 — yayın hazırlığında:** Ajanlar, tek yönetici ve departman ajanları, izinli akış araçları, ayrı ajan lisansı, merkezi kullanıcı onayları, insan görevleri ve performans paneli. **Yapay zekâya sor** adımı şema ile doğrulanmış sonuçları akışa taşır. Aynı oturumdaki ortak model istekleri sıraya girer; onay ve akış izinleri model yanıtıyla değişmez. [Ajan rehberi](docs/ajanlar.md) ve [doğrulama durumu](docs/ajanlar-gelistirme-durumu.md).
+**0.9.23:** Ajanlar, tek yönetici ve departman ajanları, izinli akış araçları, ayrı ajan lisansı, merkezi kullanıcı onayları, insan görevleri ve performans paneli. **Yapay zekâya sor** adımı şema ile doğrulanmış sonuçları akışa taşır. Aynı oturumdaki ortak model istekleri sıraya girer; onay ve akış izinleri model yanıtıyla değişmez. [Ajan rehberi](docs/ajanlar.md) ve [doğrulama durumu](docs/ajanlar-gelistirme-durumu.md).
+
+**Ortak sunucu LLM hizmeti henüz etkin değildir.** Kurulum dosyalarının yayımlanması ortak modelin çalıştığı anlamına gelmez. Sunucunun CPU özellikleri ve gerçek araç çağrısı süresi doğrulanmalıdır; ayrı ajan lisansı ataması da beklemektedir.
 
 Web tıklamasıyla açılan yeni sekmenin ilk yanıtı gecikse de sonraki adım yeni sekmeyi bekler. Süre dolarsa işlem durur; tıklama tekrarlanmaz.
 
@@ -232,8 +234,8 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Bu özellikler geliştirme dalındadır; ortak model
-  kurulumu ve yeni kurulum paketi henüz yayımlanmamıştır.
+  ve sağlayıcı bağlantıları. Windows/macOS 0.9.23 paketleri yayımlandı. Ortak
+  sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
 - [Adım rehberi: 86 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)

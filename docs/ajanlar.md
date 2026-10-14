@@ -1,5 +1,9 @@
 # Ajanlar ve dijital ekip
 
+**0.9.23 yayın durumu:** Windows/macOS kurulumları yayımlandı. Ortak sunucu LLM
+hizmeti canlı performans sınamasını henüz geçmediğinden etkin değildir; ayrı ajan
+lisansı ataması beklemektedir. [Doğrulama ve açık işler](ajanlar-gelistirme-durumu.md).
+
 Ajanlar, kullanıcı hedefini izin verilen akışlarla yerine getirir. Model hangi akışı
 hangi girdilerle çalıştıracağını önerir; izin, lisans, onay ve durdurma kararlarını
 Studio'nun Python katmanı uygular. Modele doğrudan fare, klavye, dosya, ağ veya komut
@@ -216,6 +220,11 @@ paylaşılan sunucuda 16 GB RAM tercih edilir. Model, bağlam ve sistem yüküne
 gerçek bellek ve hız kurulumda ölçülür. GPU zorunlu değildir; CPU yanıt süresi
 ölçülmeden performans garantisi verilmez. Model dosyası ve güncellemeler için
 en az 15–20 GB kullanılabilir disk bırakılması önerilir.
+
+Sanal sunucuda işlemci sayısına ek olarak işletim sisteminin gördüğü CPU
+özellikleri de kontrol edilir. Fiziksel sunucunun desteklediği AVX2/FMA gibi
+özellikler sanal CPU profiliyle gizlenmiş olabilir. Kurulum, gerçek araç çağrısı
+sınamasını süre sınırı içinde geçmeden ortak modeli kullanıma açmaz.
 
 Sunucudaki model işçisi web işçilerinden ayrıdır; özel yerel soket üzerinden tek
 çıkarım ve sınırlı kuyruk yönetir. Prompt ve yanıt işçi belleğinde süreli tutulur;

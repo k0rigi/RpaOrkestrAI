@@ -1,6 +1,7 @@
 # Ajan geliştirmesi — 14 Ekim 2026
 
-Bu rapor yayın hazırlığının durumudur. 0.9.23 kurulum paketi henüz yayımlanmadı.
+Windows ve macOS için **0.9.23 yayımlandı**. İmzalı bildirim, iki tam kurulum
+dosyası ve indirme sayfası HTTPS üzerinden gerçek güncelleme istemcisiyle doğrulandı.
 Ajan ve ekip API kodu normal sunucu dağıtımıyla yayımlandı; mevcut API hizmetinin
 yeniden başlatılması ve kimlik kapısı doğrulandı. Ortak model kurulumu ve açıkça
 onaylanan lisans ataması ayrıca tamamlanacak.
@@ -25,50 +26,41 @@ raporlama bu kapsamda yayımlanmış değildir.
 
 ## Doğrulama
 
-- Sır denetimi ve yeni sekme düzeltmelerinden sonraki Studio tam ağsız test koşusu: **1.809 geçti, 39 atlandı**; `RPA_UI_TESTS=1`, 247,60 saniye. Yerel tarayıcı ve loopback test izinleriyle çalıştırıldı. Görev sırası, yeniden deneme süresi ve Türkçe konsol çıktısı ayrıca deterministik regresyonlarla doğrulandı.
-- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **311 geçti**. Python 3.6 uyumluluğu statik olarak denetlendi.
-- Ruff: temiz. `app.js`, `agents.js`, `agent-team.js`, `agent-metrics.js`, `office.js`, `native-office-check.js`: Node sözdizimi kontrolü temiz.
-- Son ortak model tekrar deneme düzeltmesi ayrıca hedefli regresyonlarla kontrol edildi; onay kararı ve tüketimi tekrar edilmiyor.
-- UI testleri Chromium'da sahte HTTP yanıtlarıyla çalıştı; gerçek sağlayıcı/ERP hesabı kullanılmadı.
-- Gerçek macOS WKWebView kaynak çalışması: **9/9 kontrol geçti**, 633 WebGL çizim çağrısı, hata yok; sürüm 0.9.23, `frozen=false`. Paketlenmiş uygulama kanıtı değildir. Ofis Chromium testleri **10/10**, native kontrol regresyonları **56** test geçti.
-- İlk macOS CI matrisinde Python 3.11–3.14 geçti. İlk macOS paketinin öz testinde `ok=true`, `frozen=true`; gerçek WKWebView ofis sınamasında 9/9 kontrol ve 633 çizim çağrısı başarılı. Bu paket ilk commit içindir; Windows düzeltmelerini içeren yeni paket ve CI sonucu hâlâ gerekli. [macOS paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38475578862).
-- İlk Windows CI koşusu vendor dosyalarının CRLF dönüşümünü, iki testte UTF-8 belirtilmemesini ve eşzamanlı bağlantı kaydı/iptal yarışını ortaya çıkardı. Orijinal vendor baytları `.gitattributes` ile korunuyor; üretimde SHA denetimi gevşetilmedi. Bağlantılar ortak kilit ve benzersiz geçici dosya kullanıyor; iptal kontrol sinyali alt akışta da iptal sayılıyor. Ofis/native 50, bağlantı/kayıt/ajan 76, akış AI 52 hedefli test ve ardından 1.744 testlik tam koşu geçti. Yeni iki platform CI sonucu bekleniyor; başarısız koşu yayın kanıtı sayılmaz.
-- İkinci matrisin macOS Python 3.11–3.14 işleri başarılı. Windows'ta aynı ajanın kuyruk taraması sırasında görevin bitmesiyle sonraki işin öne geçmesi deterministik testle yeniden üretildi ve düzeltildi; kuyruğa giriş sırası sistem saatinden bağımsız korunuyor. Erken biten beklemenin model tekrar denemesini öne çekmesi de kontrollü saat testiyle düzeltildi. Windows arayüz fixture'ları UTF-8 okuyor; 23 yerel tarayıcı testi geçti. [İkinci matris](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38478500170).
-- İkinci Windows paketinin öz testi `ok=true`, `frozen=true`, 16 kontrol başarılı. Gerçek WebView2 ofis sınaması 9/9 kontrol, 844 WebGL çizim çağrısı ve boş hata listesiyle geçti. İşin sonundaki Türkçe başarı mesajı ANSI konsolda kodlama hatası verdi; komut satırı çıktısı UTF-8 olarak düzenlendi, başarı ve hata çıkışları cp1252 akışlarıyla test edildi. Son düzeltilen kaynak için yeni iki platform paketleri gerekli. [Windows paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38478502484).
-- Sunucu API dağıtımı başarılı: [0033c5b dağıtım kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38476658847). Ollama çıkarımı ve model hizmet kurulumu henüz tamamlanmadı.
-- Canlı MariaDB lisans ön kontrolü onaylanan hesap, firma ve dönem için başarılı; değişiklik yapılmadı. [Ön kontrol](https://github.com/k0rigi/orkestrai/actions/runs/38477834671).
-- İlk gerçek model kurulumu araç sınaması aşamasında başarısız oldu; servis ve ayarlar otomatik geri alındı. Model erişimi açılmadı, lisans verilmedi. İş içeriği göstermeyen alt aşama tanılaması dağıtıldı. [İlk kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38476989144).
-- İkinci model sınaması yapılandırma, soket ve istek denetimlerini geçti; ilk çıkarım 90,18 saniyede erişim hatasıyla durdu. Bu, çıkarım süre sınırına karşılık geliyor; zaman aşımı ayrımı ve soğuk yükleme ölçümü hazırlanıyor. Servis ve ayarlar geri alındı, lisans ataması hâlâ uygulanmadı. [İkinci kurulum sonucu](https://github.com/k0rigi/orkestrai/actions/runs/38479036763).
+Doğrulanan kurulumların kaynak commit'i
+`7a993f94906edb0fd7f198ac8694042d95a30f6d`.
 
-Üçüncü CI turunda Windows ve macOS paketleri başarılı; her ikisinde 16 paket
-kontrolü ve gerçek WebView2/WKWebView ile 9/9 ofis kontrolü geçti.
-[Paket koşusu](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38480628152).
-Testlerdeki disk hızı ve çizim zamanlaması bağımlılıkları giderildi; üretim süre
-sınırları değiştirilmedi. Ayrıca yavaş HTTP yanıtında yeni sekme açılmadan
-önceki sayfada devam etme yarışı düzeltildi: ana sayfa ve iki çerçeve türüyle
-20 tarayıcı, tek tıklama/iptal/zaman aşımı için 7 birim testi geçti.
-Son değişikliklerin tam CI ve paket doğrulaması bekleniyor.
+- Studio tam ağsız test koşusu: **1.809 geçti, 39 atlandı**; `RPA_UI_TESTS=1`, 247,60 saniye. Ruff ve altı Studio JavaScript dosyasının sözdizimi kontrolleri temiz.
+- [Push kontrolleri](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38484609998): Windows ve macOS başarılı. Gerçek tarayıcı testleri dahil Windows'ta 1.833, macOS'ta 1.811 test geçti.
+- [Tam Python 3.11–3.14 matrisi](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38484635370): iki platformdaki **8 işin tamamı başarılı**.
+- [Son masaüstü derlemesi](https://github.com/k0rigi/RpaOrkestrAI/actions/runs/38484654544): Windows ve macOS başarılı. Her pakette `ok=true`, `frozen=true`, sürüm `0.9.23` ve **16 paket kontrolü** doğrulandı.
+- Paketlenmiş uygulamada gerçek **WebView2 ve WKWebView ofis sınamaları 9/9**: yerel Three.js, tema, SVG geri dönüşü, erişilebilir liste, güvenli metin, temizlik ve salt okunur davranış başarılı; hata listeleri boş.
+- GitHub artefakt özetleri, çıkarılan EXE/DMG boyut ve SHA-256 değerleri eşleşti. macOS disk imajının `hdiutil verify` kontrolü başarılı.
+- Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **344 geçti**; Ruff ve Python 3.6 uyumluluk kontrolü temiz. [Son API dağıtımı](https://github.com/k0rigi/orkestrai/actions/runs/38485098815) başarılı.
+- Canlı lisans ön kontrolü onaylanan firma, hesap ve dönem için başarılı; canlı atama henüz yapılmadı. [Ön kontrol](https://github.com/k0rigi/orkestrai/actions/runs/38477834671).
 
-Üçüncü canlı model sınamasında 4B model 17,53 saniyede yüklendi; yüklü modelin
-ilk araç yanıtı 90,17 saniyede zaman aşımına uğradı. Bellek taşması saptanmadı.
-Servisler geri alındı; erişim ve lisans açılmadı. Aynı sekiz araç ve iki tur
-doğrulaması korunarak 1.7B modelin sınanması hazırlanıyor.
-[Model sınaması](https://github.com/k0rigi/orkestrai/actions/runs/38482010764).
+Testler gerçek müşteri ERP verisi veya sağlayıcı anahtarı kullanmaz. Hedef
+bilgisayardaki gerçek ERP akışları ayrıca sınanmalıdır. Başarılı Studio ve paket
+testleri, ortak sunucu modelinin çalıştığının kanıtı değildir.
 
-1.7B modelle yeni canlı sınamada ön yükleme 6,97 saniye, ilk araç isteği
-90,20 saniyede zaman aşımı verdi; bellek taşması saptanmadı. Servis ve ayarlar
-geri alındı, model erişimi ve lisans açılmadı. İki modelde de aynı sınırın
-aşılması nedeniyle sonraki tanılama yalnız süre/sayaçlarla hangi aşamanın
-geciktiğini ölçecek; ham model içeriği kayda alınmayacak.
-[1.7B sınaması](https://github.com/k0rigi/orkestrai/actions/runs/38483252059).
+## Ortak modelin durumu
 
-Son güvenlik incelemesinde yanlış metadata alanına yapıştırılan kayıtlı anahtar,
-kasada eksilen anahtar ve çalışma sırasında eklenen/değişen sırlar için ek
-korumalar tamamlandı. Bağlantı modeli test kutusu ve akış içi yapay zekâ
-çağrısı da bu denetime dâhil. Bağımsız incelemeler, hedefli testler ve 1.809 testlik
-tam koşu başarılı; iki platform CI ve kurulum doğrulaması bekleniyor.
-Sır incelemesi yalnız sentetik bellek kasasıyla
-yapıldı; gerçek kullanıcı anahtarları okunmadı.
+4B ve 1.7B modellerin canlı araç çağrıları 90 saniyelik sınırı aşmıştır.
+Son ayrıntılı ölçümde 1.7B modelin ön yüklemesi 8,22 saniyede tamamlandı;
+ilk araç isteği 90,16 saniyede durdu. Ayrı 90 saniyelik akış tanılamasında
+hiç yanıt parçası alınmadı. Yaklaşık dört işlemci çekirdeği kullanıldı;
+bellek taşması saptanmadı. [Ölçüm ve geri alma kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38485429812).
+
+Sanal makinede SSE2 görünürken SSSE3, SSE4.1, AVX, AVX2 ve FMA görünmüyor.
+Bu, fiziksel işlemcinin bu özellikleri desteklemediğini kanıtlamaz; sanal CPU
+profilinin sağlayıcı tarafından kontrol edilmesi gerekir. Bu gözlem gecikmenin
+tek nedeninin kesin olarak bulunduğu anlamına gelmez. Değişiklikten sonra aynı
+iki turlu araç çağrısı sınaması yeniden geçmelidir; süre veya izin denetimleri
+gevşetilmez. Başarısız kurulumda hizmetler ve ayarlar geri alındı; ortak model
+kullanıma açılmadı, mevcut RPA hizmeti korundu.
+
+[Yayın günündeki son sınamada](https://github.com/k0rigi/orkestrai/actions/runs/38507979262)
+CPU özellikleri değişmemişti; model 7,77 saniyede yüklendi, ilk araç çağrısı
+90,18 saniyede zaman aşımına uğradı. Hizmet ve ayarlar yeniden geri alındı.
 
 ## Güvenlik kontrol listesi
 
@@ -85,14 +77,12 @@ yapıldı; gerçek kullanıcı anahtarları okunmadı.
 11. Ofis ve performans görev başlatmıyor. Three.js ve kaynakları yerelden, lisans ve bütünlük kontrolüyle paketleniyor.
 12. Gizli bilgi, onay yarışları, iptal, lisans, bütçe, firma sınırı, CSV formülleri ve protokol hataları regresyon testleriyle kapsanıyor.
 
-## Yayın için açık işler
+## Yayın sonucu ve açık işler
 
-- Sunucu yükseltmesi salt okunur Actions tanılamasıyla doğrulandı: **6 mantıksal işlemci, 7,5 GiB toplam / 6,8 GiB kullanılabilir RAM, 81,6 GiB boş disk**, AlmaLinux 8.10 x86_64. NVIDIA yönetim aracı bulunmaması GPU olmadığını kanıtlamaz; ilk model CPU ile, tek çıkarım sırasında ölçülecek. Donanım artışı tek başına model hızı veya araç çağrısı doğruluğunun doğrulandığı anlamına gelmez. [Tanılama kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472031645).
-- Mevcut web hizmeti ve lisans metadata incelemesi tamamlandı; mevcut systemd web hizmeti korunacak. Ortak model henüz kurulu değil. [İnceleme kaydı](https://github.com/k0rigi/orkestrai/actions/runs/38472777304).
-- Ofis karakterleri ve paketler içindeki gerçek WKWebView/WebView2 kontrolleri başarılı; son düzeltmeleri içeren iki platform paketleri bekliyor.
-- Seçilen firma/kullanıcı için `MOD_AJAN` bitişini mevcut RPA firma bitişiyle eşleme ve tek onaycı bağlama işlemi kullanıcı tarafından onaylandı; canlı atama henüz yapılmadı. Hesap kimlikleri ve lisans tarihleri genel uygulama koduna veya bu açık depo belgesine gömülmez.
-- Sunucu seed'i yalnız modül kataloğunu oluşturuyor, lisans vermiyor. Bu depoda genel modül atama ekranı/yazma API'si bulunmadığından canlı atama ayrıca denetlenen yönetim işlemiyle yapılmalı; mevcut panelden atanabildiği doğrulanmadı.
-- GitHub Actions üzerinden kurulum/yayın öncesi inceleme, gerçek model ölçümü, iki platform CI ve paket öz testleri.
-- Kullanıcının seçtiği 0.9.23 sürüm numarası dört yayın dosyasına işlendi. İmzalı dağıtım ve geri dönüş doğrulaması bekliyor; `credentials/` dosyaları okunmadı veya paketlenmedi.
+- [0.9.23 yayın işi](https://github.com/k0rigi/orkestrai/actions/runs/38508334057) başarılı. [İndirme sayfası](https://orkestrai.net/rpa/) ve [GitHub test sürümü](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.9.23-test.1) kullanılabilir. Canlı dosyaların boyutları ve SHA-256 özetleri doğrulanan yerel paketlerle aynı.
+- Sunucu sağlayıcısı CPU özelliklerini kontrol etmeli; ortak model gerçek araç çağrısı sınamasını geçmeden etkinleştirilmez.
+- Onaylanan ayrı ajan lisansı ve tek onaycı ataması henüz uygulanmadı. Hesap kimlikleri ve tarihler genel uygulama koduna veya açık depo belgelerine gömülmez.
+- Yeni yayın doğrulanmadan önceki kurulumlar kaldırılmaz. En düşük kabul edilen Studio sürümü değiştirilmez.
+- Kullanıcının yerel imzalama onayıyla yalnız mevcut yayın betiği özel anahtarı kullanır; anahtar Git'e, paketlere veya sunucuya gönderilmez.
 
 Kullanım ayrıntıları: [Ajanlar ve dijital ekip](ajanlar.md).
