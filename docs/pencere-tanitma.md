@@ -90,6 +90,7 @@ Konum ve görsel yöntemleri bu sürümde ERP penceresinin **ana ekranda ve tama
 | **Pencerede tıkla** | Hedef butona/öğeye tek, çift veya sağ tık yapar; metin yazmaz. |
 | **Alanı doldur** | Hedef yazı alanına tıklar, istenirse içeriğini temizler, değeri yazar. |
 | **Pencerede tuşa bas** | Tanıtılan pencereye Enter, Tab veya bir kısayol gönderir; hedef alan aramaz. |
+| **Tıkla ve tuşa bas** | Hedefe tıklar, ardından aynı pencereye tuş veya kısayol gönderir. Hedef bulunamaz ya da pencere değişirse ikisi de yapılmaz. |
 | **Pencerede görseli bekle / ara** | Bir işaretin görünmesini ya da kaybolmasını bekler; fare/klavye işlemi yapmaz. |
 | **Bekle** | Sabit süre bekler; ekranın hazır olduğunu doğrulamaz. |
 

@@ -34,6 +34,24 @@ OPERATORS = [
 ]
 
 WINDOW = field("window", "Pencere", default="${erp_window}", required=True)
+
+
+def window_key_fields() -> list[dict]:
+    # Fresh dicts: guide.apply() fills each step's own field help in place.
+    return [field("key", "Tuş", "select", "enter", required=True,
+                  options=[{"value": key, "label": label} for key, label in [
+                      ("enter", "Enter"), ("tab", "Tab"), ("esc", "Escape"),
+                      ("down", "Aşağı ok"), ("up", "Yukarı ok"), ("left", "Sol ok"),
+                      ("right", "Sağ ok"), ("space", "Boşluk"), ("backspace", "Backspace"),
+                      ("delete", "Delete"), ("home", "Home"), ("end", "End"),
+                      *[(f"f{i}", f"F{i}") for i in range(1, 13)],
+                      ("a", "A"), ("c", "C"), ("v", "V"), ("s", "S")]]),
+            field("modifier", "Birlikte basılacak tuş", "select", "none",
+                  options=[{"value": value, "label": label} for value, label in [
+                      ("none", "Yok"), ("mod", "Ctrl (Windows) / Command (Mac)"),
+                      ("shift", "Shift"), ("alt", "Alt / Option"), ("ctrl", "Ctrl")]])]
+
+
 SHEETS_CONNECTION = field("connection", "Google Sheets bağlantısı", "connection", "", connection_type="google_sheets",
                           help="Boş bırakılırsa varsayılan Google Sheets bağlantısı kullanılır.")
 WEB_TARGET = [
@@ -212,18 +230,15 @@ CATALOG: list[dict[str, Any]] = [
             field("clear", "Önce alandaki mevcut değeri temizle", "boolean", True)]),
     action("desktop.window_key", "Pencerede tuşa bas", "Pencere",
            "Tanıtılan pencerede Enter, Tab veya bir klavye kısayolu gönderir; alan aramaz.",
-           [WINDOW, field("key", "Tuş", "select", "enter", required=True,
-                          options=[{"value": key, "label": label} for key, label in [
-                              ("enter", "Enter"), ("tab", "Tab"), ("esc", "Escape"),
-                              ("down", "Aşağı ok"), ("up", "Yukarı ok"), ("left", "Sol ok"),
-                              ("right", "Sağ ok"), ("space", "Boşluk"), ("backspace", "Backspace"),
-                              ("delete", "Delete"), ("home", "Home"), ("end", "End"),
-                              *[(f"f{i}", f"F{i}") for i in range(1, 13)],
-                              ("a", "A"), ("c", "C"), ("v", "V"), ("s", "S")]]),
-            field("modifier", "Birlikte basılacak tuş", "select", "none",
-                  options=[{"value": value, "label": label} for value, label in [
-                      ("none", "Yok"), ("mod", "Ctrl (Windows) / Command (Mac)"),
-                      ("shift", "Shift"), ("alt", "Alt / Option"), ("ctrl", "Ctrl")]])]),
+           [WINDOW, *window_key_fields()]),
+    action("desktop.window_click_key", "Tıkla ve tuşa bas", "Pencere",
+           "Hedefi konumuyla, görseliyle veya alan kimliğiyle bulup tıklar, ardından seçilen tuşu veya kısayolu "
+           "gönderir. Hedef bulunamazsa tıklamaz ve tuşa basmaz.",
+           [WINDOW, *target_fields(),
+            field("clicks", "Tıklama sayısı", "select", 1,
+                  options=[{"value": 1, "label": "Tek tık"}, {"value": 2, "label": "Çift tık"}]),
+            *window_key_fields(),
+            field("delay", "Tıklama ile tuş arasında bekle (saniye)", "number", 0.2, min=0, max=5, step=0.1)]),
     action("desktop.window_wait_image", "Pencerede görseli bekle / ara", "Pencere",
            "Bir işaretin (düğme, başlık, hata kutusu) pencerede görünmesini veya kaybolmasını bekler; tıklamaz. "
            "Bulunup bulunmadığını Koşul adımında kullanmak için sonucu kaydeder.",
@@ -602,7 +617,29 @@ LIBRARY = [
             field("path", "Dosya", "path", "", required=True, help=FILE_HELP),
             field("sheet", "Sayfa adı (Excel)", default="Sayfa1"),
             field("mode", "Yazma biçimi", "select", "overwrite", options=[
-                {"value": "overwrite", "label": "Yeni dosya / üzerine yaz"}, {"value": "append", "label": "Sonuna ekle"}])]),
+                {"value": "overwrite", "label": "Yeni dosya / üzerine yaz"}, {"value": "append", "label": "Sonuna ekle"}]),
+            field("last_row_column", "Son satırı belirleyen sütun (Excel)", default="", omit_default=True,
+                  visible_when={"mode": "append"}),
+            field("formulas", "= ile başlayan değerleri formül olarak yaz (Excel)", "boolean", False,
+                  omit_default=True)]),
+    action("file.write_cell", "Excel hücresine yaz", "Dosya ve Excel",
+           "Bir değeri veya formülü seçtiğiniz sütuna yazar: belirli bir satıra, son dolu satıra ya da son dolu "
+           "satırın altına. Son satırı hangi sütunun belirleyeceğini siz seçersiniz.",
+           [field("path", "Dosya", "path", "", required=True, help=FILE_HELP),
+            field("sheet", "Sayfa adı", default="Sayfa1"),
+            field("column", "Sütun", default="A", required=True),
+            field("row_mode", "Satır", "select", "number", required=True, options=[
+                {"value": "number", "label": "Belirli satır numarası"},
+                {"value": "next", "label": "Son dolu satırın altına (yeni satır)"},
+                {"value": "last", "label": "Son dolu satıra"}]),
+            field("row", "Satır numarası", default="2", required=True, visible_when={"row_mode": "number"}),
+            field("last_row_column", "Son satırı belirleyen sütun", default="",
+                  visible_when={"row_mode": ["next", "last"]}),
+            field("value_type", "Değer türü", "select", "value", required=True, options=[
+                {"value": "value", "label": "Metin / değer"}, {"value": "number", "label": "Sayı"},
+                {"value": "formula", "label": "Formül"}]),
+            field("value", "Yazılacak değer", default="${result}"),
+            output("excel_cell")]),
     action("file.zip", "Zip aç / oluştur", "Dosya ve Excel",
            "Bir zip dosyasını klasöre açar veya dosya ve klasörlerden zip oluşturur. Türkçe dosya adları korunur.",
            [field("operation", "İşlem", "select", "extract", required=True, options=[
@@ -988,13 +1025,19 @@ TEST_PREPARE = {"file.read_pdf", "core.set", "data.append", "data.calculate", "t
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read", "database.query", "ai.ask"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.
-LOCATABLE = {"window.write_table", "window.text_write", "window.checkbox", "desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table",
+LOCATABLE = {"window.write_table", "window.text_write", "window.checkbox", "desktop.window_click", "desktop.window_fill",
+             "desktop.window_click_key", "window.read_field", "window.read_table",
              "input.mouse_click",
              "input.mouse_move", "screen.click_image"}
 
 
-def library_catalog() -> list[dict[str, Any]]:
-    return CATALOG
+# Steps offered only with the separate agent license (MOD_AJAN). Saved flows keep them through
+# ACTION_DEFINITIONS; running one without the license is refused by the agent service.
+AGENT_STEPS = {"ai.ask"}
+
+
+def library_catalog(agents: bool = True) -> list[dict[str, Any]]:
+    return CATALOG if agents else [entry for entry in CATALOG if entry["type"] not in AGENT_STEPS]
 
 
 def defaults(action_type: str) -> dict[str, Any]:

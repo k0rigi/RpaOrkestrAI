@@ -1,6 +1,6 @@
 # Adım rehberi
 
-Adım kütüphanesi 86 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 88 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -120,6 +120,7 @@ Dosya yolu alanlarında `~/Desktop/rapor.xlsx`, `%USERPROFILE%\Desktop\rapor.xls
 | Metni bul, tıkla ve yaz (0.9.15+) | **Bölge çiz** ile pencerede arama alanını seçin. **Bulunan metnin üzerine** veya **Sütun ve satır kesişimine** tıklar; değeri yazar, isterseniz Tab/Enter'a basar. Konum her çalışmada OCR ile yeniden ölçülür. | Tıklanan nokta ve değer test günlüğünde |
 | Tabloya değer yaz (0.9.6+) | **0.9.11: Tabloyu seç** ile herhangi bir hücreye tek tıklayın; satır sayısı ve sütunlar alınır. Satır, sütun adı / `sutun_2` / numara ve yeni değer girin. Alan çizmek gerekmez. Hücre güncel tablodan bulunur; sonuç doğrulanır. Ek ayar bölümü yoktur; hücre düzenlemesi otomatik doğrulanır, sonuç tablonun tamamından kontrol edilir. | `${table_write.row}`, `${table_write.column}`, `${table_write.value}` |
 | Pencerede tuşa bas | Tanıtılan pencereye tuş veya kısayol gönderir. | — |
+| Tıkla ve tuşa bas (0.9.24+) | Hedefi konumu, görseli veya alan kimliğiyle bulup tek ya da çift tıklar, kısa bir beklemeden sonra seçilen tuşu veya kısayolu aynı pencereye gönderir (ör. bir alana tıklayıp Aşağı ok ile listeyi açmak). Hedef bulunamazsa tıklamaz ve tuşa basmaz; pencere arada değişir veya odağı kaybederse tuş gönderilmez. | — |
 | Pencerede görseli bekle / ara | Pencerede bir işaretin (düğme, başlık, hata kutusu) görünmesini veya kaybolmasını bekler. **Süre dolarsa:** akışı durdurur ya da "bulunamadı" sonucuyla devam eder; böylece bir hata kutusu çıkıp çıkmadığına Koşul ile karar verilir. | `${image.found}`, `${image.center_x}`, `${image.center_y}` |
 | Pencereyi öne getir | Pencereyi öne alır; küçültülmüşse açar. | — |
 | Pencereyi büyüt / küçült | Büyütür, küçültür veya geri yükler. | — |
@@ -181,7 +182,8 @@ Eski sürümde kısayol seçerken yalnız `javaws.exe` yolu kaydedilmişse günc
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
 | Excel / CSV oku | `.xlsx` veya `.csv` dosyasını satır listesine çevirir. Başlıklar alan adı olur: `${row.Tutar}`. `${row.row_number}` Excel satır numarasıdır. | `${rows}` |
-| Excel / CSV'ye yaz | Kayıt listesini yeni dosyaya yazar veya sonuna ekler. Yeni sütunlar başlığa eklenir; `=` ile başlayan metinler formül olarak çalışmaz. | Dosya yolu |
+| Excel / CSV'ye yaz | Kayıt listesini yeni dosyaya yazar veya sonuna ekler. Her alan başlık satırında aynı adı taşıyan sütuna yazılır (başlıklar arasında boş sütun olsa da kaymaz); yeni alanlar sona eklenir. **0.9.24+:** Sonuna eklerken **Son satırı belirleyen sütun** (ör. `A`) seçilebilir; boşsa değer içeren son satır esas alınır, yalnız biçimlendirilmiş boş satırlar sayılmaz. `=` ile başlayan metinler varsayılan olarak formül olarak çalışmaz; **formül olarak yaz** seçeneği açılırsa formül olur. `.xlsm` dosyalarındaki makrolar korunur. | Dosya yolu |
+| Excel hücresine yaz (0.9.24+) | Tek bir değeri, sayıyı veya formülü seçilen sütuna yazar. Satır: **belirli satır numarası** (döngüde `${row.row_number}`), **son dolu satır** ya da **son dolu satırın altı**. Son satırı hangi sütunun belirleyeceği ayrıca seçilir (boşsa yazılan sütun). Formüller dosyaya İngilizce işlev adı ve virgülle yazılır (`=SUM(B2:B{satir})`; `TOPLA` ve `;` reddedilir), `{satir}` yazılan satırın numarası olur. Formülün sonucu dosya Excel'de açılıp kaydedilince hesaplanır. Mevcut dosyada sayfa yoksa veya son satır bulunamazsa yazma yapılmaz. | `${excel_cell.cell}`, `${excel_cell.row}` |
 | Metin dosyası oku / yaz | `.txt`, `.json`, günlük dosyaları. Yazmada "sonuna ekle" günlük tutmak içindir. | `${file_text}` |
 | Dosya / klasör var mı? | Sonucu Koşul adımında kullanın. | `${file_exists}` |
 | Klasördeki dosyaları listele | Desen (`*.pdf`), alt klasör ve sıralama. Liste `name`, `path`, `size` ve `modified` alanlarını içerir. | `${files}` |

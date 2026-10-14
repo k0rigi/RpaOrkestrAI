@@ -63,3 +63,45 @@ def test_ai_editor_loads_provider_choices_safely_and_saves_exact_step(tmp_path):
         assert saved["connection"] == connection_id and saved["instructions"] == "Kararı seç.\n" + attack
         assert saved["schema"]["required"] == ["karar"]
     assert not errors
+
+
+def test_agents_section_follows_the_agent_license(tmp_path):
+    playwright = pytest.importorskip("playwright.sync_api")
+    errors, license = [], {"agents": False}
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 980, "height": 900})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                url = urlsplit(request.url)
+                result = client.request(request.method, url.path + ("?" + url.query if url.query else ""),
+                                        content=request.post_data_buffer, headers={"content-type": "application/json"})
+                if url.path == "/api/license":
+                    route.fulfill(json={**result.json(), "agents": license["agents"]})
+                else:
+                    route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.clock.install()
+            page.goto("http://127.0.0.1:8765/")
+            nav = page.locator("#nav-agents")
+            playwright.expect(page.locator("#nav-workflows")).to_be_visible()
+            playwright.expect(nav).to_be_hidden()
+            page.locator("#nav-settings, .nav-button:has-text('Ayarlar')").first.click()
+            playwright.expect(page.locator("#settings-agent-connections")).to_have_count(0)
+
+            license["agents"] = True
+            page.clock.run_for(31000)
+            playwright.expect(nav).to_be_visible()
+            nav.click()
+            playwright.expect(page.locator("#agents-page")).to_be_visible()
+
+            license["agents"] = False
+            page.clock.run_for(31000)
+            playwright.expect(nav).to_be_hidden()
+            playwright.expect(page.locator("#agents-page")).to_have_count(0)
+            assert errors == []
+            browser.close()

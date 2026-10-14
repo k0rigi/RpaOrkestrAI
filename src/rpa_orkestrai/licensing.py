@@ -335,9 +335,10 @@ class LicenseService:
                 public = {"user": known, "full_name": "", "company": "",
                           "ends_on": (self._denial or {}).get("ends_on")}
             # "detail" tells the two refusals apart: no license, or a version no longer served.
+            # Studio shows the Ajanlar section only to an account whose license carries MOD_AJAN.
             return {"state": state, "message": message, "online": self._online, "license": public,
                     "remembered": self._refresh_token is not None,
-                    "detail": (self._denial or {}).get("detail")}
+                    "detail": (self._denial or {}).get("detail"), "agents": self.agent_actor() is not None}
 
     # ----- server ------------------------------------------------------------------
     def _post(self, endpoint: str, body: dict, timeout: float | None = None) -> dict:

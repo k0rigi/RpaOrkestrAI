@@ -403,6 +403,49 @@ def test_unknown_key_or_modifier_is_rejected_before_focus(service, window, deskt
     desktop.hotkey.assert_not_called()
 
 
+def test_click_and_press_clicks_target_then_sends_key_to_same_window(service, window, desktop):
+    service.click_and_press(window.result(), desktop, key="down", modifier="none", clicks=2, delay=0, x=40, y=60)
+    input_calls = [entry for entry in desktop.mock_calls if entry[0] in {"click", "hotkey", "press", "write"}]
+    assert input_calls == [call.click(140, 140, clicks=2, button="left"), call.press("down")]
+    desktop.reset_mock()
+    service.click_and_press(window.result(), desktop, key="enter", modifier="mod", delay=0, x=40, y=60)
+    input_calls = [entry for entry in desktop.mock_calls if entry[0] in {"click", "hotkey", "press", "write"}]
+    assert input_calls == [call.click(140, 140, clicks=1, button="left"), call.hotkey("mod", "enter")]
+
+
+def test_click_and_press_focus_change_after_click_never_sends_key(service, window, desktop):
+    desktop.click.side_effect = lambda *args, **kwargs: setattr(service.backend.is_active, "return_value", False)
+    with pytest.raises(WindowError, match="odağı değişti"):
+        service.click_and_press(window.result(), desktop, key="enter", delay=0, x=40, y=60)
+    desktop.press.assert_not_called()
+    desktop.hotkey.assert_not_called()
+
+
+def test_click_and_press_cancel_during_wait_never_sends_key(service, window, desktop):
+    desktop.click.side_effect = lambda *args, **kwargs: service.cancel.set()
+    with pytest.raises(InterruptedError):
+        service.click_and_press(window.result(), desktop, key="tab", delay=5, x=40, y=60)
+    desktop.press.assert_not_called()
+
+
+@pytest.mark.parametrize("arguments", [dict(key="not-a-key"), dict(key="enter", modifier="meta"),
+                                       dict(key="enter", clicks=3), dict(key="enter", delay=-1),
+                                       dict(key="enter", delay=float("nan"))])
+def test_click_and_press_rejects_bad_arguments_before_focus_or_input(service, window, desktop, arguments):
+    with pytest.raises(WindowError):
+        service.click_and_press(window.result(), desktop, x=40, y=60, **arguments)
+    service.backend.activate.assert_not_called()
+    desktop.click.assert_not_called()
+    desktop.press.assert_not_called()
+
+
+def test_click_and_press_missing_target_never_clicks_or_presses(service, window, desktop):
+    with pytest.raises(WindowError, match="sınırlarının dışında"):
+        service.click_and_press(window.result(), desktop, key="enter", x=4000, y=60)
+    desktop.click.assert_not_called()
+    desktop.press.assert_not_called()
+
+
 def test_image_wait_activates_once_and_observes_appearance(service, window, desktop, template, monkeypatch):
     monkeypatch.setattr(Vision, "match_template", Mock(side_effect=[None, Match(20, 30, 10, 10, 0.97)]))
     monkeypatch.setattr(service.cancel, "wait", Mock(return_value=False))

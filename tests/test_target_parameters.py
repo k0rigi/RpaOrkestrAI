@@ -96,3 +96,34 @@ def test_supported_resolved_click_count_reaches_adapter_as_exact_integer(runner,
 
     actual = runner._windows.click_target.call_args.kwargs["clicks"]
     assert type(actual) is int and actual == expected
+
+
+def test_click_and_press_step_validates_then_passes_target_key_and_delay(runner):
+    workflow = Workflow(steps=[Step(action="desktop.window_click_key", params={
+        "window": "${erp}", "target_mode": "coordinates", "x": 20, "y": 30, "clicks": "2",
+        "key": "down", "modifier": "none", "delay": 0.5,
+    })])
+    validate_workflow(workflow)
+
+    runner.execute(workflow)
+
+    runner._windows.click_and_press.assert_called_once_with(
+        runner.variables["erp"], runner._desktop, key="down", modifier="none", clicks=2, delay=0.5,
+        target_mode="coordinates", x=20, y=30,
+    )
+
+
+@pytest.mark.parametrize("changes,message", [({"clicks": 3}, "Tıklama sayısı"), ({"delay": 9}, "bekleme")])
+def test_click_and_press_step_rejects_bad_values_before_window_adapter(runner, monkeypatch, changes, message):
+    windows = Mock(return_value=runner._windows)
+    monkeypatch.setattr(runner, "windows", windows)
+    runner.variables["value"] = next(iter(changes.values()))
+    workflow = Workflow(steps=[Step(action="desktop.window_click_key", params={
+        "window": "${erp}", "x": 20, "y": 30, "key": "enter", next(iter(changes)): "${value}",
+    })])
+    validate_workflow(workflow)
+
+    with pytest.raises(WorkflowError, match=message):
+        runner.execute(workflow)
+
+    windows.assert_not_called()

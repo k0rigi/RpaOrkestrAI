@@ -15,9 +15,10 @@ def test_separate_signed_entitlement_and_only_designated_owner_can_approve(tmp_p
     licensing = service(tmp_path, server)
     licensing.login("operator", "dogru")
     assert licensing.allowed() and not licensing.agent_allowed()
+    assert licensing.status()["agents"] is False
     server.claims = {"ajan": entitlement()}
     licensing.refresh()
-    assert licensing.agent_actor().can_approve
+    assert licensing.agent_actor().can_approve and licensing.status()["agents"] is True
     assert licensing.agent_actor().user_id == 42
     server.claims = {"ajan": entitlement(onayci_id=99, yetkiler=["agents.use"])}
     licensing.refresh()
@@ -49,3 +50,29 @@ def test_logout_closes_agent_identity_and_notifies_workers(tmp_path):
     assert licensing.agent_actor()
     licensing.logout()
     assert licensing.agent_actor() is None and events == ["session"]
+    assert licensing.status()["agents"] is False
+
+
+@pytest.mark.parametrize("agents", [False, True])
+def test_studio_offers_agent_steps_only_with_the_agent_license(tmp_path, monkeypatch, agents):
+    from conftest import LicensedForTests
+    from fastapi.testclient import TestClient
+
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    class Licensed(LicensedForTests):
+        def agent_allowed(self):
+            return agents
+
+        def agent_actor(self):
+            return None
+
+    monkeypatch.setattr("rpa_orkestrai.app.LicenseService", Licensed)
+    with TestClient(create_app(Settings(tmp_path, dotenv=False))) as client:
+        bootstrap = client.get("/api/bootstrap").json()
+        offered = {entry["type"] for entry in bootstrap["catalog"]}
+        assert ("ai.ask" in offered) is agents
+        assert ("ai.ask" in {entry["type"] for entry in client.get("/api/catalog").json()}) is agents
+        # Saved flows that already use the step still open and show its fields.
+        assert any(entry["type"] == "ai.ask" for entry in bootstrap["action_definitions"])

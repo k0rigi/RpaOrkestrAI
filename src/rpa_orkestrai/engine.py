@@ -98,6 +98,15 @@ def resolve(value: Any, variables: dict[str, Any]) -> Any:
     return value
 
 
+def window_clicks(p: dict) -> int:
+    clicks = p.get("clicks", 1)
+    if type(clicks) is str and clicks in {"1", "2"}:
+        clicks = int(clicks)
+    if type(clicks) is not int or clicks not in {1, 2}:
+        raise WorkflowError("Tıklama sayısı 1 veya 2 olmalıdır.")
+    return clicks
+
+
 def loop_start(value: Any) -> int:
     """Her satır için › Kaçıncı satırdan başlasın: 1 is the first item; empty starts at the first."""
     if value is None or value == "":
@@ -568,7 +577,8 @@ class Executor:
         from .actions.common import number
 
         desktop = self.desktop()
-        if action in {"desktop.window_click", "desktop.window_fill", "window.read_field", "window.read_table"}:
+        if action in {"desktop.window_click", "desktop.window_click_key", "desktop.window_fill", "window.read_field",
+                      "window.read_table"}:
             x, y = self.windows().locate_target(p["window"], desktop, **self.window_target(p))
         elif action == "window.write_table":
             from .actions.windows import table_operation
@@ -1144,13 +1154,16 @@ class Executor:
         elif action == "desktop.find_window":
             return self.windows().find(p["application"], p["title"], p["match"], p["timeout"], p["on_missing"])
         elif action == "desktop.window_click":
-            clicks = p.get("clicks", 1)
-            if type(clicks) is str and clicks in {"1", "2"}:
-                clicks = int(clicks)
-            if type(clicks) is not int or clicks not in {1, 2}:
-                raise WorkflowError("Tıklama sayısı 1 veya 2 olmalıdır.")
+            clicks = window_clicks(p)  # checked before any window or input adapter is created
             self.windows().click_target(p["window"], self.desktop(), **self.window_target(p),
                                         clicks=clicks, button=p.get("button", "left"))
+        elif action == "desktop.window_click_key":
+            from .actions.common import number
+
+            clicks = window_clicks(p)
+            delay = number(p.get("delay", 0.2), "Tıklama ile tuş arasındaki bekleme", 0, 5)
+            self.windows().click_and_press(p["window"], self.desktop(), key=p["key"], modifier=p["modifier"],
+                                           clicks=clicks, delay=delay, **self.window_target(p))
         elif action == "desktop.window_fill":
             text = p["text"]
             if isinstance(text, (dict, list)) or text is None:

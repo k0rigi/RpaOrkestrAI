@@ -476,7 +476,12 @@
       true,
     );
   }
+  // Ajanlar is a separate module (MOD_AJAN); the local API refuses it either way.
+  function agentsAllowed() {
+    return state.license?.agents === true;
+  }
   async function navigate(page, options = {}) {
+    if (page === "agents" && !agentsAllowed()) page = "dashboard";
     if (!options.force && !(await guardUnsaved())) return;
     stopPolling();
     const epoch = state.pollEpoch;
@@ -570,6 +575,7 @@
         (page === "runs" && state.page === "run");
       const item = node("button", `nav-button${selected ? " active" : ""}`);
       item.id = `nav-${page}`;
+      if (page === "agents") item.hidden = !agentsAllowed();
       item.append(icon(glyph), node("span", "", label));
       if (page === "workflows")
         item.append(node("span", "nav-count", state.workflows.length));
@@ -696,6 +702,7 @@
       agents: agentsPage,
       settings: settingsPage,
     };
+    if (state.page === "agents" && !agentsAllowed()) state.page = "dashboard";
     target.append((views[state.page] || dashboardPage)());
   }
   function agentsPage() {
@@ -6751,6 +6758,7 @@
     const manage = button("Sağlayıcı bağlantılarını yönet", "link", () => navigate("agents"), "small");
     manage.id = `${select.id}-manage`;
     row.append(select, refresh);
+    manage.hidden = !agentsAllowed();
     wrap.append(label, row, status, manage, node("p", "help", f.help || ""));
     let profiles = [];
     const explain = () => {
@@ -7247,15 +7255,17 @@
       return el;
     }
     form.append(licensePanel(panel));
-    const agentsPanel = panel("Yapay zekâ bağlantıları", "spark",
-      "Model sağlayıcısı, kayıtlı API anahtarları ve ajan izinlerini yönetin. Ajanlar için ayrıca ajan lisansı gerekir.");
-    const agentsSettings = button("Ajan bağlantılarını aç", "arrow", () => {
-      state.agentTab = "connections";
-      navigate("agents");
-    });
-    agentsSettings.id = "settings-agent-connections";
-    agentsPanel.append(agentsSettings);
-    form.append(agentsPanel);
+    if (agentsAllowed()) {
+      const agentsPanel = panel("Yapay zekâ bağlantıları", "spark",
+        "Model sağlayıcısı, kayıtlı API anahtarları ve ajan izinlerini yönetin. Ajanlar için ayrıca ajan lisansı gerekir.");
+      const agentsSettings = button("Ajan bağlantılarını aç", "arrow", () => {
+        state.agentTab = "connections";
+        navigate("agents");
+      });
+      agentsSettings.id = "settings-agent-connections";
+      agentsPanel.append(agentsSettings);
+      form.append(agentsPanel);
+    }
     const updatePanel = panel(
       "Uygulama güncellemeleri", "refresh",
       "Yeni sürümler arka planda indirilir. Studio'yu kapatıp açtığınızda kurulum ekranı açılmadan kendiliğinden "
@@ -7519,7 +7529,9 @@
       try {
         const result = await api("/api/license/refresh", { method: "POST" });
         if (result.state !== "valid") return showLicenseGate(result);
+        const changed = (state.license?.agents === true) !== (result.agents === true);
         state.license = result;
+        if (changed) state.catalog = await api("/api/catalog");
         toast(result.online === false
           ? "orkestrai.net'e ulaşılamadı. Bağlantı gelmezse Studio bir süre sonra kilitlenir."
           : "Lisans doğrulandı.", result.online === false);
@@ -7556,11 +7568,26 @@
         const license = await api("/api/license");
         if (root.querySelector(".license-screen")) return;
         if (license.state !== "valid") showLicenseGate(license);
-        else state.license = license;
+        else {
+          const changed = (state.license?.agents === true) !== (license.agents === true);
+          state.license = license;
+          if (changed) await agentsChanged();
+        }
       } catch (_) {
         // The local Studio is closing; there is nothing to show.
       }
     }, 30000);
+  }
+  async function agentsChanged() {
+    // The agent license was granted or withdrawn while the Studio was open.
+    state.catalog = await api("/api/catalog");
+    if (state.page === "agents" && !agentsAllowed()) {
+      await navigate("dashboard", { force: true });
+      toast("Ajan lisansı bu hesapta etkin değil.");
+      return;
+    }
+    const item = document.getElementById("nav-agents");
+    if (item) item.hidden = !agentsAllowed();
   }
   function showLicenseGate(status) {
     stopPolling();

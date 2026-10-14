@@ -16,7 +16,12 @@ dalındadır; yayımlanan sürüm ve gerçek bilgisayar doğrulaması README'de 
 
 Mevcut `MOD_RPA` lisansı korunur. Ajanlar için hem firmada hem kullanıcı hesabında
 ayrıca `MOD_AJAN` gerekir. Sunucunun imzaladığı ajan yetkisi bulunmazsa normal RPA
-çalışabilir, ajan uçları kapalı kalır. Kullanıcı ve firma kimliği istek gövdesinden
+çalışabilir, ajan uçları kapalı kalır. 0.9.24'ten itibaren bu hesaplarda **Ajanlar**
+menüsü, Ayarlar'daki yapay zekâ bağlantıları ve **Yapay zekâya sor** adımı da
+gösterilmez. Lisans her doğrulamada (en geç 10 dakikada bir, ya da **Lisansı şimdi
+doğrula** ile) yeniden okunur; yetki verildiğinde menü yeniden giriş gerekmeden
+görünür, kaldırıldığında açık Ajanlar ekranı kapanır. Bu adımı önceden içeren akışlar
+açılır, ancak lisans olmadan çalıştırılamaz. Kullanıcı ve firma kimliği istek gövdesinden
 alınmaz. Riskli işleri onaylama yetkisi sunucuda firmanın seçilmiş onaylayıcısının
 kalıcı hesap kimliğine bağlanır; kullanıcı adı kodda sabitlenmez.
 

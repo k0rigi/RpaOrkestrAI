@@ -27,6 +27,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.23:** Ajanlar, tek yönetici ve departman ajanları, izinli akış araçları, ayrı ajan lisansı, merkezi kullanıcı onayları, insan görevleri ve performans paneli. **Yapay zekâya sor** adımı şema ile doğrulanmış sonuçları akışa taşır. Aynı oturumdaki ortak model istekleri sıraya girer; onay ve akış izinleri model yanıtıyla değişmez. [Ajan rehberi](docs/ajanlar.md) ve [doğrulama durumu](docs/ajanlar-gelistirme-durumu.md).
 
+**0.9.24:** **Tıkla ve tuşa bas** adımı hedefe tıklayıp aynı pencereye tuş gönderir. **Excel hücresine yaz** seçilen sütuna belirli satıra, son dolu satıra veya son dolu satırın altına değer, sayı ya da formül yazar; son satırı hangi sütunun belirleyeceği seçilir. **Excel / CSV'ye yaz → Sonuna ekle** artık başlıktaki sütun yerlerini korur ve biçimlendirilmiş boş satırları saymaz. **Ajanlar** bölümü ve **Yapay zekâya sor** adımı yalnız ayrı ajan lisansı (`MOD_AJAN`) tanımlı hesaplarda görünür; diğer hesaplarda menüden kalkar. Yeni adımları kullanan akışlar 0.9.23 ve öncesinde açılmaz.
+
 **Ortak sunucu LLM hizmeti henüz etkin değildir.** Kurulum dosyalarının yayımlanması ortak modelin çalıştığı anlamına gelmez. Sunucunun CPU özellikleri ve gerçek araç çağrısı süresi doğrulanmalıdır. Ajan kullanımı için firmaya ve hesaba ayrı ajan lisansı atanması gerekir.
 
 Web tıklamasıyla açılan yeni sekmenin ilk yanıtı gecikse de sonraki adım yeni sekmeyi bekler. Süre dolarsa işlem durur; tıklama tekrarlanmaz.
@@ -237,7 +239,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
   ve sağlayıcı bağlantıları. Windows/macOS 0.9.23 paketleri yayımlandı. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
-- [Adım rehberi: 86 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
+- [Adım rehberi: 88 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)
 - [Kullanıcı girişi, lisans, tek bilgisayar kuralı ve internet gereksinimi](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)

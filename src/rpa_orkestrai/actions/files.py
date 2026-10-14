@@ -6,6 +6,8 @@ import csv
 import fnmatch
 import glob
 import io
+import math
+import re
 import shutil
 import time
 from datetime import date, datetime
@@ -240,33 +242,46 @@ def write_table(ctx, p):
     headers = list(dict.fromkeys(key for row in records for key in row if key != "row_number"))
     file = path(p.get("path"))
     append = choice(p.get("mode", "overwrite"), "Yazma biçimi", {"overwrite", "append"}) == "append"
+    formulas = p.get("formulas", False) is True
     suffix = file.suffix.lower()
     try:
         file.parent.mkdir(parents=True, exist_ok=True)
         if suffix in {".xlsx", ".xlsm"}:
-            from openpyxl import Workbook, load_workbook
+            from openpyxl import Workbook
 
             sheet_name = text(p.get("sheet") or "Sayfa1", "Sayfa", limit=31).strip()
             if append and file.exists():
-                book = load_workbook(file)
+                key = _column(p.get("last_row_column"), "Son satırı belirleyen sütun", required=False)
+                book = _load_book(file)
                 sheet = book[sheet_name] if sheet_name in book.sheetnames else book.create_sheet(sheet_name)
-                existing = [cell.value for cell in sheet[1]] if sheet.max_row >= 1 else []
-                if not any(value not in (None, "") for value in existing):
-                    sheet.append(headers)
-                    existing = headers
-                order = [str(name) for name in existing if name not in (None, "")]
-                order += [name for name in headers if name not in order]
-                if len(order) > len(existing):
-                    for column, name in enumerate(order, start=1):
+                # Each header keeps its own column, even with empty header cells between them.
+                positions = {}
+                for cell in sheet[1]:
+                    if cell.value not in (None, "") and str(cell.value) not in positions:
+                        positions[str(cell.value)] = cell.column
+                if not positions:
+                    for column, name in enumerate(headers, start=1):
                         sheet.cell(row=1, column=column, value=name)
+                        positions[name] = column
+                next_column = max([*positions.values(), _last_column(sheet, 1)]) + 1
+                for name in headers:
+                    if name not in positions:
+                        sheet.cell(row=1, column=next_column, value=name)
+                        positions[name], next_column = next_column, next_column + 1
+                row_number = max(_last_row(sheet, key), 1) + 1
             else:
                 book = Workbook()
                 sheet = book.active
                 sheet.title = sheet_name
-                sheet.append(headers)
-                order = headers
-            for row in records:
-                sheet.append([_excel(row.get(name)) for name in order])
+                positions = {name: column for column, name in enumerate(headers, start=1)}
+                for name, column in positions.items():
+                    sheet.cell(row=1, column=column, value=name)
+                row_number = 2
+            for offset, row in enumerate(records):
+                for name in headers:
+                    if name in row:
+                        sheet.cell(row=row_number + offset, column=positions[name],
+                                   value=_excel(row[name], formulas=formulas))
             book.save(file)
         elif suffix in {".csv", ".txt", ".tsv"}:
             exists_before = file.exists() and file.stat().st_size > 0
@@ -287,11 +302,192 @@ def write_table(ctx, p):
     return str(file)
 
 
-def _excel(value):
+@handler("file.write_cell")
+def write_cell(ctx, p):
+    """One value or formula into a chosen column, on a given row or after the last filled row."""
+    file = path(p.get("path"))
+    if file.suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise WorkflowError("Hücreye yazma yalnız .xlsx ve .xlsm dosyalarında yapılır.")
+    sheet_name = text(p.get("sheet"), "Sayfa", required=False, limit=31).strip()
+    column = _column(p.get("column"), "Sütun")
+    row_mode = choice(p.get("row_mode", "number"), "Satır seçimi", {"number", "next", "last"})
+    value_type = choice(p.get("value_type", "value"), "Değer türü", {"value", "number", "formula"})
+    formula = value_type == "formula"
+    value = p.get("value")
+    if isinstance(value, (dict, list)):
+        raise WorkflowError("Yazılacak değer bir metin veya sayı olmalıdır.")
+    if formula:
+        value = text(value, "Formül", limit=8000).strip()
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    try:
+        if file.exists():
+            book = _load_book(file)
+            if sheet_name and sheet_name not in book.sheetnames:
+                raise WorkflowError(f"“{sheet_name}” sayfası yok. Sayfalar: {', '.join(book.sheetnames)}")
+            sheet = book[sheet_name] if sheet_name else book.active
+        else:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            book = Workbook()
+            sheet = book.active
+            sheet.title = sheet_name or "Sayfa1"
+        if row_mode == "number":
+            row = integer(p.get("row"), "Satır numarası", 1, 1_048_576)
+        else:
+            key = _column(p.get("last_row_column"), "Son satırı belirleyen sütun", required=False) or column
+            last = _last_row(sheet, key)
+            if row_mode == "last" and not last:
+                raise WorkflowError(f"{get_column_letter(key)} sütununda dolu satır yok; yazma yapılmadı.")
+            row = last + 1 if row_mode == "next" else last
+            if row > 1_048_576:
+                raise WorkflowError("Excel'in son satırına ulaşıldı; yazma yapılmadı.")
+        if formula:
+            # {satir} lets the formula refer to the row it lands on, e.g. =B{satir}*C{satir}.
+            for token in ("{satir}", "{satır}"):
+                value = value.replace(token, str(row))
+            value = _formula(value if value.startswith("=") else "=" + value)
+        elif value_type == "number":
+            value = _number(value)
+        else:
+            value = _excel(value)
+        sheet.cell(row=row, column=column, value=value)
+        book.save(file)
+    except PermissionError as exc:
+        raise WorkflowError(f"Dosyaya yazılamadı: {file}. Dosya Excel'de açıksa kapatın.") from exc
+    except OSError as exc:
+        raise WorkflowError(f"Dosyaya yazılamadı: {file}.") from exc
+    letter = get_column_letter(column)
+    return {"cell": f"{letter}{row}", "row": row, "column": letter, "sheet": sheet.title, "path": str(file)}
+
+
+# Excel files store formulas with English function names and comma separators.
+TURKISH_FUNCTIONS = {
+    "TOPLA": "SUM", "EĞER": "IF", "DÜŞEYARA": "VLOOKUP", "YATAYARA": "HLOOKUP", "ORTALAMA": "AVERAGE",
+    "BAĞ_DEĞ_SAY": "COUNT", "BAĞ_DEĞ_DOLU_SAY": "COUNTA", "EĞERSAY": "COUNTIF", "ÇOKEĞERSAY": "COUNTIFS",
+    "ETOPLA": "SUMIF", "ÇOKETOPLA": "SUMIFS", "BİRLEŞTİR": "CONCATENATE", "YUVARLA": "ROUND",
+    "BUGÜN": "TODAY", "ŞİMDİ": "NOW", "MAK": "MAX", "EĞERHATA": "IFERROR", "METNEÇEVİR": "TEXT",
+    "SOLDAN": "LEFT", "SAĞDAN": "RIGHT", "PARÇAAL": "MID", "UZUNLUK": "LEN", "KIRP": "TRIM", "İNDİS": "INDEX",
+    "KAÇINCI": "MATCH", "ÇAPRAZARA": "XLOOKUP", "VE": "AND", "YADA": "OR", "DEĞİL": "NOT", "TARİH": "DATE",
+    "YIL": "YEAR", "AY": "MONTH", "GÜN": "DAY", "ÇARPIM": "PRODUCT", "MUTLAK": "ABS", "SAYIYAÇEVİR": "VALUE",
+}
+# Newer functions are saved with Excel's _xlfn. prefix; without it Excel shows #NAME?.
+NEWER_FUNCTIONS = {"XLOOKUP", "XMATCH", "IFS", "SWITCH", "TEXTJOIN", "CONCAT", "MAXIFS", "MINIFS", "IFNA", "DAYS"}
+
+
+def _formula(value: str) -> str:
+    """Check a formula before it reaches the file; a broken one makes Excel repair and drop it."""
+    from openpyxl.formula import Tokenizer
+    from openpyxl.formula.tokenizer import TokenizerError
+
+    if len(value) > 8192:
+        raise WorkflowError("Formül en fazla 8.192 karakter olabilir.")
+    try:
+        tokens = Tokenizer(value).items
+    except (TokenizerError, IndexError, ValueError) as exc:
+        raise WorkflowError("Formül çözümlenemedi: tırnak veya parantezleri kontrol edin.") from exc
+    depth = arrays = 0
+    parts, prefixed = ["="], False
+    for token in tokens:
+        if token.type == "ARRAY" and token.subtype in {"OPEN", "CLOSE"}:
+            arrays += 1 if token.subtype == "OPEN" else -1
+        if token.type in {"FUNC", "PAREN"} and token.subtype in {"OPEN", "CLOSE"}:
+            depth += 1 if token.subtype == "OPEN" else -1
+            if depth < 0:
+                raise WorkflowError("Formülde kapanan parantez açılandan fazla.")
+        if token.type == "SEP" and token.value == ";" and not arrays:
+            raise WorkflowError("Formülde bağımsız değişkenleri ; yerine virgülle ayırın (ör. =IF(A2>0,\"Var\",\"Yok\")). "
+                                "Excel dosyası formülü İngilizce biçimde saklar.")
+        text_value = token.value
+        if token.type == "FUNC" and token.subtype == "OPEN":
+            name = text_value[:-1].upper()
+            if name in TURKISH_FUNCTIONS:
+                raise WorkflowError(f"Formülde {text_value[:-1]} yerine İngilizce adı {TURKISH_FUNCTIONS[name]} "
+                                    "kullanılmalıdır. Excel dosyası formülü İngilizce biçimde saklar; Türkçe Excel "
+                                    "açarken kendi dilinde gösterir.")
+            if name in NEWER_FUNCTIONS:
+                text_value, prefixed = "_xlfn." + text_value, True
+        parts.append(text_value)
+    if depth:
+        raise WorkflowError("Formülde açılan parantez kapanmamış.")
+    if len(tokens) == 0:
+        raise WorkflowError("Formül boş olamaz.")
+    return "".join(parts) if prefixed else value
+
+
+def _number(value):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    raw = text(value, "Sayı", limit=100).strip().replace(" ", "")
+    if "," not in raw and re.fullmatch(r"-?\d{1,3}(\.\d{3})+", raw):
+        raise WorkflowError(f"“{value}” belirsiz: binlik ayıracı mı ondalık mı anlaşılamıyor. Binlik ayıracı "
+                            "kullanmayın veya ondalığı virgülle yazın (ör. 1250 ya da 1,25).")
+    if "," in raw:
+        # Turkish form: 1.234,56; a comma marks the decimals.
+        raw = raw.replace(".", "").replace(",", ".")
+    try:
+        result = float(raw)
+    except ValueError as exc:
+        raise WorkflowError(f"“{value}” sayı olarak okunamadı (ör. 1250, 1250,50 veya 1.250,50).") from exc
+    if not math.isfinite(result):
+        raise WorkflowError("Sayı sonlu olmalıdır.")
+    return int(result) if result.is_integer() and "." not in raw else result
+
+
+def _load_book(file: Path):
+    from openpyxl import load_workbook
+
+    _read_bytes(file)  # size and existence checks
+    try:
+        # Macros of an .xlsm file are kept when it is saved again.
+        return load_workbook(file, keep_vba=file.suffix.lower() == ".xlsm")
+    except Exception as exc:
+        raise WorkflowError("Excel dosyası açılamadı. Dosya bozuk veya parola korumalı olabilir.") from exc
+
+
+def _column(value, label: str, *, required: bool = True) -> int | None:
+    """A column letter (A, C, AB) as its 1-based number."""
+    from openpyxl.utils import column_index_from_string
+
+    raw = text(value, label, required=required, limit=10).strip().upper()
+    if not raw:
+        return None
+    try:
+        if not raw.isalpha() or not raw.isascii():
+            raise ValueError(raw)
+        index = column_index_from_string(raw)
+    except ValueError as exc:
+        raise WorkflowError(f"{label} bir sütun harfi olmalıdır (ör. A, C, AB).") from exc
+    if index > 16_384:
+        raise WorkflowError(f"{label} Excel'in son sütunu XFD'yi aşamaz.")
+    return index
+
+
+def _filled(value) -> bool:
+    return value is not None and not (isinstance(value, str) and not value.strip())
+
+
+def _last_row(sheet, column: int | None) -> int:
+    """The last row holding a value, in one column or in any; formatted empty cells do not count."""
+    if column is None:
+        return max((cell.row for row in sheet.iter_rows() for cell in row if _filled(cell.value)), default=0)
+    for row in range(sheet.max_row, 0, -1):
+        if _filled(sheet.cell(row=row, column=column).value):
+            return row
+    return 0
+
+
+def _last_column(sheet, row: int) -> int:
+    return max((cell.column for cell in sheet[row] if _filled(cell.value)), default=0)
+
+
+def _excel(value, *, formulas: bool = False):
     if isinstance(value, (dict, list)):
         import json
 
         return json.dumps(value, ensure_ascii=False)
+    if formulas and isinstance(value, str) and value.startswith("=") and len(value) > 1:
+        return value
     if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) and not _numeric(value):
         return "'" + value  # never let data become a spreadsheet formula
     return value

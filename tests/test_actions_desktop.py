@@ -441,6 +441,92 @@ def api_server():
     server.shutdown()
 
 
+def test_excel_append_keeps_header_columns_and_uses_chosen_last_row_column(runner, tmp_path):
+    from openpyxl import Workbook, load_workbook
+
+    book_path = tmp_path / "liste.xlsx"
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Liste"
+    sheet.append(["No", None, "Tutar", "Durum"])  # an empty header cell between columns
+    sheet.append([1, "not", 10, "Tamam"])
+    sheet.append([2, None, 20, None])
+    sheet["B6"].value = "dipnot"  # a note further down in another column
+    for row in range(7, 40):
+        sheet.cell(row=row, column=1).number_format = "0.00"  # formatted but empty rows
+    book.save(book_path)
+
+    go(runner, "file.write_table", rows=[{"No": 3, "Tutar": 30, "Durum": "Yeni", "Ek": "x"}], path=str(book_path),
+       sheet="Liste", mode="append", last_row_column="A")
+
+    sheet = load_workbook(book_path)["Liste"]
+    assert [cell.value for cell in sheet[4]] == [3, None, 30, "Yeni", "x"]
+    assert sheet["E1"].value == "Ek" and sheet["B6"].value == "dipnot"
+
+    go(runner, "file.write_table", rows=[{"No": 4, "Tutar": "=C2*2"}], path=str(book_path), sheet="Liste",
+       mode="append", formulas=True)
+    sheet = load_workbook(book_path)["Liste"]
+    assert sheet["A7"].value == 4 and sheet["C7"].value == "=C2*2"  # after the last filled row in any column
+
+
+def test_excel_cell_write_by_row_last_row_and_formula(runner, tmp_path):
+    from openpyxl import Workbook, load_workbook
+
+    book_path = tmp_path / "rapor.xlsx"
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Sayfa1"
+    for row in [["Kod", "Adet", "Fiyat", "Tutar"], ["A1", 2, 5], ["A2", 3, 7], ["A3", 1, 4]]:
+        sheet.append(row)
+    sheet["B10"].number_format = "0"
+    book.save(book_path)
+    common = dict(path=str(book_path), sheet="Sayfa1", output="cell")
+
+    result = go(runner, "file.write_cell", column="D", row_mode="last", last_row_column="A",
+                value_type="formula", value="B{satir}*C{satir}", **common)["cell"]
+    assert result == {"cell": "D4", "row": 4, "column": "D", "sheet": "Sayfa1", "path": str(book_path)}
+    assert go(runner, "file.write_cell", column="A", row_mode="next", value="A4", **common)["cell"]["cell"] == "A5"
+    assert go(runner, "file.write_cell", column="D", row_mode="next", last_row_column="A", value_type="formula",
+              value="=SUM(D2:D4)", **common)["cell"]["cell"] == "D6"
+    runner.variables["satir"] = 3
+    go(runner, "file.write_cell", column="c", row="${satir}", value_type="number", value="1.250,50", **common)
+    go(runner, "file.write_cell", column="E", row=2, value="=HACK()", **common)
+    go(runner, "file.write_cell", column="F", row=2, value_type="formula", value='=XLOOKUP(A2,A:A,B:B)', **common)
+
+    sheet = load_workbook(book_path)["Sayfa1"]
+    assert sheet["D4"].value == "=B4*C4" and sheet["A5"].value == "A4" and sheet["D6"].value == "=SUM(D2:D4)"
+    assert sheet["C3"].value == 1250.5 and sheet["E2"].value == "'=HACK()"
+    assert sheet["F2"].value == "=_xlfn.XLOOKUP(A2,A:A,B:B)"
+
+
+@pytest.mark.parametrize("params,message", [
+    (dict(value_type="formula", value="=TOPLA(B2:B4)"), "SUM"),
+    (dict(value_type="formula", value="=IF(B2>1;1;0)"), "virgülle"),
+    (dict(value_type="formula", value="=SUM(B2:B4"), "kapanmamış"),
+    (dict(value_type="number", value="1.250"), "belirsiz"),
+    (dict(column="1A", value="x"), "sütun harfi"),
+    (dict(sheet="Yok", value="x"), "sayfası yok"),
+    (dict(row_mode="last", column="H", value="x"), "dolu satır yok"),
+    (dict(row=0, value="x"), "Satır numarası"),
+])
+def test_excel_cell_write_refuses_unclear_input_without_changing_the_file(runner, tmp_path, params, message):
+    from openpyxl import Workbook
+
+    book_path = tmp_path / "rapor.xlsx"
+    book = Workbook()
+    book.active.title = "Sayfa1"
+    book.active.append(["Kod", "Adet"])
+    book.save(book_path)
+    before = book_path.read_bytes()
+    with pytest.raises(WorkflowError, match=message):
+        go(runner, "file.write_cell", **{"path": str(book_path), "sheet": "Sayfa1", "column": "D", "row": 2,
+                                         "output": "cell", **params})
+    assert book_path.read_bytes() == before
+    with pytest.raises(WorkflowError, match="yalnız .xlsx"):
+        go(runner, "file.write_cell", path=str(tmp_path / "liste.csv"), column="A", row=1, value="x", output="cell")
+
+
+
 def test_http_requests(runner, api_server):
     response = go(runner, "http.request", method="POST", url=api_server + "/siparis",
                   headers={"Authorization": "Bearer x"}, body={"no": "INV-1"}, output="response")["response"]

@@ -310,6 +310,7 @@ def test_every_library_step_has_a_handler():
 
     importlib.import_module("rpa_orkestrai.actions.files")  # an early partial import must not hide others
     engine_steps = {"desktop.find_window", "desktop.window_click", "desktop.window_fill", "desktop.window_key",
+                    "desktop.window_click_key",
                     "desktop.window_wait_image", "core.wait", "core.set", "core.log", "data.append",
                     "data.export_csv", "database.query"}
     flow = {entry["type"] for entry in CATALOG if entry["type"].startswith("control.")}

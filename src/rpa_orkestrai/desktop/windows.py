@@ -569,16 +569,39 @@ class WindowService:
         finally:
             pyperclip.copy(previous)
 
-    def press_key(self, target: dict, key: str, modifier: str, desktop: Any) -> None:
+    @staticmethod
+    def _key(key: str, modifier: str) -> None:
         if (not isinstance(key, str) or not isinstance(modifier, str)
                 or key not in SUPPORTED_KEYS or modifier not in SUPPORTED_MODIFIERS):
             raise WindowError("Tuş veya değiştirici desteklenmiyor.")
-        window = self.focus(target)
-        self._guard(target, window)
+
+    @staticmethod
+    def _send_key(desktop: Any, key: str, modifier: str) -> None:
         if modifier == "none":
             desktop.press(key)
         else:
             desktop.hotkey(modifier, key)
+
+    def press_key(self, target: dict, key: str, modifier: str, desktop: Any) -> None:
+        self._key(key, modifier)
+        window = self.focus(target)
+        self._guard(target, window)
+        self._send_key(desktop, key, modifier)
+
+    def click_and_press(self, target: dict, desktop: Any, *, key: str, modifier: str = "none", clicks: int = 1,
+                        delay: float = 0.2, **targeting: Any) -> None:
+        """Click the target, then send the key to the same window; a moved or unfocused window stops both."""
+        self._key(key, modifier)
+        self._numbers(delay)
+        if type(clicks) is not int or clicks not in {1, 2} or not 0 <= delay <= 5:
+            raise WindowError("Tıklama sayısı veya bekleme süresi geçersiz.")
+        window, point = self._resolve_target(target, desktop, **targeting)
+        self._guard(target, window)
+        desktop.click(*point, clicks=clicks, button="left")
+        if delay:
+            self.cancel.wait(delay)  # a cancel ends the wait; the guard then stops before the key
+        self._guard(target, window)
+        self._send_key(desktop, key, modifier)
 
 
 class MacWindows:

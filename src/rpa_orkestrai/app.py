@@ -291,6 +291,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
         return {**licensing.status(), "can_quit": native_available()}
 
+    def agents_allowed() -> bool:
+        return bool(getattr(licensing, "agent_allowed", lambda: False)())
+
     @app.get("/api/license")
     def license_state():
         return license_status()
@@ -328,7 +331,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.get("/api/bootstrap")
     def bootstrap():
         return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
-                "runs": store.runs(), "catalog": library_catalog(), "settings": settings.public(),
+                "runs": store.runs(), "catalog": library_catalog(agents_allowed()), "settings": settings.public(),
                 "action_definitions": ACTION_DEFINITIONS + library_catalog(),
                 "favorites": store.favorites(), "updates": update_status(), "connections": connections.list(),
                 "quick_guide": QUICK_GUIDE}
@@ -352,7 +355,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     @app.get("/api/catalog")
     def catalog():
-        return library_catalog()
+        return library_catalog(agents_allowed())
 
     @app.put("/api/favorites/{action_type}")
     def set_favorite(action_type: str, body: FavoriteRequest):

@@ -65,6 +65,10 @@ Modül kaydı ilk oluşturulduğunda ilk müşteri firmaya bir yıllık lisans v
 
 Yetki değişikliği açık uygulamalara **en geç 10 dakika içinde** yansır. Kapalı uygulama bir sonraki açılışında onay alamaz ve açılmaz. Yetkiyi geri verdiğinizde kullanıcı **Yeniden kontrol et** ile ya da en geç 10 dakika içinde şifre girmeden devam eder.
 
+### Ajanlar modülü (MOD_AJAN)
+
+**Ajanlar** bölümü ayrı satılan bir modüldür. Görünmesi için MOD_RPA'ya ek olarak hem firmada hem kullanıcı hesabında **MOD_AJAN** tanımlı ve süresi dolmamış olmalıdır. Atama orkestrai deposundaki **Ajan lisansı yönetimi** iş akışıyla (önce `preflight`, sonra `apply`) yapılır; tabloya elle satır eklenmez. MOD_AJAN'ı olmayan hesapta 0.9.24 ve sonrası Ajanlar menüsünü, Ayarlar'daki yapay zekâ bağlantılarını ve **Yapay zekâya sor** adımını göstermez; 0.9.23 menüyü gösterse de ajan uçları sunucu ve Studio tarafından kapalıdır. Yetki değişikliği MOD_RPA gibi en geç 10 dakika içinde, **Lisansı şimdi doğrula** ile hemen yansır; yeniden giriş gerekmez.
+
 Bir kullanıcının kullanımını hemen kesmek için MOD_RPA satırını silin, hesabını `Pasif` yapın ya da şifresini değiştirin. Son iki durumda oturum da kapanır ve yeniden giriş gerekir.
 
 `SYS_RpaOturumlari` tablosunda her oturumun kullanıcısı, cihaz kimliği, uygulama sürümü, IP adresi, açılış ve son görülme zamanı, durumu (`Aktif` / `Kapandi`) ve kapanma nedeni görülür:

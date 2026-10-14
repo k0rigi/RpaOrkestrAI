@@ -100,6 +100,14 @@ STEP_FIELD_HELP = {
                                       "eklemek için kapatın.",
     ("desktop.window_key", "key"): "Enter onaylar, Tab sonraki alana geçer, Escape pencereyi/mesajı kapatır.",
     ("desktop.window_key", "modifier"): "Kısayol için birlikte basılacak tuş (ör. Ctrl + Enter). Tek tuş için Yok.",
+    ("desktop.window_click_key", "y"): "Pencerenin üst kenarından piksel. Ekranda seç ile X ile birlikte dolar.",
+    ("desktop.window_click_key", "timeout"): "Görsel veya alan bu süre içinde bulunamazsa tıklama ve tuş "
+                                             "gönderilmez, adım durur.",
+    ("desktop.window_click_key", "key"): "Tıklamadan sonra gönderilecek tuş: Enter onaylar, Tab sonraki alana geçer, "
+                                         "Aşağı ok listeyi açar.",
+    ("desktop.window_click_key", "modifier"): "Kısayol için birlikte basılacak tuş (ör. Ctrl + Enter). Tek tuş için Yok.",
+    ("desktop.window_click_key", "delay"): "Tıklanan alanın odağı alması için kısa bekleme. Tuş, uygulama hazır "
+                                           "olmadan gidiyorsa artırın.",
     ("desktop.window_wait_image", "timeout"): "Görsel bu süre içinde görünmezse (veya kaybolmazsa) adım durur.",
     ("window.state", "state"): "Büyüt, koordinatla çalışan adımların her seferinde aynı yere denk gelmesini sağlar.",
     ("window.move", "x"): "Pencerenin sol kenarının ekrandaki konumu (piksel).",
@@ -149,6 +157,23 @@ STEP_FIELD_HELP = {
     ("system.run_file", "fail_on_error"): "Kapalıysa script hata verse de akış devam eder; ${script.code} ile kontrol edin.",
     ("clipboard.set", "value"): "Panoya konacak metin veya ${değişken}.",
     ("file.write_table", "sheet"): "Excel dosyasında yazılacak sayfanın adı; CSV'de kullanılmaz.",
+    ("file.write_table", "last_row_column"): "Yeni kayıtlar bu sütundaki son dolu satırın altına yazılır (ör. A). "
+                                             "Boşsa herhangi bir sütunda değer olan son satır esas alınır; yalnız "
+                                             "biçimlendirilmiş boş satırlar sayılmaz.",
+    ("file.write_table", "formulas"): "Açıkken = ile başlayan değerler formül olarak yazılır. Kapalıyken metin "
+                                      "olarak saklanır; dışarıdan gelen veri formüle dönüşmez.",
+    ("file.write_cell", "sheet"): "Mevcut dosyada bu sayfa yoksa yazma yapılmaz. Boş: dosyanın etkin sayfası.",
+    ("file.write_cell", "column"): "Değerin yazılacağı sütun harfi (ör. A, D, AB).",
+    ("file.write_cell", "row_mode"): "Belirli satır: satır numarasını siz verirsiniz. Son dolu satırın altına: listeye "
+                                     "yeni satır ekler. Son dolu satıra: son kaydın yanına değer yazar.",
+    ("file.write_cell", "row"): "1: ilk satır. Döngüde okunan satırın kendisine yazmak için ${row.row_number}.",
+    ("file.write_cell", "last_row_column"): "Son satırı hangi sütunun belirleyeceği (ör. kayıt numarasının olduğu "
+                                            "A sütunu). Boşsa yazılan sütun esas alınır.",
+    ("file.write_cell", "value_type"): "Metin / değer olduğu gibi yazar; = ile başlayan metin formüle dönüşmez. Sayı, "
+                                       "1250,50 gibi değerleri Excel'de sayı olarak saklar. Formül, değeri Excel "
+                                       "formülü olarak yazar.",
+    ("file.write_cell", "value"): "Sabit değer veya ${değişken}. Formülde İngilizce işlev adı ve virgül kullanın "
+                                  "(ör. =SUM(B2:B{satir})); {satir} yazılan satırın numarası olur.",
     ("file.write_text", "text"): "Dosyaya yazılacak metin; ${değişken} kullanılabilir.",
     ("file.exists", "kind"): "Yalnız dosya veya yalnız klasör aranacaksa seçin.",
     ("file.list", "recursive"): "Açıksa alt klasörlerdeki dosyalar da listelenir.",
@@ -259,6 +284,10 @@ GUIDES = {
         [WINDOW_FIRST, "Tuşu seçin: Enter onaylar, Tab sonraki alana geçer, Escape kapatır.",
          "Kısayol gerekiyorsa Birlikte basılacak tuşu seçin."],
         "", "Tuş, pencerede o an seçili olan alana gider. Önce Alanı doldur veya Pencerede tıkla ile doğru alanı seçin."),
+    "desktop.window_click_key": guide(
+        [WINDOW_FIRST, PICK_TARGET, "Tıklamadan sonra gönderilecek tuşu ve gerekiyorsa birlikte basılacak tuşu seçin."],
+        "", "Tıklama ile tuş aynı adımda gider; pencere arada değişir veya odağı kaybederse tuş gönderilmez. "
+            + TEST_HINT),
     "desktop.window_wait_image": guide(
         [WINDOW_FIRST, "Ekranda seç ile beklenecek işareti (düğme, başlık, hata kutusu) görsel olarak kaydedin.",
          "Görünsün veya Kaybolsun seçin ve en fazla bekleme süresini yazın.",
@@ -508,8 +537,22 @@ GUIDES = {
         "Excel'de yaptığınız değişiklikler kaydedilmeden okunmaz."),
     "file.write_table": guide(
         ["Kayıtlar alanına listeyi verin (ör. Listeye ekle ile toplanan ${results}).",
-         "Seç… ile kaydedilecek dosyayı belirleyin; Sonuna ekle mevcut satırları korur."],
-        "", "Windows'ta dosya Excel'de açıksa yazılamaz; önce kapatın."),
+         "Seç… ile kaydedilecek dosyayı belirleyin; Sonuna ekle mevcut satırları korur.",
+         "Sonuna eklerken son satırı belirleyen sütunu yazın (ör. A); kayıtlar o sütundaki son dolu satırın altına "
+         "gelir."],
+        "", "Her alan başlık satırında aynı adı taşıyan sütuna yazılır; yeni alanlar sona eklenir. Tek hücreye veya "
+            "formül yazmak için Excel hücresine yaz adımını kullanın. Windows'ta dosya Excel'de açıksa yazılamaz; "
+            "önce kapatın."),
+    "file.write_cell": guide(
+        ["Seç… ile .xlsx dosyasını gösterin ve sayfa adını yazın.",
+         "Yazılacak sütunun harfini girin (ör. D).",
+         "Satırı seçin: belirli satır numarası, son dolu satır veya son dolu satırın altı. Son satır için hangi "
+         "sütunun esas alınacağını yazın (ör. kayıt numarasının olduğu A).",
+         "Değeri yazın; formül için Değer türünü Formül yapın."],
+        "${excel_cell.cell}: yazılan hücre (ör. D15). ${excel_cell.row}: satır numarası.",
+        "Formüller İngilizce işlev adı ve virgülle yazılır: TOPLA yerine SUM, ; yerine virgül. Türkçe Excel dosyayı "
+        "açınca kendi dilinde gösterir. Formülün sonucu dosya Excel'de açılıp kaydedilince hesaplanır; Excel / CSV "
+        "oku o zamana kadar formül hücresini boş okur. Windows'ta dosya Excel'de açıksa yazılamaz."),
     "file.read_text": guide(["Seç… ile dosyayı gösterin."], "Dosyanın içeriği metin olarak değişkene alınır."),
     "file.write_text": guide(
         ["Dosyayı ve yazılacak metni girin.", "Günlük tutmak için Sonuna ekle seçin."]),
