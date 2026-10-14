@@ -8,8 +8,8 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.24-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.24-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.25-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.25-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
@@ -26,6 +26,8 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 **0.9.22:** Windows'ta görev çubuğuna sabitleme ve Başlat aramasında uygulama artık **RpaOrkestrAI Studio** adı ve simgesiyle görünür (önceden yalnız `RpaOrkestrAI.exe`). Uygulama ile masaüstü/Başlat kısayolları aynı uygulama kimliğini taşır; EXE'ye ad, sürüm ve yayıncı bilgisi eklendi. Daha önce sabitlenmiş eski öğeyi bir kez kaldırıp uygulama açıkken yeniden sabitleyin.
 
 **0.9.23:** Ajanlar, tek yönetici ve departman ajanları, izinli akış araçları, ayrı ajan lisansı, merkezi kullanıcı onayları, insan görevleri ve performans paneli. **Yapay zekâya sor** adımı şema ile doğrulanmış sonuçları akışa taşır. Aynı oturumdaki ortak model istekleri sıraya girer; onay ve akış izinleri model yanıtıyla değişmez. [Ajan rehberi](docs/ajanlar.md) ve [doğrulama durumu](docs/ajanlar-gelistirme-durumu.md).
+
+**0.9.25:** **Adım numaraları kütüphanede sabittir:** her adım türünün numarası kütüphane listesinde görünür ve akıştaki kutuda, ayar panelinde, Adıma git listesinde ve çalışma günlüğünde aynı numara kullanılır; adım eklemek veya taşımak numarayı değiştirmez.
 
 **0.9.24:** **Tıkla ve tuşa bas** adımı hedefe tıklayıp aynı pencereye tuş gönderir. **Excel hücresine yaz** seçilen sütuna belirli satıra, son dolu satıra veya son dolu satırın altına değer, sayı ya da formül yazar; son satırı hangi sütunun belirleyeceği seçilir. **Excel / CSV'ye yaz → Sonuna ekle** artık başlıktaki sütun yerlerini korur ve biçimlendirilmiş boş satırları saymaz. **Ajanlar** bölümü ve **Yapay zekâya sor** adımı yalnız ayrı ajan lisansı (`MOD_AJAN`) tanımlı hesaplarda görünür; diğer hesaplarda menüden kalkar. Yeni adımları kullanan akışlar 0.9.23 ve öncesinde açılmaz.
 
@@ -236,7 +238,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.24. Ortak
+  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.25. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
 - [Adım rehberi: 88 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)

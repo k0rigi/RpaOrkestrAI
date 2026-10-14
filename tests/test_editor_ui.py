@@ -1302,7 +1302,7 @@ def test_connections_are_drawn_cut_and_chosen_without_copying_steps(tmp_path):
             # Inside the loop is not offered from here; the loop box and the steps outside are.
             playwright.expect(target.locator("option", has_text="Ara")).to_be_disabled()
             target.select_option(label=next(text for text in target.locator("option").all_inner_texts()
-                                            if text.startswith("1 Hazırlık")))
+                                            if "Hazırlık" in text))
             flow = saved()
             assert [(item["action"], item["params"].get("target")) for item in flow["steps"]][-1] == (
                 "control.goto", "first")
@@ -2009,7 +2009,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.locator('[data-step-id="two"]').first.click()
             page.locator(".step-test-actions").get_by_role("button", name="Buraya kadar çalıştır").click()
             panel = page.locator(".debug-pause")
-            playwright.expect(panel).to_contain_text("Sıradaki adım: 2 İkinci", timeout=10_000)
+            playwright.expect(panel).to_contain_text("İkinci", timeout=10_000)
             playwright.expect(panel.locator("dt")).to_have_text(["${a}"])
             assert panel.bounding_box()["width"] <= size["width"]
             page.screenshot(path=str(tmp_path / "paused.png"), full_page=True)
@@ -2018,7 +2018,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.wait_for_timeout(6000)
             assert page.locator(".debug-pause[data-kept='yes']").count() == 1
             panel.get_by_role("button", name="Sonraki adım").click()
-            playwright.expect(panel).to_contain_text("Sıradaki adım: 3 Üçüncü", timeout=10_000)
+            playwright.expect(panel).to_contain_text("Üçüncü", timeout=10_000)
             playwright.expect(panel.locator("dt")).to_have_text(["${a}", "${b}"])
             panel.get_by_role("button", name="Sonuna kadar").click()
             playwright.expect(page.locator(".debug-pause")).to_have_count(0, timeout=10_000)
@@ -2151,6 +2151,7 @@ def test_steps_are_numbered_and_web_targets_can_be_picked(tmp_path):
 
     from rpa_orkestrai.app import create_app
     from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.step_numbers import STEP_NUMBERS
 
     errors = []
     steps = [
@@ -2176,16 +2177,19 @@ def test_steps_are_numbered_and_web_targets_can_be_picked(tmp_path):
             page.route("http://127.0.0.1:8765/**", handle)
             page.goto("http://127.0.0.1:8765/")
             page.get_by_role("button", name="Numaralar", exact=True).click()
-            playwright.expect(page.locator(".step-card .step-number")).to_have_text(["1", "2", "2.1", "2.2", "3"])
+            # The number is the step type's fixed library number, not its place in the flow.
+            expected = [str(STEP_NUMBERS[kind]) for kind in
+                        ("web.open", "control.if", "web.click", "core.log", "core.log")]
+            playwright.expect(page.locator(".step-card .step-number")).to_have_text(expected)
             page.get_by_role("button", name="Diyagram").click()
             badges = page.locator("#diagram-viewport .dnode-number")
-            playwright.expect(badges).to_have_text(["1", "2", "2.1", "2.2", "3"], timeout=10_000)
+            playwright.expect(badges).to_have_text(expected, timeout=10_000)
             page.screenshot(path=str(tmp_path / "diagram.png"))
             page.locator('[data-step-id="tikla"]').first.click()
-            playwright.expect(page.get_by_text("ADIM 2.1 · AYARLAR")).to_be_visible()
+            playwright.expect(page.get_by_text(f"ADIM {STEP_NUMBERS['web.click']} · AYARLAR")).to_be_visible()
             playwright.expect(page.get_by_role("button", name="Tarayıcıda seç")).to_be_visible()
             page.locator('[data-step-id="ac"]').first.click()
-            playwright.expect(page.get_by_text("ADIM 1 · AYARLAR")).to_be_visible()
+            playwright.expect(page.get_by_text(f"ADIM {STEP_NUMBERS['web.open']} · AYARLAR")).to_be_visible()
             playwright.expect(page.get_by_role("button", name="Tarayıcıda seç")).to_have_count(0)
             browser.close()
     assert not errors

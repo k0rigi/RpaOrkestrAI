@@ -21,6 +21,7 @@ from .config import Settings
 from .desktop.windows import WindowError, validate_selector
 from .errors import AgentPolicyStop, BreakLoop, Cancelled, ContinueLoop, JumpTo, StopWorkflow, WorkflowError
 from .models import Artifact, Event, Run, Step, Workflow, now
+from .step_numbers import STEP_NUMBERS
 from .storage import Store
 
 MAX_EXECUTED_STEPS = 1_000_000
@@ -156,19 +157,21 @@ def step_titles(steps: list[Step]) -> dict[str, str]:
 
 
 def step_numbers(steps: list[Step]) -> dict[str, str]:
-    """1, 2, 3.1, 3.2 …: a block's inner steps (both branches, in order) under its number.
+    """The library number of each step's type (see step_numbers.py).
 
-    Computed from the order, never stored, so flow files stay unchanged.
+    The number belongs to the step type, so it never changes when steps are added or moved,
+    and flow files stay unchanged. Two steps of one type share a number; types outside the
+    library have none.
     """
     numbers: dict[str, str] = {}
 
-    def walk(items: list[Step], prefix: str) -> None:
-        for index, item in enumerate(items, 1):
-            number = f"{prefix}.{index}" if prefix else str(index)
-            numbers[item.id] = number
-            walk([*item.children, *item.otherwise], number)
+    def walk(items: list[Step]) -> None:
+        for item in items:
+            if item.action in STEP_NUMBERS:
+                numbers[item.id] = str(STEP_NUMBERS[item.action])
+            walk([*item.children, *item.otherwise])
 
-    walk(steps, "")
+    walk(steps)
     return numbers
 
 

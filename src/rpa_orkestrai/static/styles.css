@@ -1256,6 +1256,14 @@ label.field-label {
 .library-action svg {
   flex-shrink: 0;
 }
+.library-action > .library-number {
+  flex: 0 0 auto;
+  min-width: 18px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .favorite-button {
   flex: 0 0 28px;
   width: 28px;

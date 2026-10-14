@@ -7,6 +7,7 @@ from typing import Any
 
 from .guide import apply as apply_guides
 from .models import NAME_PARAMETERS, NAMING_ACTIONS
+from .step_numbers import STEP_NUMBERS
 
 
 def field(name: str, label: str, kind: str = "text", default: Any = "", **kwargs: Any) -> dict:
@@ -1009,6 +1010,9 @@ for entry in CATALOG:
         entry["retired"] = RETIRED[entry["type"]]
 ACTION_DEFINITIONS = ACTION_DEFINITIONS + [entry for entry in CATALOG if entry["type"] in RETIRED]
 CATALOG = [entry for entry in CATALOG if entry["type"] not in RETIRED]
+# Each library step's fixed number; retired steps have none.
+for _entry in CATALOG:
+    _entry["number"] = STEP_NUMBERS[_entry["type"]]  # a new library step needs its number in step_numbers.py
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
                      "clipboard.", "file.", "ui.", "http.", "mail.", "web.", "ai.")

@@ -1284,6 +1284,7 @@
         action.title = spec.description || spec.label;
         action.append(
           icon(actionIcon(spec.type)),
+          node("span", "library-number", spec.number || ""),
           node("span", "", spec.label),
           node("span", "add-symbol", "+"),
         );
@@ -1368,22 +1369,12 @@
   function stepName(step) {
     return step ? step.title || specFor(step.action).label : "";
   }
-  // Every step's number: 1, 2, 3.1, 3.2 … — a block's inner steps (both branches, in order) under
-  // its own number. Computed from the order and never saved, so flow files stay as they were.
-  function computeStepNumbers() {
-    const numbers = new Map();
-    const walk = (list, prefix) => (list || []).forEach((step, index) => {
-      const number = prefix ? `${prefix}.${index + 1}` : String(index + 1);
-      numbers.set(step.id, number);
-      walk([...(step.children || []), ...(step.otherwise || [])], number);
-    });
-    walk(state.workflow?.steps || [], "");
-    state.stepNumbers = numbers;
-    return numbers;
-  }
+  // A step's number is its type's fixed number in the library (the server sends it as spec.number),
+  // so it never changes when steps are added or moved. Types outside the library have none.
   function stepNumber(step) {
     if (!step) return "";
-    return (state.stepNumbers?.get(step.id) ?? computeStepNumbers().get(step.id)) || "";
+    const number = specFor(step.action)?.number;
+    return number ? String(number) : "";
   }
   function numberedName(step) {
     return step ? `${stepNumber(step)} ${stepName(step)}`.trim() : "";
@@ -1534,7 +1525,6 @@
   function flowOutline() {
     // Every step in flow order with its number and where it sits, for choosing a target.
     const rows = [];
-    computeStepNumbers();
     const walk = (list, where) => list.forEach((step) => {
       rows.push({ step, number: stepNumber(step), where });
       for (const branch of ["children", "otherwise"])
@@ -1707,7 +1697,6 @@
   function renderCanvas() {
     const pane = document.getElementById("flow-canvas");
     if (!pane) return;
-    computeStepNumbers();
     state.unreached = unreachedSteps();
     // A path end replaced from Bu adımdan sonra leaves its id behind in a note.
     const stale = new Set(flowNotes().flatMap((item) => item.steps).filter((id) => !findStep(id)));
@@ -5128,7 +5117,6 @@
   function renderInspector() {
     const pane = document.getElementById("inspector");
     if (!pane) return;
-    computeStepNumbers();
     pane.replaceChildren();
     const located = findStep(state.selected);
     const openNote = !located && findNote(state.selectedNote);

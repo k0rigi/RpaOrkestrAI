@@ -10,6 +10,7 @@ from rpa_orkestrai.config import Settings
 from rpa_orkestrai.engine import Executor, WorkflowError, validate_workflow
 from rpa_orkestrai.errors import Cancelled
 from rpa_orkestrai.models import Run, Step, Workflow
+from rpa_orkestrai.step_numbers import STEP_NUMBERS
 from rpa_orkestrai.storage import Store
 
 TIMER_SLACK = 0.03
@@ -50,7 +51,7 @@ def test_the_flow_waits_after_the_step_and_says_so(tmp_path):
     messages = [event.message for event in run.events]
     assert "Sonraki adıma geçmeden 0,3 saniye bekleniyor." in messages
     # The pause comes after the step is done and before the next one starts.
-    assert messages.index("Tamamlandı: 1 Listeye ekle") < messages.index("Sonraki adıma geçmeden 0,3 saniye bekleniyor.")
+    assert messages.index(f"Tamamlandı: {STEP_NUMBERS['data.append']} Listeye ekle") < messages.index("Sonraki adıma geçmeden 0,3 saniye bekleniyor.")
 
 
 def test_a_block_waits_once_after_all_its_turns(tmp_path):
