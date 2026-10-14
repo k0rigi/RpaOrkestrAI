@@ -1,8 +1,8 @@
 # Ajanlar ve dijital ekip
 
 **0.9.23 yayın durumu:** Windows/macOS kurulumları yayımlandı. Ortak sunucu LLM
-hizmeti canlı performans sınamasını henüz geçmediğinden etkin değildir; ayrı ajan
-lisansı ataması beklemektedir. [Doğrulama ve açık işler](ajanlar-gelistirme-durumu.md).
+hizmeti canlı performans sınamasını henüz geçmediğinden etkin değildir. Ajan
+kullanımı firmaya ve hesaba atanmış ayrı ajan lisansı gerektirir. [Doğrulama ve açık işler](ajanlar-gelistirme-durumu.md).
 
 Ajanlar, kullanıcı hedefini izin verilen akışlarla yerine getirir. Model hangi akışı
 hangi girdilerle çalıştıracağını önerir; izin, lisans, onay ve durdurma kararlarını

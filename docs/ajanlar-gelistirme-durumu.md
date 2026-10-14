@@ -3,8 +3,8 @@
 Windows ve macOS için **0.9.23 yayımlandı**. İmzalı bildirim, iki tam kurulum
 dosyası ve indirme sayfası HTTPS üzerinden gerçek güncelleme istemcisiyle doğrulandı.
 Ajan ve ekip API kodu normal sunucu dağıtımıyla yayımlandı; mevcut API hizmetinin
-yeniden başlatılması ve kimlik kapısı doğrulandı. Ortak model kurulumu ve açıkça
-onaylanan lisans ataması ayrıca tamamlanacak.
+yeniden başlatılması ve kimlik kapısı doğrulandı. Açıkça onaylanan ajan lisansı
+ve tek onaycı ataması tamamlandı; ortak model performans engeli nedeniyle kapalı.
 
 ## Aşamalar
 
@@ -36,7 +36,7 @@ Doğrulanan kurulumların kaynak commit'i
 - Paketlenmiş uygulamada gerçek **WebView2 ve WKWebView ofis sınamaları 9/9**: yerel Three.js, tema, SVG geri dönüşü, erişilebilir liste, güvenli metin, temizlik ve salt okunur davranış başarılı; hata listeleri boş.
 - GitHub artefakt özetleri, çıkarılan EXE/DMG boyut ve SHA-256 değerleri eşleşti. macOS disk imajının `hdiutil verify` kontrolü başarılı.
 - Sunucu ajan/ekip/LLM, kurulum ve lisans atama testleri: **344 geçti**; Ruff ve Python 3.6 uyumluluk kontrolü temiz. [Son API dağıtımı](https://github.com/k0rigi/orkestrai/actions/runs/38485098815) başarılı.
-- Canlı lisans ön kontrolü onaylanan firma, hesap ve dönem için başarılı; canlı atama henüz yapılmadı. [Ön kontrol](https://github.com/k0rigi/orkestrai/actions/runs/38477834671).
+- Canlı lisans ön kontrolü ve [onaylanan MOD_AJAN ataması](https://github.com/k0rigi/orkestrai/actions/runs/38509315913) başarılı. Firma, hesap, dönem ve tek onaycı işlem içinde doğrulandı; mevcut MOD_RPA kayıtları korundu.
 
 Testler gerçek müşteri ERP verisi veya sağlayıcı anahtarı kullanmaz. Hedef
 bilgisayardaki gerçek ERP akışları ayrıca sınanmalıdır. Başarılı Studio ve paket
@@ -81,8 +81,8 @@ CPU özellikleri değişmemişti; model 7,77 saniyede yüklendi, ilk araç çağ
 
 - [0.9.23 yayın işi](https://github.com/k0rigi/orkestrai/actions/runs/38508334057) başarılı. [İndirme sayfası](https://orkestrai.net/rpa/) ve [GitHub test sürümü](https://github.com/k0rigi/RpaOrkestrAI/releases/tag/v0.9.23-test.1) kullanılabilir. Canlı dosyaların boyutları ve SHA-256 özetleri doğrulanan yerel paketlerle aynı.
 - Sunucu sağlayıcısı CPU özelliklerini kontrol etmeli; ortak model gerçek araç çağrısı sınamasını geçmeden etkinleştirilmez.
-- Onaylanan ayrı ajan lisansı ve tek onaycı ataması henüz uygulanmadı. Hesap kimlikleri ve tarihler genel uygulama koduna veya açık depo belgelerine gömülmez.
-- Yeni yayın doğrulanmadan önceki kurulumlar kaldırılmaz. En düşük kabul edilen Studio sürümü değiştirilmez.
+- Onaylanan ayrı ajan lisansı ve tek onaycı ataması tamamlandı; ortak model hizmetinden bağımsızdır. Hesap kimlikleri ve tarihler genel uygulama koduna veya açık depo belgelerine gömülmez.
+- Yeni yayın doğrulandıktan sonra açık silme onayıyla eski sunucu paketleri, eski GitHub sürümü/etiketi ve önceki kurulum artefaktları kaldırıldı. Eski paketler 404, yeni paketler 200 veriyor. [Temizlik işi](https://github.com/k0rigi/orkestrai/actions/runs/38508771765) başarılı. En düşük kabul edilen Studio sürümü değiştirilmedi.
 - Kullanıcının yerel imzalama onayıyla yalnız mevcut yayın betiği özel anahtarı kullanır; anahtar Git'e, paketlere veya sunucuya gönderilmez.
 
 Kullanım ayrıntıları: [Ajanlar ve dijital ekip](ajanlar.md).

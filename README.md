@@ -27,7 +27,7 @@ Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan �
 
 **0.9.23:** Ajanlar, tek yönetici ve departman ajanları, izinli akış araçları, ayrı ajan lisansı, merkezi kullanıcı onayları, insan görevleri ve performans paneli. **Yapay zekâya sor** adımı şema ile doğrulanmış sonuçları akışa taşır. Aynı oturumdaki ortak model istekleri sıraya girer; onay ve akış izinleri model yanıtıyla değişmez. [Ajan rehberi](docs/ajanlar.md) ve [doğrulama durumu](docs/ajanlar-gelistirme-durumu.md).
 
-**Ortak sunucu LLM hizmeti henüz etkin değildir.** Kurulum dosyalarının yayımlanması ortak modelin çalıştığı anlamına gelmez. Sunucunun CPU özellikleri ve gerçek araç çağrısı süresi doğrulanmalıdır; ayrı ajan lisansı ataması da beklemektedir.
+**Ortak sunucu LLM hizmeti henüz etkin değildir.** Kurulum dosyalarının yayımlanması ortak modelin çalıştığı anlamına gelmez. Sunucunun CPU özellikleri ve gerçek araç çağrısı süresi doğrulanmalıdır. Ajan kullanımı için firmaya ve hesaba ayrı ajan lisansı atanması gerekir.
 
 Web tıklamasıyla açılan yeni sekmenin ilk yanıtı gecikse de sonraki adım yeni sekmeyi bekler. Süre dolarsa işlem durur; tıklama tekrarlanmaz.
 
