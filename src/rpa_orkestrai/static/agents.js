@@ -68,7 +68,7 @@
     get_run: "Akış sonucu okunuyor", list_recent_runs: "Geçmiş çalışmalar okunuyor", read_artifact: "Çıktı dosyası okunuyor",
     ask_user: "Size soru", ask_manager: "Yöneticiye soru", finish: "Görevi bitiriyor", list_team: "Ekip okunuyor",
     delegate_task: "Görev devri", get_task: "Alt görev durumu okunuyor", list_tasks: "Alt görevler okunuyor",
-    wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt" };
+    wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt", suggest_note: "Not önerisi" };
   const eventTitles = { created: "Görev alındı", queue: "Masaüstü sırası bekleniyor", workflow_started: "Akış başladı",
     question: "Size soru soruldu", user_answer: "Yanıtınız iletildi", approval_requested: "Onay istendi",
     approval_decision: "Onay kararı verildi", approval_submitted: "Onay kararı gönderildi", approval_consumed: "Onay kullanıldı",
@@ -76,10 +76,11 @@
     manager_answer: "Yöneticiden yanıt geldi", manager_question_expired: "Yönetici süre içinde yanıt vermedi",
     department_question: "Departmandan soru geldi", department_answered: "Departmana yanıt verildi",
     context_compacted: "Konuşma kısaltıldı", output_limited: "Yanıt bütçesi daraltıldı", interrupted: "Çalışma yarıda kaldı",
-    assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek" };
+    assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek",
+    note_suggested: "Ajan kalıcı not önerdi" };
   const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
   const quietTools = new Set(["list_workflows", "describe_workflow", "get_run", "list_recent_runs", "list_team", "get_task",
-    "list_tasks", "wait_tasks", "read_artifact"]);
+    "list_tasks", "wait_tasks", "read_artifact", "suggest_note"]);
   const extensions = new Map();
   let active = null;
   let sequence = 0;
@@ -171,6 +172,67 @@
     return value;
   }
 
+  function noteText(value) { return String(value || "").split(/\s+/).filter(Boolean).join(" "); }
+  async function reloadNotes(view) {
+    const notes = await view.request("/api/agents/notes");
+    if (view.alive) view.notes = notes;
+  }
+  async function saveNote(view, agentId, text, sourceRun = null) {
+    await view.request(`/api/agents/${agentId}/notes`, "POST", { text: noteText(text).slice(0, 500), source_run_id: sourceRun });
+    await reloadNotes(view);
+    if (view.alive) view.options.toast("Not kaydedildi. Ajan bunu sonraki görevlerde kullanır.");
+  }
+  // Notes are approved knowledge. They never widen what the agent may run; the editor only shows them.
+  function notesSection(view, agent) {
+    const notes = view.notes?.[agent.id] || [];
+    const body = element("div", null, "agent-notes");
+    body.append(element("p", "Ajan bu bilgileri sonraki görevlerde kullanır. Notlar izin vermez; izinleri yalnız ajan formu belirler.", "agent-help"));
+    const list = element("ul", null, "agent-note-list");
+    for (const note of notes) {
+      const item = element("li");
+      item.append(element("span", note.text), element("small", `${note.user_name || "Yetkili"} · ${timeLabel(note.updated_at)}`, "muted"));
+      if (view.session.can_manage) {
+        const controls = element("div", null, "agent-actions");
+        const remove = action("Sil", () => view.busy(remove, async () => {
+          if (!await view.confirm("Not silinsin mi?", "Ajan bu bilgiyi sonraki görevlerde kullanmaz.", "Sil", true)) return;
+          await view.request(`/api/agents/${agent.id}/notes/${note.id}`, "DELETE");
+          await reloadNotes(view); view.openNotes = agent.id; if (view.alive && view.tab === "agents") renderAgents(view);
+        }), "danger");
+        controls.append(action("Düzenle", () => noteForm(view, agent, note, item)), remove);
+        item.append(controls);
+      }
+      list.append(item);
+    }
+    if (!notes.length) list.append(element("li", "Henüz not yok. Bir soruyu yanıtlarken veya ajanın önerisinden not kaydedebilirsiniz.", "agent-help"));
+    body.append(list);
+    if (view.session.can_manage) {
+      const add = action("Not ekle", () => noteForm(view, agent, null, add));
+      body.append(add);
+    }
+    const details = disclosure(`Bildikleri (${notes.length} not)`, body);
+    details.open = view.openNotes === agent.id;
+    return details;
+  }
+  function noteForm(view, agent, note, anchor) {
+    const form = identify(element("form", null, "agent-note-form"), "note");
+    const textInput = field(note ? "Notu düzenle" : "Yeni not", note?.text || "", "textarea",
+      "Kalıcı bilgiyi yazın (en fazla 500 karakter). Tarih, tutar gibi tek seferlik değerleri ve şifreleri yazmayın.");
+    textInput.input.maxLength = 500; textInput.input.required = true; textInput.input.rows = 3;
+    const save = action("Notu kaydet", () => form.requestSubmit(), "primary");
+    const controls = element("div", null, "agent-actions");
+    controls.append(save, action("Vazgeç", () => { form.remove(); anchor.hidden = false; }));
+    form.append(textInput.wrapper, controls);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      view.busy(save, async () => {
+        if (note) await view.request(`/api/agents/${agent.id}/notes/${note.id}`, "PUT", { text: noteText(textInput.input.value) });
+        else await view.request(`/api/agents/${agent.id}/notes`, "POST", { text: noteText(textInput.input.value) });
+        await reloadNotes(view); view.openNotes = agent.id;
+        if (view.alive) { view.options.toast("Not kaydedildi."); if (view.tab === "agents") renderAgents(view); }
+      });
+    });
+    anchor.hidden = true; anchor.after(form); textInput.input.focus();
+  }
   function agentName(view, identity) {
     return view.agents.find((item) => item.id === identity)?.name || "Ajan";
   }
@@ -225,10 +287,10 @@
     try {
       const values = await Promise.all([
         request("/api/agents/session"), request("/api/agents"), request("/api/agents/connections"),
-        request("/api/agents/workflows"),
+        request("/api/agents/workflows"), request("/api/agents/notes").catch(() => ({})),
       ]);
       if (!view.alive) return;
-      [view.session, view.agents, view.connections, view.workflows] = values;
+      [view.session, view.agents, view.connections, view.workflows, view.notes] = values;
       shell(view);
       showTab(view, view.tabButtons.has(options.initialTab) ? options.initialTab : "agents");
       pollAttention(view);
@@ -350,6 +412,8 @@
       "Hedef bulunamazsa tahminle tıklamaz veya yazmaz; durur.",
       "Bilmediği bilgiyi uydurmaz; sorar ya da durur.",
     ];
+    const noteCount = (view.notes?.[agent.id] || []).length;
+    if (noteCount) can.push(`Onaylanmış ${noteCount} kalıcı notu bilir ve kullanır; notlar izin vermez.`);
     if (agent.role === "manager") {
       const team = view.agents.filter((item) => item.manager_id && item.manager_id === agent.id);
       if (team.length) can.push(`Bağlı ${team.length} departman ajanına görev verebilir: ${team.map((item) => `${item.name} (${item.department})`).join(", ")}.`);
@@ -420,6 +484,7 @@
         element("p", agent.description || "Henüz açıklama eklenmedi.", "muted")
       );
       card.append(permissionCard(permissionSummary(view, agent)), element("p", limitSummary(agent), "agent-help agent-limit-line"));
+      card.append(notesSection(view, agent));
       if (agent.instructions) card.append(disclosure("Talimatlar", element("p", agent.instructions, "agent-help agent-instructions")));
 
       const buttons = element("div", null, "agent-actions");
@@ -775,6 +840,17 @@
       // The server sentence only repeats the title when a readable detail exists; the model's own note is always shown.
       if (!detail || event.kind === "assistant") item.append(element("p", event.message || event.kind));
       if (detail) item.append(element("p", detail, "agent-task-text agent-event-detail"));
+      if (event.kind === "note_suggested" && view.session.can_manage && typeof event.data?.text === "string") {
+        const known = (view.notes?.[run.agent_id] || []).some((item) => item.text === noteText(event.data.text));
+        if (known) item.append(element("p", "Bu bilgi ajanın notlarında kayıtlı.", "agent-help"));
+        else {
+          const keep = action("Not olarak sakla", () => view.busy(keep, async () => {
+            await saveNote(view, run.agent_id, event.data.text, run.id);
+            if (view.alive) keep.replaceWith(element("p", "Bu bilgi ajanın notlarında kayıtlı.", "agent-help"));
+          }), "primary");
+          item.append(keep);
+        }
+      }
       const runId = event.kind === "workflow_started" ? event.data?.run_id : null;
       if (typeof runId === "string" && /^[a-f0-9]{32}$/.test(runId)) {
         item.append(action("Akış çalışma kaydını aç", () => Promise.resolve(view.options.openRun(runId)).catch(view.error)));
@@ -821,6 +897,7 @@
     if (event.kind === "department_question") return `${agentName(view, data.agent_id)}: ${text(data.question)}`;
     if (event.kind === "task_delegated") return agentName(view, data.agent_id);
     if (event.kind === "workflow_started") return `«${workflowName(view, data.workflow_id)}»`;
+    if (event.kind === "note_suggested") return text(data.text);
     return "";
   }
   function updateUsage(box, run, agent) {
@@ -883,11 +960,21 @@
         form.append(action(label, () => { answer.input.value = label; answer.input.focus(); }));
       }
       const send = action("Yanıtla", () => form.requestSubmit(), "primary");
+      const remember = toggle("Bu bilgiyi ajanın kalıcı notu olarak da sakla", false);
+      const note = field("Not metni", "", "textarea", "Ajan bunu sonraki görevlerde de kullanır. Tarih, tutar gibi tek seferlik değerleri saklamayın.");
+      note.input.maxLength = 500; note.input.rows = 2; note.wrapper.hidden = true;
+      remember.input.addEventListener("change", () => {
+        note.wrapper.hidden = !remember.input.checked; note.input.required = remember.input.checked;
+        if (remember.input.checked && !note.input.value) note.input.value = noteText(`${question.question} → ${answer.input.value}`).slice(0, 500);
+      });
       form.addEventListener("submit", (event) => { event.preventDefault(); view.busy(send, async () => {
         await view.request(`/api/agents/runs/${run.id}/questions/${question.id}/answer`, "POST", { answer: answer.input.value });
+        if (remember.input.checked && note.input.value.trim()) await saveNote(view, run.agent_id, note.input.value, run.id);
         if (view.alive && view.selectedRun === run.id) await openRun(view, run.id);
       }); });
-      form.append(answer.wrapper, element("p", `Yanıt süresi: ${timeLabel(question.expires_at)}`, "agent-help"), send);
+      form.append(answer.wrapper);
+      if (view.session.can_manage) form.append(remember.wrapper, note.wrapper);
+      form.append(element("p", `Yanıt süresi: ${timeLabel(question.expires_at)}`, "agent-help"), send);
       ui.pending.append(form);
     } else if (approval) {
       const card = element("section", null, "agent-pending approval");

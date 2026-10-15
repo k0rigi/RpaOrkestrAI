@@ -8,14 +8,16 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.27-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.27-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.28-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.28-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemelerin paketleri **Actions → Build desktop apps → Artifacts** bölümünde bir gün durur; yayınlanan güncel sürüm orkestrai.net/rpa adresindedir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
 **0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. Güncelleme indirilemezse mevcut sürüm kullanılmaya devam eder; akışlar ve bağlantı ayarları korunur. Studio'nun açılması için lisans doğrulaması nedeniyle internet bağlantısı gerekir. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+
+**0.9.28:** **Ajanlar onaylı notlarla öğrenir:** bir soruyu yanıtlarken «Bu bilgiyi ajanın kalıcı notu olarak da sakla» seçilebilir; ajan da görev sırasında kalıcı bilgi önerebilir. Not yalnız ajanları yönetme yetkisi olan kişi onaylarsa kaydedilir ve o ajan sonraki görevlerde kullanır. Ajan kartındaki **Bildikleri** bölümünde notlar görülür, düzenlenir ve silinir. Notlar izin, onay veya sınır değiştirmez; her ajanın notu kendisine aittir. Kayıtlı şifre içeren not reddedilir. Araç tanımları küçültüldü; küçük bağlamlı modellerde konuşmaya daha fazla yer kalır. [Ajan rehberi](docs/ajanlar.md).
 
 **0.9.27:** **Ajanlar yönetici üzerinden haberleşir:** yöneticinin verdiği görevde takılan departman ajanı önce yöneticisine sorar; yönetici yanıtlar ya da bilmiyorsa size sorup yanıtı iletir. Yönetici bir departmanın sonucunu bekleyip başka bir departmana girdi olarak aktarabilir. Departman ajanları birbirleriyle doğrudan konuşmaz. **Canlı ofis:** soru soran ajan yöneticinin odasına yürür; başlarında «Görev», «Soru», «Yanıt», «Sonuç» balonları çıkar (yalnız mesajın türü görünür, içerik görünmez). **Sade yetki kartı:** her ajan kartı ve düzenleme formu, ajanın kayıtlı izinlerinden üretilen **Yapabilir · Onay ister · Yapamaz** özetini ve sınırları dakika cinsinden gösterir. **Daha kolay yönetim:** Başlarken kontrol listesi; her sekmede **Sizi bekleyen işler** uyarısı; Temkinli / Dengeli / Geniş sınır profilleri ve dakika cinsinden süreler; sade cümlelerle zaman çizelgesi, sınır kullanım çubukları ve alt görev bağlantıları; organizasyon şeması ve kurulum kontrolü; ofiste **Son iletişimler** listesi; onay kartında isteyen kişinin adı. Model önerileri güncellendi; Gemini'de seçtiğiniz model adı artık değiştirilmeden kullanılır. Ekran tablosuna yazarken yeni açılmış uygulamanın ilk kopyalama yanıtı için daha uzun beklenir. [Ajan rehberi](docs/ajanlar.md).
 
@@ -242,7 +244,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.27. Ortak
+  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.28. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
 - [Adım rehberi: 88 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)

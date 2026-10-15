@@ -163,6 +163,36 @@ class Agent(AgentInput):
     permission_audit: list[PermissionChange] = Field(default_factory=list, max_length=1000)
 
 
+MAX_NOTES = 30
+MAX_NOTE_CHARACTERS = 500
+MAX_NOTES_TOTAL = 4000
+
+
+class NoteInput(Model):
+    text: str = Field(min_length=1, max_length=MAX_NOTE_CHARACTERS)
+    source_run_id: Identifier | None = None
+
+
+class AgentNote(Model):
+    """Approved knowledge only: it is shown to the model, but never grants permissions."""
+
+    id: Identifier = Field(default_factory=uid)
+    text: str = Field(min_length=1, max_length=MAX_NOTE_CHARACTERS)
+    created_at: str = Field(default_factory=now)
+    updated_at: str = Field(default_factory=now)
+    user_id: int = Field(ge=1)
+    user_name: str = Field(default="", max_length=200)
+    source_run_id: Identifier | None = None
+
+
+class AgentNotes(Model):
+    """Kept outside Agent so a note neither changes the permission revision nor old agent files."""
+
+    id: Identifier
+    company_id: int = Field(ge=1)
+    notes: list[AgentNote] = Field(default_factory=list, max_length=MAX_NOTES)
+
+
 class AgentEvent(Model):
     id: Identifier = Field(default_factory=uid)
     timestamp: str = Field(default_factory=now)

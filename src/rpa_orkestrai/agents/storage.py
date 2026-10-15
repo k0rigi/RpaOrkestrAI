@@ -10,7 +10,7 @@ from typing import TypeVar
 
 from ..config import atomic_json
 from ..models import Model, now
-from .models import TERMINAL_STATUSES, Agent, AgentEvent, AgentRun, AgentTask
+from .models import TERMINAL_STATUSES, Agent, AgentEvent, AgentNotes, AgentRun, AgentTask
 
 Record = TypeVar("Record", bound=Model)
 MAX_RECORD_BYTES = 8 * 1024 * 1024
@@ -19,7 +19,7 @@ MAX_RECORD_BYTES = 8 * 1024 * 1024
 class AgentStore:
     _locks: dict[str, threading.RLock] = {}
     _locks_guard = threading.Lock()
-    _folders = frozenset({"agents", "agent_runs", "agent_tasks"})
+    _folders = frozenset({"agents", "agent_runs", "agent_tasks", "agent_notes"})
 
     def __init__(self, root: Path | str):
         candidate = Path(root).expanduser().absolute()
@@ -100,6 +100,18 @@ class AgentStore:
             if not path.is_file():
                 raise KeyError(key)
             path.unlink()
+
+    def save_notes(self, notes: AgentNotes) -> AgentNotes:
+        return self._save("agent_notes", notes, AgentNotes)
+
+    def notes(self, key: str) -> AgentNotes:
+        return self._read("agent_notes", key, AgentNotes)
+
+    def delete_notes(self, key: str) -> None:
+        with self._lock:
+            path = self.path("agent_notes", key)
+            if path.is_file():
+                path.unlink()
 
     def save_run(self, run: AgentRun) -> AgentRun:
         return self._save("agent_runs", run, AgentRun)

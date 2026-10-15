@@ -148,3 +148,19 @@ def test_tasks_team_and_queue_are_company_scoped_and_license_gated(api):
     api.licensing.agents = False
     for path in ("tasks", "team", "queue"):
         assert api.client.get(f"/api/agents/{path}").status_code == 403
+
+
+def test_note_routes_are_license_gated_and_reject_unknown_fields(api):
+    identity = create(api)["id"]
+    assert api.client.get("/api/agents/notes").json() == {identity: []}
+    added = api.client.post(f"/api/agents/{identity}/notes", json={"text": "Raporlar haftalık hazırlanır."})
+    assert added.status_code == 201, added.text
+    note = added.json()["id"]
+    assert api.client.post(f"/api/agents/{identity}/notes", json={"text": "X", "user_id": 99}).status_code == 422
+    assert api.client.put(f"/api/agents/{identity}/notes/{note}", json={"text": "Raporlar aylık hazırlanır."}).status_code == 200
+    assert api.client.get("/api/agents/notes").json()[identity][0]["text"] == "Raporlar aylık hazırlanır."
+    api.licensing.agents = False
+    assert api.client.get("/api/agents/notes").status_code == 403
+    api.licensing.agents = True
+    assert api.client.delete(f"/api/agents/{identity}/notes/{note}").status_code == 204
+    assert api.client.delete(f"/api/agents/{identity}/notes/{note}").status_code == 404

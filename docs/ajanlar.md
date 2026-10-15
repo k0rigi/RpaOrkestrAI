@@ -187,6 +187,35 @@ bilgisi veya izni başka bir departmana kendiliğinden geçmez. Sizin doğrudan
 başlattığınız departman görevinde yönetici yoktur; ajan takılınca size sorar.
 Soru ve yanıtlar iki tarafın çalışma kaydında da görünür.
 
+### Ajan notları: onaylı öğrenme (0.9.28)
+
+Ajan, verdiğiniz yanıtları kendiliğinden kalıcı bilgiye dönüştürmez. Bir yanıt
+varsayılan olarak yalnız o görevde kullanılır. Tek seferlik bir değerin ("Eylül"
+gibi) sonraki aylarda tahmini girişe dönüşmemesi için kalıcı bilgi açıkça onaylanır:
+
+- **Soruyu yanıtlarken:** Ajanları yönetme yetkisi olan kişi soru kartında
+  **Bu bilgiyi ajanın kalıcı notu olarak da sakla** seçeneğini işaretleyip not
+  metnini düzenleyebilir.
+- **Ajanın önerisi:** Ajan görev sırasında kalıcı olabilecek bir bilgiyi
+  (`suggest_note`) önerebilir. Öneri zaman çizelgesinde görünür; yetkili
+  **Not olarak sakla** ile kaydeder. Bir görevde en fazla 5 öneri yapılabilir.
+- **Bildikleri:** Ajan kartında notlar, ekleyen kişi ve tarihle listelenir.
+  Yetkili not ekleyebilir, düzenleyebilir ve silebilir; diğer kullanıcılar yalnız
+  görür.
+
+Notlar ajanın talimatına "onaylanmış bilgi" olarak eklenir. İzin, onay veya
+sınır değiştirmez; bunları yalnız ajan formu belirler ve sunucu uygular. Görev
+bir notla çelişirse ajan kullanıcıya sorar. Her ajanın notu kendisine aittir;
+yöneticinin veya başka bir departmanın notu paylaşılmaz. Çalışan bir göreve
+eklenen not, o ajanın bir sonraki görevinden itibaren kullanılır ve çalışan
+görevi durdurmaz.
+
+Bir ajan en fazla 30 not, toplam 4.000 karakter tutar; tek not en fazla 500
+karakterdir. Kayıtlı bir şifre veya anahtar içeren not reddedilir. Notlar
+`data/agent_notes/` içinde ajan tanımından ayrı tutulur. Bu sayede not eklemek
+ajanın izin revizyonunu değiştirmez ve eski sürümler ajan dosyalarını okumaya
+devam eder. Ajan kaldırılınca notları da silinir.
+
 ### Yetki kartı
 
 Her ajan kartında ve düzenleme formunda **Yapabilir · Onay ister · Yapamaz**

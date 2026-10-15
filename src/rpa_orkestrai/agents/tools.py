@@ -100,6 +100,10 @@ class WaitArgument(Model):
     until: Literal["any", "all"] = "all"
 
 
+class NoteSuggestion(Model):
+    text: str = Field(min_length=1, max_length=500)
+
+
 class AnswerArgument(Model):
     question_id: Identifier
     answer: str = Field(min_length=1, max_length=4000)
@@ -123,17 +127,28 @@ TOOLS = {
     "answer_department": (AnswerArgument, "Departman ajanının yöneticiye sorduğu soruyu yanıtlar. Bilmediğin konuda "
                                           "yanıt uydurma; önce ask_user ile kullanıcıya sor."),
     "ask_manager": (QuestionArgument, "Görevi veren yöneticiye soru sorar ve yanıtını bekler."),
+    "suggest_note": (NoteSuggestion, "Kalıcı bilgiyi not olarak önerir; yetkili onaylamadan kaydedilmez."),
 }
 MANAGER_TOOLS = frozenset({"list_team", "delegate_task", "get_task", "list_tasks", "wait_tasks",
-                           "answer_department", "ask_user", "finish"})
-DEPARTMENT_TOOLS = frozenset(set(TOOLS) - MANAGER_TOOLS | {"ask_user", "finish"})
+                           "answer_department", "ask_user", "suggest_note", "finish"})
+DEPARTMENT_TOOLS = frozenset(set(TOOLS) - MANAGER_TOOLS | {"ask_user", "suggest_note", "finish"})
+
+
+def _compact(schema):
+    # Generated "title" labels repeat property names; small shared models need that context space.
+    if isinstance(schema, dict):
+        return {key: _compact(value) for key, value in schema.items()
+                if not (key == "title" and isinstance(value, str))}
+    if isinstance(schema, list):
+        return [_compact(item) for item in schema]
+    return schema
 
 
 def tool_definitions(role="department", *, delegated=False) -> list[dict]:
     """Departman ajanı yöneticisine yalnız yöneticinin devrettiği görevde soru sorabilir."""
     allowed = MANAGER_TOOLS if role == "manager" else DEPARTMENT_TOOLS - (set() if delegated else {"ask_manager"})
     return [{"type": "function", "name": name, "description": description,
-             "parameters": model.model_json_schema()} for name, (model, description) in TOOLS.items() if name in allowed]
+             "parameters": _compact(model.model_json_schema())} for name, (model, description) in TOOLS.items() if name in allowed]
 
 
 class AgentTools:
@@ -320,6 +335,9 @@ class AgentTools:
 
     def ask_user(self, arguments):
         return self.service._wait_question(self.context, arguments.question, arguments.options)
+
+    def suggest_note(self, arguments):
+        return self.service._suggest_note(self.context, arguments.text)
 
     def ask_manager(self, arguments):
         return self.service._ask_manager(self.context, arguments.question, arguments.options)

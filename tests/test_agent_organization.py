@@ -80,7 +80,7 @@ def test_manager_delegates_and_combines_completed_children_without_elevating_per
     assert runtime.service.get_task(saved.task_id).summary == "Ekip işi tamamladı"
     tools = {tool["name"] for tool in manager_provider.requests[0]["tools"]}
     assert tools == {"list_team", "delegate_task", "get_task", "list_tasks", "wait_tasks", "answer_department",
-                     "ask_user", "finish"}
+                     "ask_user", "suggest_note", "finish"}
     child_tools = {tool["name"] for tool in child_provider.requests[0]["tools"]}
     assert "ask_manager" in child_tools and not child_tools & {"delegate_task", "answer_department", "wait_tasks"}
 

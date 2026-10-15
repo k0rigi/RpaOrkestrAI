@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import Field, field_validator
 
 from ..models import Model
-from .models import AgentInput, AgentRunRequest, validate_json_value
+from .models import AgentInput, AgentRunRequest, NoteInput, validate_json_value
 from .runner import AgentService, AgentServiceError
 
 
@@ -65,6 +65,10 @@ def router(service: AgentService) -> APIRouter:
     def queue():
         return call(service.queue)
 
+    @result.get("/notes")
+    def notes():
+        return call(service.notes)
+
     @result.get("/runs/{run_id}")
     def get_run(run_id: str):
         return call(service.get_run, run_id)
@@ -92,6 +96,19 @@ def router(service: AgentService) -> APIRouter:
     @result.delete("/{agent_id}", status_code=204)
     def delete_agent(agent_id: str):
         call(service.delete_agent, agent_id)
+        return Response(status_code=204)
+
+    @result.post("/{agent_id}/notes", status_code=201)
+    def add_note(agent_id: str, body: NoteInput):
+        return call(service.add_note, agent_id, body)
+
+    @result.put("/{agent_id}/notes/{note_id}")
+    def update_note(agent_id: str, note_id: str, body: NoteInput):
+        return call(service.update_note, agent_id, note_id, body)
+
+    @result.delete("/{agent_id}/notes/{note_id}", status_code=204)
+    def delete_note(agent_id: str, note_id: str):
+        call(service.delete_note, agent_id, note_id)
         return Response(status_code=204)
 
     @result.post("/{agent_id}/runs", status_code=202)

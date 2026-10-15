@@ -112,5 +112,12 @@
 .agent-org-legend { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; padding: 8px 0; margin: 0; border-top: 2px dashed var(--line-strong); border-bottom: 2px dashed var(--line-strong); color: var(--ink-2); font-size: .88rem; font-weight: 600; }
 .agent-organization > h3 { margin: 8px 0 0; }
 .agent-organization > .button { justify-self: start; }
+.agent-card > .agent-details { width: 100%; }
+.agent-note-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 8px; }
+.agent-note-list li { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--surface-2); overflow-wrap: anywhere; }
+.agent-note-list li.agent-help { background: none; border-style: dashed; }
+.agent-note-list .agent-actions { margin-top: 4px; }
+.agent-note-form { display: grid; gap: 8px; margin-top: 8px; }
+.agent-event[data-kind="note_suggested"] { border-left-color: var(--accent); }
 @media (max-width: 900px) { .agent-root { padding: 18px; } .agent-run-layout { grid-template-columns: 1fr; } .agent-run-list > div { max-height: 260px; overflow: auto; } }
 @media (max-width: 640px) { .agent-form-grid { grid-template-columns: 1fr; } .agent-cards { grid-template-columns: 1fr; } .agent-card, .agent-form, .agent-run-pane { padding: 16px; } }

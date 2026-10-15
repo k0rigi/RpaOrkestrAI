@@ -79,7 +79,8 @@ def ui():
         page.evaluate("""async () => {
           window.toasts = [];
           window.agentOptions = {
-            api: async (path, options) => { const response = await fetch(path, options); const body = await response.json();
+            api: async (path, options) => { const response = await fetch(path, options);
+              if (response.status === 204) return null; const body = await response.json();
               if (!response.ok) throw new Error(body.detail); return body; },
             toast: (text) => window.toasts.push(text), confirmDialog: async () => true,
             openRun: (id) => { window.openedRun = id; }
@@ -348,4 +349,81 @@ def test_run_timeline_reads_as_sentences_and_hides_technical_records(ui):
     page.get_by_label("Teknik kayıtları göster", exact=True).check()
     assert page.locator(".agent-event.technical").is_visible()
     assert page.locator("img").count() == 0
+    assert_unique_interactive_ids(page)
+
+
+def note_routes(page, calls):
+    notes = {AID: [{"id": "9" * 32, "text": "Raporlar Paylaşılan klasöründedir.", "user_name": ATTACK,
+                    "updated_at": "2026-10-13T12:00:00+00:00", "created_at": "2026-10-13T12:00:00+00:00", "user_id": 1}]}
+
+    def handle(route):
+        request = route.request
+        path = urlsplit(request.url).path
+        body = json.loads(request.post_data) if request.post_data else None
+        calls.append((request.method, path, body))
+        if path == "/api/agents/notes":
+            route.fulfill(json=notes)
+        elif request.method == "POST":
+            note = {"id": "8" * 32, "text": body["text"], "user_name": "Yetkili", "user_id": 1,
+                    "updated_at": "2026-10-14T12:00:00+00:00", "created_at": "2026-10-14T12:00:00+00:00"}
+            notes[AID].append(note)
+            route.fulfill(status=201, json=note)
+        elif request.method == "PUT":
+            notes[AID][0]["text"] = body["text"]
+            route.fulfill(json=notes[AID][0])
+        else:
+            notes[AID] = [item for item in notes[AID] if not path.endswith(item["id"])]
+            route.fulfill(status=204, body="")
+
+    page.route("**/api/agents/notes", handle)
+    page.route(f"**/api/agents/{AID}/notes**", handle)
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
+    page.locator(".agent-card").wait_for()
+    return notes
+
+
+def test_agent_notes_are_listed_edited_and_removed_only_from_the_card(ui):
+    page, calls, _, _, _ = ui
+    note_routes(page, calls)
+    assert "Onaylanmış 1 kalıcı notu bilir" in page.locator(".agent-permissions").inner_text()
+    page.get_by_text("Bildikleri (1 not)", exact=True).click()
+    assert page.get_by_text("Raporlar Paylaşılan klasöründedir.", exact=True).is_visible()
+    page.get_by_role("button", name="Not ekle", exact=True).click()
+    page.get_by_label("Yeni not", exact=True).fill("  Faturalar   her ay 5'inde kesilir. ")
+    page.get_by_role("button", name="Notu kaydet", exact=True).click()
+    page.get_by_text("Bildikleri (2 not)", exact=True).wait_for()
+    added = [body for method, path, body in calls if method == "POST" and path == f"/api/agents/{AID}/notes"][0]
+    assert added == {"text": "Faturalar her ay 5'inde kesilir."}
+    page.get_by_role("button", name="Düzenle", exact=True).first.click()
+    page.get_by_label("Notu düzenle", exact=True).fill("Raporlar Arşiv klasöründedir.")
+    page.get_by_role("button", name="Notu kaydet", exact=True).click()
+    page.get_by_text("Raporlar Arşiv klasöründedir.", exact=True).wait_for()
+    page.get_by_role("button", name="Sil", exact=True).first.click()
+    page.get_by_text("Bildikleri (1 not)", exact=True).wait_for()
+    assert page.locator("img").count() == 0
+    assert_unique_interactive_ids(page)
+
+
+def test_answer_and_agent_suggestion_can_become_notes(ui):
+    page, calls, _, _, run = ui
+    note_routes(page, calls)
+    run["events"].append({"id": "7" * 32, "kind": "note_suggested", "message": "Ajan kalıcı not önerdi.",
+                          "timestamp": "2026-10-13T12:00:02+00:00", "data": {"text": "Onaylar Muhasebe'den alınır."}})
+    page.route(f"**/api/agents/runs/{RID}/questions/**", lambda route: (
+        calls.append((route.request.method, urlsplit(route.request.url).path, json.loads(route.request.post_data))),
+        route.fulfill(json=run)))
+    page.evaluate("identity => window.RpaAgents.openRun(identity)", RID)
+    page.get_by_label("Yanıtınız").fill("Son kayıt")
+    page.get_by_label("Bu bilgiyi ajanın kalıcı notu olarak da sakla", exact=True).check()
+    assert page.get_by_label("Not metni", exact=True).input_value() == "Hangi kayıt? → Son kayıt"
+    page.get_by_label("Not metni", exact=True).fill("Her zaman son kaydı kullan.")
+    page.get_by_role("button", name="Yanıtla", exact=True).click()
+    page.wait_for_function("window.toasts.some(text => text.startsWith('Not kaydedildi'))")
+    posts = [(path, body) for method, path, body in calls if method == "POST"]
+    assert posts[0][0] == f"/api/agents/runs/{RID}/questions/{QID}/answer"
+    assert posts[1] == (f"/api/agents/{AID}/notes", {"text": "Her zaman son kaydı kullan.", "source_run_id": RID})
+    page.get_by_role("button", name="Not olarak sakla", exact=True).click()
+    page.get_by_text("Bu bilgi ajanın notlarında kayıtlı.", exact=True).wait_for()
+    assert [body for method, path, body in calls if method == "POST" and path.endswith("/notes")][-1] == {
+        "text": "Onaylar Muhasebe'den alınır.", "source_run_id": RID}
     assert_unique_interactive_ids(page)
