@@ -1,0 +1,258 @@
+{
+  "name": "ERP: Sheets'teki BEKLIYOR kayıtlarını işle",
+  "department": "Genel",
+  "description": "C sütunu BEKLIYOR olan satırların B sütunundaki FormID'sini ERP'de arar, kaydı açar, alanları doldurup kaydeder; ERP mesajına göre C sütununa TAMAMLANDI veya HATA, D sütununa mesajı yazar. İçe aktardıktan sonra: Sheets adresini ve bağlantıyı seçin, ERP penceresini ve her hedef alanı Ekranda seç ile tanıtın.",
+  "steps": [
+    {
+      "id": "erp",
+      "title": "ERP penceresini tanı",
+      "action": "desktop.find_window",
+      "params": {
+        "application": "",
+        "title": "ERP PENCERE BAŞLIĞI",
+        "match": "contains",
+        "timeout": 5,
+        "on_missing": "stop",
+        "output": "erp_window"
+      }
+    },
+    {
+      "id": "rows",
+      "title": "Sheets satırlarını oku",
+      "action": "sheets.read_rows",
+      "params": {
+        "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+        "worksheet": "Sayfa1",
+        "start_row": 2,
+        "max_rows": 1,
+        "columns": {
+          "form_id": "B",
+          "status": "C"
+        },
+        "key": "form_id",
+        "empty_policy": "stop",
+        "output": "sheet_rows"
+      }
+    },
+    {
+      "id": "loop",
+      "title": "Her satır için",
+      "action": "control.for_each",
+      "params": {
+        "items": "${sheet_rows}",
+        "item_name": "row"
+      },
+      "children": [
+        {
+          "id": "skip-check",
+          "title": "BEKLIYOR değil mi?",
+          "action": "control.if",
+          "params": {
+            "left": "${row.status}",
+            "operator": "ne",
+            "right": "BEKLIYOR"
+          },
+          "children": [
+            {
+              "id": "skip",
+              "title": "Sonraki satıra geç",
+              "action": "control.continue",
+              "params": {}
+            }
+          ]
+        },
+        {
+          "id": "guard",
+          "title": "ERP işlemini dene",
+          "action": "control.try",
+          "params": {
+            "error_name": "error_message"
+          },
+          "children": [
+            {
+              "id": "focus",
+              "title": "ERP'yi öne getir",
+              "action": "window.activate",
+              "params": {
+                "window": "${erp_window}"
+              }
+            },
+            {
+              "id": "search",
+              "title": "Arama alanına FormID yaz",
+              "action": "desktop.window_fill",
+              "params": {
+                "window": "${erp_window}",
+                "target_mode": "coordinates",
+                "text": "${row.form_id}",
+                "clear": true
+              }
+            },
+            {
+              "id": "search-enter",
+              "title": "Aramayı başlat (Enter)",
+              "action": "desktop.window_key",
+              "params": {
+                "window": "${erp_window}",
+                "key": "enter",
+                "modifier": "none"
+              }
+            },
+            {
+              "id": "result-wait",
+              "title": "Arama sonucunu bekle",
+              "action": "desktop.window_wait_image",
+              "params": {
+                "window": "${erp_window}",
+                "template": "",
+                "confidence": 0.9,
+                "timeout": 10,
+                "state": "visible"
+              }
+            },
+            {
+              "id": "result-open",
+              "title": "Sonuca tıkla",
+              "action": "desktop.window_click",
+              "params": {
+                "window": "${erp_window}",
+                "target_mode": "coordinates",
+                "clicks": 2,
+                "button": "left"
+              }
+            },
+            {
+              "id": "fill-1",
+              "title": "Form alanını doldur",
+              "action": "desktop.window_fill",
+              "params": {
+                "window": "${erp_window}",
+                "target_mode": "coordinates",
+                "text": "DOLDURULACAK DEĞER",
+                "clear": true
+              }
+            },
+            {
+              "id": "save",
+              "title": "Kaydet (Ctrl/Command + S)",
+              "action": "input.hotkey",
+              "params": {
+                "keys": "mod+s"
+              }
+            },
+            {
+              "id": "message-wait",
+              "title": "Mesajın çıkmasını bekle",
+              "action": "core.wait",
+              "params": {
+                "seconds": 1
+              }
+            },
+            {
+              "id": "message-read",
+              "title": "Mesajı oku (OCR)",
+              "action": "screen.read_text",
+              "params": {
+                "relative_to": "window",
+                "window": "${erp_window}",
+                "region": null,
+                "output": "mesaj"
+              }
+            },
+            {
+              "id": "message-ok",
+              "title": "Tamam'a bas (Enter)",
+              "action": "desktop.window_key",
+              "params": {
+                "window": "${erp_window}",
+                "key": "enter",
+                "modifier": "none"
+              }
+            },
+            {
+              "id": "result-check",
+              "title": "Kayıt başarılı mı?",
+              "action": "control.if",
+              "params": {
+                "left": "${mesaj}",
+                "operator": "contains",
+                "right": "kaydedildi"
+              },
+              "children": [
+                {
+                  "id": "done",
+                  "title": "Sheets: TAMAMLANDI",
+                  "action": "sheets.write_cell",
+                  "params": {
+                    "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+                    "worksheet": "Sayfa1",
+                    "cell": "C${row.row_number}",
+                    "value": "TAMAMLANDI"
+                  }
+                }
+              ],
+              "otherwise": [
+                {
+                  "id": "fail",
+                  "title": "Sheets: HATA",
+                  "action": "sheets.write_cell",
+                  "params": {
+                    "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+                    "worksheet": "Sayfa1",
+                    "cell": "C${row.row_number}",
+                    "value": "HATA"
+                  }
+                },
+                {
+                  "id": "fail-msg",
+                  "title": "Sheets: ERP mesajı",
+                  "action": "sheets.write_cell",
+                  "params": {
+                    "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+                    "worksheet": "Sayfa1",
+                    "cell": "D${row.row_number}",
+                    "value": "${mesaj}"
+                  }
+                }
+              ]
+            }
+          ],
+          "otherwise": [
+            {
+              "id": "error",
+              "title": "Sheets: HATA",
+              "action": "sheets.write_cell",
+              "params": {
+                "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+                "worksheet": "Sayfa1",
+                "cell": "C${row.row_number}",
+                "value": "HATA"
+              }
+            },
+            {
+              "id": "error-msg",
+              "title": "Sheets: hata açıklaması",
+              "action": "sheets.write_cell",
+              "params": {
+                "spreadsheet_id": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN",
+                "worksheet": "Sayfa1",
+                "cell": "D${row.row_number}",
+                "value": "${error_message}"
+              }
+            },
+            {
+              "id": "error-esc",
+              "title": "Açık mesajı kapat (Esc)",
+              "action": "desktop.window_key",
+              "params": {
+                "window": "${erp_window}",
+                "key": "esc",
+                "modifier": "none"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

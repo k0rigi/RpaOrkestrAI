@@ -1,0 +1,890 @@
+{
+  "name": "Canias BSGT31: BEKLIYOR iadelerin faturasını oluştur",
+  "department": "Genel",
+  "description": "Google Sheets'te DURUM (D) değeri BEKLIYOR olan satırların FORM_ID'sini (B) BSGT31 İade Ekranı'nda arar; bulunamazsa Durum listesindeki diğer değerlerle tekrar arar. Bulunan formu kalemle açar, Miktar ile Onaylanan Miktar'ı karşılaştırır, aynıysa fatura tarihi, matbu fatura no, depo ve rafı doldurup İade Faturası Oluştur'a basar. Sonucu DURUM, BASLAMA, BITIS, SON_HATA ve ACIKLAMA sütunlarına yazar. İçe aktardıktan sonra: ilk adımda tablo adresini girin, Canias penceresini, her tıklama/yazma hedefini, OCR bölgelerini ve iki görseli (Tamam, İade Detay) Ekranda seç ile tanıtın.",
+  "steps": [
+    {
+      "id": "s75",
+      "title": "Tablo adresi (bir kez girin)",
+      "action": "core.set",
+      "params": {
+        "name": "tablo",
+        "value": "BURAYA_GOOGLE_SHEETS_ADRESINI_YAPISTIRIN"
+      }
+    },
+    {
+      "id": "s76",
+      "title": "Sayfa adı (alttaki sekme)",
+      "action": "core.set",
+      "params": {
+        "name": "sayfa",
+        "value": "Sayfa1"
+      }
+    },
+    {
+      "id": "s77",
+      "title": "Canias penceresini tanı",
+      "action": "desktop.find_window",
+      "params": {
+        "application": "",
+        "title": "canias",
+        "match": "contains",
+        "timeout": 5,
+        "on_missing": "stop",
+        "output": "erp_window"
+      }
+    },
+    {
+      "id": "s78",
+      "title": "Sheets satırlarını oku (son satıra kadar)",
+      "action": "sheets.read_rows",
+      "params": {
+        "spreadsheet_id": "${tablo}",
+        "worksheet": "${sayfa}",
+        "start_row": 2,
+        "max_rows": 1000,
+        "columns": {
+          "form_id": "B",
+          "durum": "D",
+          "fatura_tip": "F",
+          "fatura_no": "G",
+          "hedef_depo": "H",
+          "raf": "I",
+          "fatura_tarihi": "J"
+        },
+        "key": "form_id",
+        "empty_policy": "skip",
+        "output": "sheet_rows"
+      }
+    },
+    {
+      "id": "satirlar",
+      "title": "Her satır için",
+      "action": "control.for_each",
+      "params": {
+        "items": "${sheet_rows}",
+        "item_name": "row"
+      },
+      "children": [
+        {
+          "id": "s46",
+          "title": "DURUM BEKLIYOR değil mi?",
+          "action": "control.if",
+          "params": {
+            "left": "${row.durum}",
+            "operator": "ne",
+            "right": "BEKLIYOR"
+          },
+          "children": [
+            {
+              "id": "s45",
+              "title": "Sonraki satıra geç",
+              "action": "control.continue",
+              "params": {}
+            }
+          ]
+        },
+        {
+          "id": "s47",
+          "title": "Başlama zamanı",
+          "action": "data.date",
+          "params": {
+            "operation": "now",
+            "format": "%d.%m.%Y %H:%M:%S",
+            "output": "baslama"
+          }
+        },
+        {
+          "id": "s48",
+          "title": "sonuç = HATA (varsayılan)",
+          "action": "core.set",
+          "params": {
+            "name": "sonuc",
+            "value": "HATA"
+          }
+        },
+        {
+          "id": "s49",
+          "title": "hata = boş",
+          "action": "core.set",
+          "params": {
+            "name": "hata",
+            "value": ""
+          }
+        },
+        {
+          "id": "s50",
+          "title": "açıklama = boş",
+          "action": "core.set",
+          "params": {
+            "name": "aciklama",
+            "value": ""
+          }
+        },
+        {
+          "id": "s51",
+          "title": "bulundu = hayır",
+          "action": "core.set",
+          "params": {
+            "name": "bulundu",
+            "value": false
+          }
+        },
+        {
+          "id": "s70",
+          "title": "ERP işlemini dene",
+          "action": "control.try",
+          "params": {
+            "error_name": "error_message"
+          },
+          "children": [
+            {
+              "id": "s52",
+              "title": "Canias'ı öne getir",
+              "action": "window.activate",
+              "params": {
+                "window": "${erp_window}"
+              }
+            },
+            {
+              "id": "s53",
+              "title": "Durum listesini aç",
+              "action": "desktop.window_click",
+              "params": {
+                "window": "${erp_window}",
+                "target_mode": "coordinates",
+                "clicks": 1,
+                "button": "left"
+              }
+            },
+            {
+              "id": "s55",
+              "title": "En üste çık (AÇIK)",
+              "action": "control.repeat",
+              "params": {
+                "count": 3
+              },
+              "children": [
+                {
+                  "id": "s54",
+                  "title": "Yukarı (↑)",
+                  "action": "desktop.window_key",
+                  "params": {
+                    "window": "${erp_window}",
+                    "key": "up",
+                    "modifier": "none"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "s56",
+              "title": "AÇIK'ı seç (Enter)",
+              "action": "desktop.window_key",
+              "params": {
+                "window": "${erp_window}",
+                "key": "enter",
+                "modifier": "none"
+              }
+            },
+            {
+              "id": "s57",
+              "title": "Form ID alanına yaz",
+              "action": "desktop.window_fill",
+              "params": {
+                "window": "${erp_window}",
+                "target_mode": "coordinates",
+                "text": "${row.form_id}",
+                "clear": true
+              }
+            },
+            {
+              "id": "arama",
+              "title": "Durumları sırayla dene (AÇIK → … → KABUL EDİLMEDİ)",
+              "action": "control.repeat",
+              "params": {
+                "count": 4
+              },
+              "children": [
+                {
+                  "id": "s04",
+                  "title": "Dürbüne (Ara) tıkla",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s05",
+                  "title": "Listenin yüklenmesini bekle (2 sn)",
+                  "action": "core.wait",
+                  "params": {
+                    "seconds": 2
+                  }
+                },
+                {
+                  "id": "s06",
+                  "title": "1. satırın Form Id hücresini oku (OCR)",
+                  "action": "screen.read_text",
+                  "params": {
+                    "relative_to": "window",
+                    "window": "${erp_window}",
+                    "region": [
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "output": "ilk_satir"
+                  }
+                },
+                {
+                  "id": "s07",
+                  "title": "Yalnız rakamları al",
+                  "action": "text.transform",
+                  "params": {
+                    "text": "${ilk_satir}",
+                    "operation": "regex_replace",
+                    "pattern": "[^0-9]",
+                    "replace_with": "",
+                    "output": "ilk_satir_no"
+                  }
+                },
+                {
+                  "id": "s10",
+                  "title": "Aranan Form ID listede mi?",
+                  "action": "control.if",
+                  "params": {
+                    "left": "${ilk_satir_no}",
+                    "operator": "contains",
+                    "right": "${row.form_id}"
+                  },
+                  "children": [
+                    {
+                      "id": "s08",
+                      "title": "bulundu = evet",
+                      "action": "core.set",
+                      "params": {
+                        "name": "bulundu",
+                        "value": true
+                      }
+                    },
+                    {
+                      "id": "s09",
+                      "title": "Aramayı bitir",
+                      "action": "control.break",
+                      "params": {}
+                    }
+                  ]
+                },
+                {
+                  "id": "s01",
+                  "title": "Durum listesini aç",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s02",
+                  "title": "Bir sonraki duruma in (↓)",
+                  "action": "desktop.window_key",
+                  "params": {
+                    "window": "${erp_window}",
+                    "key": "down",
+                    "modifier": "none"
+                  }
+                },
+                {
+                  "id": "s03",
+                  "title": "Durumu seç (Enter)",
+                  "action": "desktop.window_key",
+                  "params": {
+                    "window": "${erp_window}",
+                    "key": "enter",
+                    "modifier": "none"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "s60",
+              "title": "Form ID bulunamadı mı?",
+              "action": "control.if",
+              "params": {
+                "left": "${bulundu}",
+                "operator": "eq",
+                "right": false
+              },
+              "children": [
+                {
+                  "id": "s58",
+                  "title": "sonuç = BULUNAMADI",
+                  "action": "core.set",
+                  "params": {
+                    "name": "sonuc",
+                    "value": "BULUNAMADI"
+                  }
+                },
+                {
+                  "id": "s59",
+                  "title": "hata = bulunamadı",
+                  "action": "core.set",
+                  "params": {
+                    "name": "hata",
+                    "value": "Form ID değeri bulunamadı (tüm durumlarda arandı)"
+                  }
+                }
+              ],
+              "otherwise": [
+                {
+                  "id": "s32",
+                  "title": "Bulunan satırı seç (1. satır)",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s33",
+                  "title": "Kalem (düzenle) simgesine tıkla",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s34",
+                  "title": "İade Detay ekranını bekle",
+                  "action": "desktop.window_wait_image",
+                  "params": {
+                    "window": "${erp_window}",
+                    "template": "",
+                    "confidence": 0.9,
+                    "timeout": 15,
+                    "state": "visible"
+                  }
+                },
+                {
+                  "id": "s35",
+                  "title": "Miktar'ı oku (1. satır, OCR)",
+                  "action": "screen.read_text",
+                  "params": {
+                    "relative_to": "window",
+                    "window": "${erp_window}",
+                    "region": [
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "output": "miktar_ham"
+                  }
+                },
+                {
+                  "id": "s36",
+                  "title": "Onaylanan Miktar'ı oku (1. satır, OCR)",
+                  "action": "screen.read_text",
+                  "params": {
+                    "relative_to": "window",
+                    "window": "${erp_window}",
+                    "region": [
+                      0,
+                      0,
+                      0,
+                      0
+                    ],
+                    "output": "onaylanan_ham"
+                  }
+                },
+                {
+                  "id": "s37",
+                  "title": "Miktarı sadeleştir",
+                  "action": "text.transform",
+                  "params": {
+                    "text": "${miktar_ham}",
+                    "operation": "regex_replace",
+                    "pattern": "[^0-9,]",
+                    "replace_with": "",
+                    "output": "miktar"
+                  }
+                },
+                {
+                  "id": "s38",
+                  "title": "Onaylanan miktarı sadeleştir",
+                  "action": "text.transform",
+                  "params": {
+                    "text": "${onaylanan_ham}",
+                    "operation": "regex_replace",
+                    "pattern": "[^0-9,]",
+                    "replace_with": "",
+                    "output": "onaylanan"
+                  }
+                },
+                {
+                  "id": "s42",
+                  "title": "Miktar ile onaylanan miktar farklı mı?",
+                  "action": "control.if",
+                  "params": {
+                    "left": "${miktar}",
+                    "operator": "ne",
+                    "right": "${onaylanan}"
+                  },
+                  "children": [
+                    {
+                      "id": "s39",
+                      "title": "sonuç = MIKTAR UYUMSUZ",
+                      "action": "core.set",
+                      "params": {
+                        "name": "sonuc",
+                        "value": "MIKTAR UYUMSUZ"
+                      }
+                    },
+                    {
+                      "id": "s40",
+                      "title": "hata = miktarlar",
+                      "action": "core.set",
+                      "params": {
+                        "name": "hata",
+                        "value": "Miktar ${miktar_ham} / Onaylanan miktar ${onaylanan_ham}"
+                      }
+                    },
+                    {
+                      "id": "s41",
+                      "title": "açıklama",
+                      "action": "core.set",
+                      "params": {
+                        "name": "aciklama",
+                        "value": "Miktar uyumsuz; fatura oluşturulmadı"
+                      }
+                    }
+                  ],
+                  "otherwise": [
+                    {
+                      "id": "s12",
+                      "title": "Fatura Tarihi",
+                      "action": "desktop.window_fill",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "text": "${row.fatura_tarihi}",
+                        "clear": true
+                      }
+                    },
+                    {
+                      "id": "s13",
+                      "title": "Matbu Fatura No (tip, ör. IBR)",
+                      "action": "desktop.window_fill",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "text": "${row.fatura_tip}",
+                        "clear": true
+                      }
+                    },
+                    {
+                      "id": "s14",
+                      "title": "Matbu Fatura No (numara)",
+                      "action": "desktop.window_fill",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "text": "${row.fatura_no}",
+                        "clear": true
+                      }
+                    },
+                    {
+                      "id": "s15",
+                      "title": "Depo",
+                      "action": "desktop.window_fill",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "text": "${row.hedef_depo}",
+                        "clear": true
+                      }
+                    },
+                    {
+                      "id": "s16",
+                      "title": "1. satır İade Sonrası (raf)",
+                      "action": "desktop.window_fill",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "text": "${row.raf}",
+                        "clear": true
+                      }
+                    },
+                    {
+                      "id": "s17",
+                      "title": "Hücreyi onayla (Tab)",
+                      "action": "desktop.window_key",
+                      "params": {
+                        "window": "${erp_window}",
+                        "key": "tab",
+                        "modifier": "none"
+                      }
+                    },
+                    {
+                      "id": "s18",
+                      "title": "İade Faturası Oluştur'a tıkla",
+                      "action": "desktop.window_click",
+                      "params": {
+                        "window": "${erp_window}",
+                        "target_mode": "coordinates",
+                        "clicks": 1,
+                        "button": "left"
+                      }
+                    },
+                    {
+                      "id": "s19",
+                      "title": "Mesajı bekle (2 sn)",
+                      "action": "core.wait",
+                      "params": {
+                        "seconds": 2
+                      }
+                    },
+                    {
+                      "id": "s20",
+                      "title": "Tamam düğmesi çıktı mı?",
+                      "action": "screen.find_image",
+                      "params": {
+                        "template": "",
+                        "state": "visible",
+                        "timeout": 8,
+                        "confidence": 0.9,
+                        "on_missing": "continue",
+                        "relative_to": "window",
+                        "window": "${erp_window}",
+                        "region": null,
+                        "output": "tamam"
+                      }
+                    },
+                    {
+                      "id": "s31",
+                      "title": "Mesaj kutusu var mı?",
+                      "action": "control.if",
+                      "params": {
+                        "left": "${tamam.found}",
+                        "operator": "truthy",
+                        "right": true
+                      },
+                      "children": [
+                        {
+                          "id": "s21",
+                          "title": "Mesaj kutusunu oku (OCR, başlık dahil)",
+                          "action": "screen.read_text",
+                          "params": {
+                            "relative_to": "window",
+                            "window": "${erp_window}",
+                            "region": [
+                              0,
+                              0,
+                              0,
+                              0
+                            ],
+                            "output": "mesaj"
+                          }
+                        },
+                        {
+                          "id": "s22",
+                          "title": "Tamam'a tıkla",
+                          "action": "screen.click_image",
+                          "params": {
+                            "template": "",
+                            "timeout": 5,
+                            "confidence": 0.9,
+                            "offset_x": 0,
+                            "offset_y": 0,
+                            "button": "left",
+                            "clicks": 1,
+                            "relative_to": "window",
+                            "window": "${erp_window}"
+                          }
+                        },
+                        {
+                          "id": "s28",
+                          "title": "Hata mesajı mı?",
+                          "action": "control.if",
+                          "params": {
+                            "left": "${mesaj}",
+                            "operator": "contains",
+                            "right": "error"
+                          },
+                          "children": [
+                            {
+                              "id": "s23",
+                              "title": "sonuç = HATA",
+                              "action": "core.set",
+                              "params": {
+                                "name": "sonuc",
+                                "value": "HATA"
+                              }
+                            },
+                            {
+                              "id": "s24",
+                              "title": "hata = ERP mesajı",
+                              "action": "core.set",
+                              "params": {
+                                "name": "hata",
+                                "value": "${mesaj}"
+                              }
+                            },
+                            {
+                              "id": "s25",
+                              "title": "açıklama",
+                              "action": "core.set",
+                              "params": {
+                                "name": "aciklama",
+                                "value": "İade faturası oluşturulamadı"
+                              }
+                            }
+                          ],
+                          "otherwise": [
+                            {
+                              "id": "s26",
+                              "title": "sonuç = TAMAMLANDI",
+                              "action": "core.set",
+                              "params": {
+                                "name": "sonuc",
+                                "value": "TAMAMLANDI"
+                              }
+                            },
+                            {
+                              "id": "s27",
+                              "title": "açıklama = ERP mesajı",
+                              "action": "core.set",
+                              "params": {
+                                "name": "aciklama",
+                                "value": "${mesaj}"
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "otherwise": [
+                        {
+                          "id": "s29",
+                          "title": "sonuç = TAMAMLANDI",
+                          "action": "core.set",
+                          "params": {
+                            "name": "sonuc",
+                            "value": "TAMAMLANDI"
+                          }
+                        },
+                        {
+                          "id": "s30",
+                          "title": "açıklama",
+                          "action": "core.set",
+                          "params": {
+                            "name": "aciklama",
+                            "value": "İade faturası oluştur tıklandı; mesaj çıkmadı"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "s43",
+                  "title": "İade Detay ekranını kapat (X)",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s44",
+                  "title": "Listeye dönüşü bekle (1 sn)",
+                  "action": "core.wait",
+                  "params": {
+                    "seconds": 1
+                  }
+                }
+              ]
+            }
+          ],
+          "otherwise": [
+            {
+              "id": "s61",
+              "title": "hata = akış hatası",
+              "action": "core.set",
+              "params": {
+                "name": "hata",
+                "value": "${error_message}"
+              }
+            },
+            {
+              "id": "s62",
+              "title": "açıklama",
+              "action": "core.set",
+              "params": {
+                "name": "aciklama",
+                "value": "Akış bu satırda durdu; ekranı kontrol edin"
+              }
+            },
+            {
+              "id": "s63",
+              "title": "Açık mesaj kutusu var mı?",
+              "action": "screen.find_image",
+              "params": {
+                "template": "",
+                "state": "visible",
+                "timeout": 1,
+                "confidence": 0.9,
+                "on_missing": "continue",
+                "relative_to": "window",
+                "window": "${erp_window}",
+                "region": null,
+                "output": "kalan_mesaj"
+              }
+            },
+            {
+              "id": "s65",
+              "title": "Mesaj kutusu açıksa",
+              "action": "control.if",
+              "params": {
+                "left": "${kalan_mesaj.found}",
+                "operator": "truthy",
+                "right": true
+              },
+              "children": [
+                {
+                  "id": "s64",
+                  "title": "Tamam'a tıkla",
+                  "action": "screen.click_image",
+                  "params": {
+                    "template": "",
+                    "timeout": 3,
+                    "confidence": 0.9,
+                    "offset_x": 0,
+                    "offset_y": 0,
+                    "button": "left",
+                    "clicks": 1,
+                    "relative_to": "window",
+                    "window": "${erp_window}"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "s66",
+              "title": "İade Detay hâlâ açık mı?",
+              "action": "screen.find_image",
+              "params": {
+                "template": "",
+                "state": "visible",
+                "timeout": 1,
+                "confidence": 0.9,
+                "on_missing": "continue",
+                "relative_to": "window",
+                "window": "${erp_window}",
+                "region": null,
+                "output": "detay_acik"
+              }
+            },
+            {
+              "id": "s69",
+              "title": "Detay açıksa",
+              "action": "control.if",
+              "params": {
+                "left": "${detay_acik.found}",
+                "operator": "truthy",
+                "right": true
+              },
+              "children": [
+                {
+                  "id": "s67",
+                  "title": "İade Detay ekranını kapat (X)",
+                  "action": "desktop.window_click",
+                  "params": {
+                    "window": "${erp_window}",
+                    "target_mode": "coordinates",
+                    "clicks": 1,
+                    "button": "left"
+                  }
+                },
+                {
+                  "id": "s68",
+                  "title": "Listeye dönüşü bekle (1 sn)",
+                  "action": "core.wait",
+                  "params": {
+                    "seconds": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "s71",
+          "title": "Bitiş zamanı",
+          "action": "data.date",
+          "params": {
+            "operation": "now",
+            "format": "%d.%m.%Y %H:%M:%S",
+            "output": "bitis"
+          }
+        },
+        {
+          "id": "s72",
+          "title": "Sheets: DURUM",
+          "action": "sheets.write_cell",
+          "params": {
+            "spreadsheet_id": "${tablo}",
+            "worksheet": "${sayfa}",
+            "cell": "D${row.row_number}",
+            "value": "${sonuc}"
+          }
+        },
+        {
+          "id": "s73",
+          "title": "Sheets: BASLAMA, BITIS",
+          "action": "sheets.write",
+          "params": {
+            "spreadsheet_id": "${tablo}",
+            "worksheet": "${sayfa}",
+            "range": "L${row.row_number}",
+            "values": [
+              [
+                "${baslama}",
+                "${bitis}"
+              ]
+            ]
+          }
+        },
+        {
+          "id": "s74",
+          "title": "Sheets: SON_HATA, ACIKLAMA",
+          "action": "sheets.write",
+          "params": {
+            "spreadsheet_id": "${tablo}",
+            "worksheet": "${sayfa}",
+            "range": "N${row.row_number}",
+            "values": [
+              [
+                "${hata}",
+                "${aciklama}"
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -189,12 +189,47 @@
       detail.append(button("Ayrıntıyı kapat", () => { view.current = null; detail.hidden = true; detail.replaceChildren(); }));
       detail.scrollIntoView({ block: "nearest" });
     }
-    function newTask() {
+    function newAgentTask() {
+      view.current = "new_agent";
+      detail.hidden = false;
+      detail.replaceChildren(el("h3", "Yapay Zeka Ajanına Görev Ver"));
+      const availableAgents = options.agents || [];
+      if (!availableAgents.length) {
+        detail.append(el("p", "Henüz bir yapay zeka ajanı oluşturulmadı. Önce Ajanlar sekmesinden bir ajan ekleyin.", "agent-warning"),
+          button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
+        return;
+      }
+      const title = input("Görev başlığı"); title.field.required = true; title.field.maxLength = 160;
+      const instructions = input("Yapılacak iş / Hedef", "", true); instructions.field.required = true; instructions.field.maxLength = 16000;
+      const agentDropdown = dropdown("Ajan seçin", availableAgents.map((a) => [a.id, `${a.name} (${a.department || "Genel"})`]));
+      const form = id(el("form"));
+      form.append(agentDropdown.wrapper, title.wrapper, instructions.wrapper);
+      const submit = id(el("button", "Ajanı Çalıştır", "button primary")); submit.type = "submit";
+      form.append(submit);
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        view.act(async () => {
+          const agentId = agentDropdown.field.value;
+          const taskText = `${title.field.value.trim()}\n\n${instructions.field.value.trim()}`;
+          const run = await view.request(`/api/agents/${encodeURIComponent(agentId)}/runs`, "POST", {
+            task: taskText, title: title.field.value.trim(), inputs: {},
+          });
+          options.toast("Ajan görevi başlatıldı.");
+          detail.hidden = true; detail.replaceChildren(); view.current = null;
+          if (options.openAgentRun && run?.id) options.openAgentRun(run.id);
+          else await view.refresh();
+        });
+      });
+      detail.append(form, button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
+    }
+
+    function newHumanTask() {
       view.current = "new";
       detail.hidden = false;
       detail.replaceChildren(el("h3", "İnsan çalışana görev ata"));
       if (!members.length) {
-        detail.append(el("p", "Görev atanabilecek lisanslı çalışan bulunamadı. Kurum bağlantısını ve çalışan lisanslarını kontrol edin.", "agent-warning"));
+        detail.append(el("p", "Görev atanabilecek lisanslı çalışan bulunamadı. Kurum bağlantısını ve çalışan lisanslarını kontrol edin.", "agent-warning"),
+          button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
         return;
       }
       const title = input("Görev başlığı"); title.field.required = true; title.field.maxLength = 160;
@@ -219,7 +254,9 @@
       });
       detail.append(form, button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
     }
-    if (options.session.can_manage) header.append(button("İnsan çalışana görev ata", newTask, "primary"));
+
+    header.append(button("Ajana görev ver", newAgentTask, "primary"));
+    if (options.session.can_manage) header.append(button("İnsan çalışana görev ata", newHumanTask));
     header.append(button("Yenile", () => view.refresh()));
     polling(view, async () => {
       const responses = await Promise.allSettled([
@@ -265,16 +302,23 @@
       detail.append(button("Ayrıntıyı kapat", () => { detail.hidden = true; detail.replaceChildren(); }));
     }
     polling(view, async () => {
-      const data = await view.request("/api/agents/central/approvals");
-      if (!view.alive) return;
-      note.textContent = "Onay akışa, girdilere ve tek denemeye bağlıdır. Süresi dolan onayla işlem başlatılmaz.";
-      const cards = (data.approvals || []).map((item) => {
-        const card = el("article", undefined, "agent-card");
-        card.append(state(item.status), el("p", `İsteyen hesap: ${item.requester_user_id}`, "agent-help"),
-          el("p", `Oluşturma: ${time(item.created_at)}`, "agent-help"), button("Onayı incele", () => view.act(() => show(item.id))));
-        return card;
-      });
-      list.replaceChildren(...(cards.length ? cards : [el("p", "Bekleyen onay bulunmuyor.", "muted")]));
+      try {
+        const data = await view.request("/api/agents/central/approvals");
+        if (!view.alive) return;
+        note.textContent = "Onay akışa, girdilere ve tek denemeye bağlıdır. Süresi dolan onayla işlem başlatılmaz.";
+        const cards = (data.approvals || []).map((item) => {
+          const card = el("article", undefined, "agent-card");
+          card.append(state(item.status), el("p", `İsteyen hesap: ${item.requester_user_id}`, "agent-help"),
+            el("p", `Oluşturma: ${time(item.created_at)}`, "agent-help"), button("Onayı incele", () => view.act(() => show(item.id))));
+          return card;
+        });
+        list.replaceChildren(...(cards.length ? cards : [el("p", "Bekleyen onay bulunmuyor.", "muted")]));
+      } catch (err) {
+        if (!view.alive) return;
+        note.textContent = "Kurum onayları alınamadı.";
+        list.replaceChildren(el("div", null, "agent-warning"),
+          el("p", `Onay hizmetine bağlanılamadı: ${err?.message || "Oturum süresi dolmuş olabilir. Sol alttan çıkış yapıp tekrar giriş yapın."}`));
+      }
     });
     return view.dispose;
   }

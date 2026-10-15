@@ -215,9 +215,51 @@
     const cards = element("div", null, "agent-cards");
     for (const agent of view.agents) {
       const card = element("article", null, "agent-card");
-      card.append(element("span", agent.role === "manager" ? "Yönetici ajan" : agent.department, "agent-eyebrow"),
-        element("h2", agent.name), element("p", agent.description || "Henüz açıklama eklenmedi.", "muted"),
-        element("p", `${agent.workflows.length} izinli akış · ${agent.model || "Model seçilmedi"}`, "agent-help"));
+      card.append(
+        element("span", agent.role === "manager" ? "Yönetici ajan" : agent.department, "agent-eyebrow"),
+        element("h2", agent.name),
+        element("p", agent.description || "Henüz açıklama eklenmedi.", "muted")
+      );
+      const capContent = element("div", null, "agent-capabilities");
+      const isManager = agent.role === "manager";
+      const tools = isManager ? [
+        "list_team: Bağlı departman ajanlarını ve kuyruk durumlarını listeleme",
+        "delegate_task: Alt departman ajanlarına hedef odaklı görev devretme",
+        "get_task / list_tasks: Devredilen işlerin durumunu izleme",
+        "ask_user: Belirsizlik durumunda yöneticiye / insana soru sorma",
+        "finish: Departman sonuçlarını toparlayıp nihai özet sunma"
+      ] : [
+        "run_workflow: İzin verilen RPA / SQL / API akışlarını otonom çalıştırma",
+        "describe_workflow: Akış girdi parametrelerini ve gereksinimlerini inceleme",
+        "read_artifact: Çalışma sonucu üretilen CSV, JSON, TXT çıktılarını okuma ve yorumlama",
+        "ask_user: Eksik girdi veya beklenmedik durumda kullanıcıdan yanıt alma",
+        "finish: Görevi tamamlayıp yapılandırılmış sonuç ve özet üretme"
+      ];
+      const toolsUl = element("ul", null, "agent-tools-list");
+      for (const t of tools) toolsUl.append(element("li", t));
+
+      const workflowNames = (agent.workflows || []).map((wid) => view.workflows.find((w) => w.id === wid)?.name || wid);
+      const wfText = workflowNames.length > 0
+        ? `📋 İzinli Akışlar (${workflowNames.length}): ${workflowNames.join(", ")}`
+        : "📋 İzinli Akışlar: Henüz bir akış atanmamış (Düzenle'den akış ekleyebilirsiniz).";
+
+      const safetyUl = element("ul", null, "agent-safety-list");
+      safetyUl.append(
+        element("li", "❌ Serbest web araması (Google vb.) yapamaz."),
+        element("li", "❌ Bilgisayarda keyfi işletim sistemi komutu veya rastgele dosya çalıştıramaz."),
+        element("li", "✅ Web ve Veritabanı erişimi YALNIZCA sizin tanımlayıp yetki verdiğiniz akış adımları üzerinden mümkündür."),
+        element("li", "🛡️ Geri alınamaz veya kritik adımlarda onay almadan işlem yapamaz; Kurum Onayları'na yönlendirir.")
+      );
+
+      capContent.append(
+        element("h4", "🛠️ Kullanabildiği Araçlar (Tools)"),
+        toolsUl,
+        element("p", isManager ? "⚠️ Yönetici ajan doğrudan akış çalıştırmaz; koordinasyon sağlayarak işi departman ajanlarına devreder." : wfText, "agent-help"),
+        element("h4", "🌐 İnternet ve Güvenlik Sınırları"),
+        safetyUl
+      );
+      card.append(disclosure("Yetenekler ve Sınırlar", capContent));
+
       const buttons = element("div", null, "agent-actions");
       buttons.append(action("Görev ver", () => runForm(view, agent), "primary"));
       if (view.session.can_manage) buttons.append(action("Düzenle", () => editAgent(view, agent)));
