@@ -84,7 +84,12 @@ export function mountOffice(container, options) {
   const note = node("p", "Bu görünüm yalnız bilgi gösterir. Departman ajanları birbirleriyle doğrudan konuşmaz; görev, soru ve sonuçlar yönetici üzerinden akar. Balonlarda yalnız mesajın türü görünür, içeriği ofise taşınmaz; ayrıntı için bir çalışan seçin.", "agent-help");
   const humanWarning = node("p", "", "agent-warning office-human-warning"); humanWarning.hidden = true; humanWarning.setAttribute("role", "status");
   const summary = node("p", "", "office-summary"), list = node("div", undefined, "office-list");
-  container.replaceChildren(title, toolbar, layout, summary, humanWarning, note, list); container.classList.add("office-root");
+  // The feed repeats only who addressed whom and the message type, exactly as the balloons do.
+  const feed = node("section", undefined, "office-feed"), feedList = node("ol", undefined, "office-feed-list");
+  feed.setAttribute("aria-label", "Son iletişimler");
+  feed.append(node("h3", "Son iletişimler"), feedList);
+  const feedSeen = new Set(), feedItems = [];
+  container.replaceChildren(title, toolbar, layout, summary, feed, humanWarning, note, list); container.classList.add("office-root");
 
   function updateList(data) {
     const focused = list.contains(document.activeElement) ? document.activeElement.dataset.person : null;
@@ -108,6 +113,25 @@ export function mountOffice(container, options) {
     table.append(caption, head, body); list.replaceChildren(table);
     if (focused) [...list.querySelectorAll("button[data-person]")].find((item) => item.dataset.person === focused)?.focus({ preventScroll: true });
     summary.textContent = `${data.agents.length} ajan · ${data.people.length} insan · ${data.departments.length} departman · ${Number(data.totals.queued) || 0} ajan görevi sırada`;
+  }
+  function updateFeed(data) {
+    const people = population(data), verbs = { delegated: "görev verdi", question: "soru sordu", answered: "soruyu yanıtladı",
+      completed: "sonucu teslim etti" };
+    for (const person of people) {
+      const event = person.event;
+      if (!event?.id || feedSeen.has(event.id) || !verbs[event.kind]) continue;
+      if (event.kind === "completed" && person.status !== "succeeded") continue;
+      const target = people.find((item) => item.id === event.to_agent_id);
+      if (!target) continue;
+      feedSeen.add(event.id); if (feedSeen.size > 500) feedSeen.delete(feedSeen.values().next().value);
+      feedItems.unshift({ time: new Date(), text: `${person.name} → ${target.name}: ${verbs[event.kind]}`, kind: event.kind });
+    }
+    feedItems.splice(8);
+    feedList.replaceChildren(...(feedItems.length ? feedItems.map((item) => {
+      const row = node("li"); row.dataset.kind = item.kind;
+      row.append(node("time", item.time.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })), node("span", item.text));
+      return row;
+    }) : [node("li", "Henüz iletişim yok. Yönetici görev verdiğinde, bir departman soru sorduğunda veya sonuç teslim ettiğinde burada görünür.", "agent-help")]));
   }
   function closePanel() { selected = null; panelVersion++; panel.hidden = true; panel.replaceChildren(); layout.classList.remove("office-with-panel"); }
   async function selectPerson(identity) {
@@ -188,7 +212,7 @@ export function mountOffice(container, options) {
       const humans = central.status === "fulfilled" && Array.isArray(central.value?.people) ? central.value.people.slice(0, 500) : null;
       data.people = humans || [];
       humanWarning.hidden = humans !== null; humanWarning.textContent = humans === null ? "İnsan çalışanların durumu alınamadı. Kurum bağlantısı yenilendiğinde tekrar gösterilecek." : "";
-      lastData = data; updateList(data);
+      lastData = data; updateList(data); updateFeed(data);
       if (selected) {
         const person = population(data).find((item) => item.id === selected);
         if (!person) closePanel();

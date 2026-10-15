@@ -120,7 +120,7 @@ def test_poll_preserves_question_draft_and_task_inputs(ui):
     page, calls, _, _, _ = ui
     page.get_by_role("button", name="Görev ver").click()
     page.get_by_label("Hedefiniz").fill("Kayıtları incele")
-    page.get_by_text("Girdi değişkenleri", exact=True).click()
+    page.get_by_text("Girdi değişkenleri (isteğe bağlı)", exact=True).click()
     page.get_by_label("Başlangıç girdileri (JSON)").fill('{"count": 3}')
     page.get_by_role("button", name="Görevi başlat").click()
     answer = page.get_by_label("Yanıtınız")
@@ -164,7 +164,7 @@ def test_approval_buttons_require_server_reported_permission(ui):
     page.evaluate("identity => window.RpaAgents.openRun(identity)", RID)
     page.get_by_role("heading", name="İşlem onayı gerekiyor").wait_for()
     assert page.get_by_role("button", name="Onayla", exact=True).count() == 0
-    assert page.get_by_text("Bu işlemi yalnız ürün sahibi", exact=False).count() == 1
+    assert page.get_by_text("Bu işlemi yalnız firmanın onay yetkilisi", exact=False).count() == 1
     assert page.locator("img").count() == 0
 
 
@@ -270,7 +270,7 @@ def test_permission_card_is_built_from_saved_grants_and_previews_edits(ui):
     card = page.locator(".agent-card .agent-permissions")
     assert card.locator('[data-kind="can"]').inner_text().count("«Bilgileri oku» akışını çalıştırabilir") == 1
     assert "Takıldığında size sorar." in card.inner_text()
-    assert "Serbest web araması yapamaz" in card.locator('[data-kind="cannot"]').inner_text()
+    assert "Serbest web araması yapamaz" in card.locator('[data-kind="cannot"]').text_content()
     assert "30 dk" in page.locator(".agent-card .agent-limit-line").inner_text()
     page.get_by_role("button", name="Düzenle", exact=True).click()
     preview = page.locator(".agent-preview")
@@ -279,3 +279,73 @@ def test_permission_card_is_built_from_saved_grants_and_previews_edits(ui):
     assert "Henüz akış izni yok" in preview.locator('[data-kind="cannot"]').inner_text()
     assert_unique_interactive_ids(page)
     assert not [call for call in calls if call[0] == "PUT"]
+
+
+def test_getting_started_guides_setup_and_limit_presets_use_minutes(ui):
+    page, calls, _, _, _ = ui
+    assert page.locator(".agent-start").count() == 0  # Connection and a granted department agent already exist.
+    assert page.get_by_text("Ajanlar nasıl çalışır?", exact=True).count() == 1
+    page.route("**/api/agents/connections", lambda route: route.fulfill(json=[]))
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
+    start = page.locator(".agent-start")
+    start.wait_for()
+    assert "Model bağlantısı ekleyin" in start.inner_text() and "✓ Departman ajanı" in start.inner_text()
+    assert start.get_by_role("button", name="Bağlantılar", exact=True).count() == 1
+    page.unroute("**/api/agents/connections")
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
+    page.locator(".agent-card").wait_for()
+    assert page.locator(".agent-start").count() == 0
+    page.get_by_role("button", name="Düzenle", exact=True).click()
+    page.get_by_text("Çalışma sınırları", exact=True).click()
+    profile = page.get_by_label("Sınır profili", exact=True)
+    assert profile.input_value() == "balanced"
+    assert page.get_by_label("Görevin en uzun süresi (dakika)", exact=True).input_value() == "30"
+    profile.select_option("careful")
+    assert page.get_by_label("Görevin en uzun süresi (dakika)", exact=True).input_value() == "10"
+    assert "10 karar adımı" in page.locator(".agent-preview").inner_text()
+    page.get_by_label("Karar adımı", exact=True).fill("12")
+    assert profile.input_value() == "custom"
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Ajanı kaydet").click()
+    page.get_by_role("button", name="Görev ver").wait_for()
+    saved = [body for method, path, body in calls if method == "PUT" and path == f"/api/agents/{AID}"][-1]
+    assert saved["limits"]["max_seconds"] == 600 and saved["limits"]["max_turns"] == 12
+    assert saved["limits"]["question_timeout_seconds"] == 900
+
+
+def test_waiting_work_is_announced_on_every_tab_and_opens_the_run(ui):
+    page, calls, _, _, _ = ui
+    office = {"agents": [{"id": AID, "name": "Araştırma", "status": "waiting_user", "run_id": RID}], "departments": [], "totals": {}}
+    page.route("**/api/agents/office", lambda route: route.fulfill(json=office))
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), {...window.agentOptions, initialTab: 'connections'})")
+    banner = page.locator(".agent-attention")
+    banner.get_by_role("button", name="Araştırma: yanıtınızı bekliyor").click()
+    page.get_by_label("Yanıtınız").wait_for()
+    assert not [call for call in calls if call[0] != "GET" and call[1] != f"/api/agents/{AID}/runs"]
+    office["agents"] = []
+    banner.wait_for(state="hidden", timeout=8000)
+
+
+def test_run_timeline_reads_as_sentences_and_hides_technical_records(ui):
+    page, _, _, _, run = ui
+    run["pending_question"] = None
+    run["status"] = "running"
+    run["started_at"] = "2026-10-13T12:00:00+00:00"
+    run["events"] = [
+        {"id": "1" * 32, "kind": "provider_request", "message": "", "timestamp": "2026-10-13T12:00:01+00:00", "data": {"payload": {}}},
+        {"id": "2" * 32, "kind": "tool_call", "message": "Ajan aracı çağrıldı.", "timestamp": "2026-10-13T12:00:02+00:00",
+         "data": {"id": "c1", "name": "run_workflow", "arguments": {"workflow_id": WID, "reason": ATTACK}}},
+        {"id": "3" * 32, "kind": "manager_question", "message": "Yöneticiye soru soruldu.", "timestamp": "2026-10-13T12:00:03+00:00",
+         "data": {"id": "q", "question": "Hangi dönem?"}},
+    ]
+    page.evaluate("identity => window.RpaAgents.openRun(identity)", RID)
+    timeline = page.locator(".agent-timeline")
+    timeline.get_by_text("Akış çalıştırma isteği", exact=True).wait_for()
+    assert "«Bilgileri oku» · Gerekçe: " + ATTACK in timeline.inner_text()
+    assert page.locator(".agent-event.technical").is_hidden()
+    assert page.get_by_text("Ajan yöneticisine soru sordu ve yanıtını bekliyor", exact=False).is_visible()
+    assert "Karar adımı · 1 / 20" in page.locator(".agent-usage").inner_text()
+    page.get_by_label("Teknik kayıtları göster", exact=True).check()
+    assert page.locator(".agent-event.technical").is_visible()
+    assert page.locator("img").count() == 0
+    assert_unique_interactive_ids(page)

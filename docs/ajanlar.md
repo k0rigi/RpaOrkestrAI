@@ -131,6 +131,31 @@ kullanır; ayrıca API anahtarı girilmez. Diğer bulut sağlayıcılarına otom
    lisansın kapanması ve oturum değişmesi için geçerlidir; süre veya yetki sınırını
    aşmak hata olarak kaydedilir. Daha önce tamamlanan dış işlemler geri alınmaz.
 
+### Ekranda yardımcı olanlar (0.9.27)
+
+- **Başlarken:** Bağlantı ve akış izni olan bir departman ajanı oluşana kadar
+  Ajanlar sekmesinde adım adım kontrol listesi görünür. **Ajanlar nasıl çalışır?**
+  bölümü süreci beş adımda özetler.
+- **Sizi bekleyen işler:** Bir ajan sizden yanıt veya onay beklediğinde hangi
+  sekmede olursanız olun üstte uyarı çıkar; düğme ilgili çalışmayı açar.
+- **Sınır profili:** Ajan formundaki **Çalışma sınırları** bölümünde Temkinli,
+  Dengeli (varsayılan) veya Geniş profil seçilebilir. Süreler dakika cinsinden
+  girilir; her sınırın altında ne işe yaradığı yazar. Bir değeri değiştirince
+  profil **Özel** olur.
+- **Görev formu:** Görev yazarken ajanın yetki özeti açık gelir; ajanın yapamayacağı
+  bir iş istenmeden önce görülür.
+- **Çalışma ekranı:** Zaman çizelgesi sade cümlelerle gösterilir (hangi akış,
+  hangi gerekçe, hangi soru ve yanıt). Model istekleri, okuma araçları ve JSON
+  ayrıntıları **Teknik kayıtları göster** ile açılır. Karar adımı, akış, süre ve
+  token kullanımı sınırla birlikte çubuk olarak görünür; yöneticinin çalışmasında
+  bu, departmanlar dahil ekip bütçesidir. Alt görevlere ve yöneticinin görevine
+  doğrudan geçilebilir. Ajan yöneticisinden yanıt beklerken bu belirtilir.
+- **Organizasyon:** Yönetici ve bağlı departmanlar iletişim yönleriyle (görev,
+  soru, yanıt, sonuç) gösterilir. Kurulum kontrolü; model bağlantısı olmayan,
+  akış izni olmayan, ajanla çalıştırılamayan akışa izinli ajanları ve
+  departmanı olmayan yöneticiyi listeler. Bağımsız ajanlar ayrı gösterilir.
+- **Onaylar:** Onay kartında isteyen kişinin adı görünür.
+
 Birden fazla ajan aynı çalışma alanındaki bağlantı kayıtlarını paylaşabilir.
 İlk açılış ve eşzamanlı kayıt işlemleri sıraya alınır; yarım kalan dosya yazımı
 önceki geçerli kaydı bozmaz.
@@ -237,7 +262,9 @@ gelene kadar orada «Soru» balonuyla bekler; yanıt gelince yöneticinin üzeri
 «Yanıt» balonu çıkar ve ajan masasına döner. Görev verilirken yöneticide «Görev»,
 başarılı teslimde ajanda «Sonuç» balonu görünür. Balonlar yalnız mesajın türünü
 gösterir; soru ve yanıt metni ofise taşınmaz. 2D planda soru soran ajan ile
-yönetici arasında kesikli çizgi görünür. İşletim sisteminin
+yönetici arasında kesikli çizgi görünür. Ofisin altındaki **Son iletişimler**
+listesi aynı bilgiyi saatle birlikte yazar (ör. «Yönetici → Muhasebe: görev verdi»);
+mesaj içeriği bu listede de bulunmaz. İşletim sisteminin
 hareket azaltma tercihi açıkken yürüyüş ve uçuşlar kaldırılır, durum simgeleri ve
 balonlar korunur.
 

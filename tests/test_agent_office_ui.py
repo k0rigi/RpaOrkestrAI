@@ -335,6 +335,7 @@ def test_department_question_walks_to_manager_and_shows_only_message_type(office
     label.locator(".office-person-speech").get_by_text("Soru", exact=True).wait_for()
     assert page.locator(f'.office-person-label[data-person="{manager["id"]}"] .office-person-bubble').inner_text() == "✎"
     assert "Yöneticiye soru soruyor" in page.locator(".office-list").inner_text()
+    assert "Belge ajanı → Yönetici: soru sordu" in page.locator(".office-feed").inner_text()
     if os.environ.get("RPA_OFFICE_SHOT"):
         page.wait_for_timeout(4000)
         page.screenshot(path=os.environ["RPA_OFFICE_SHOT"] + "-question.png")
@@ -344,6 +345,9 @@ def test_department_question_walks_to_manager_and_shows_only_message_type(office
     manager_label = page.locator(f'.office-person-label[data-person="{manager["id"]}"]')
     manager_label.locator(".office-person-speech").get_by_text("Yanıt", exact=True).wait_for()
     assert label.locator(".office-person-speech").is_hidden()
+    feed = page.locator(".office-feed-list li").first
+    assert feed.inner_text().endswith("Yönetici → Belge ajanı: soruyu yanıtladı")
+    assert "Hangi" not in page.locator(".office-feed").inner_text()
     if os.environ.get("RPA_OFFICE_SHOT"):
         page.screenshot(path=os.environ["RPA_OFFICE_SHOT"] + "-answer.png")
     asker.update(activity="asking_manager", event={"id": "3" * 32, "kind": "question", "to_agent_id": manager["id"]})

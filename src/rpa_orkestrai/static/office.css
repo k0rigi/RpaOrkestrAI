@@ -62,3 +62,10 @@
 .office-plan-link { stroke: var(--info); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
 .office-plan-link-label { fill: var(--info); font-size: 11px; font-weight: 700; }
 .office-plan-person[data-activity="asking_manager"] circle { fill: var(--info-tint); stroke: var(--info); }
+.office-feed { border: 1px solid var(--line); border-radius: var(--r-l); background: var(--surface); padding: 12px 16px; margin: 0 0 14px; }
+.office-feed h3 { margin: 0 0 8px; font-size: .95rem; }
+.office-feed-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: .88rem; }
+.office-feed-list li { display: flex; gap: 10px; align-items: baseline; overflow-wrap: anywhere; }
+.office-feed-list time { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.office-feed-list li[data-kind="question"] span { color: var(--info); }
+.office-feed-list li[data-kind="answered"] span, .office-feed-list li[data-kind="completed"] span { color: var(--ok); }

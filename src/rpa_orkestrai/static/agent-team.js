@@ -82,29 +82,77 @@
     view.refresh();
   }
 
+  // Kontroller yalnız kayıtlı tanımlardan üretilir; hiçbir ajanı değiştirmez.
+  function organizationChecks(agents, connections, workflows) {
+    const manager = agents.find((item) => item.role === "manager");
+    const departments = agents.filter((item) => item.role === "department");
+    const checks = [];
+    if (!agents.length) checks.push(["info", "Henüz ajan yok. Ajanlar sekmesinden bir departman ajanı ekleyerek başlayın."]);
+    if (manager && !departments.some((item) => item.manager_id === manager.id)) {
+      checks.push(["warn", `${manager.name} yöneticisine bağlı departman yok; yönetici görev dağıtamaz.`]);
+    }
+    if (!manager && departments.length > 1) {
+      checks.push(["info", "Yönetici ajan ekleyerek tek bir görevle birden fazla departmanı çalıştırabilirsiniz."]);
+    }
+    for (const agent of agents) {
+      const connection = connections.find((item) => item.id === agent.provider_connection_id);
+      if (!connection) checks.push(["warn", `${agent.name} için geçerli bir model bağlantısı seçilmemiş.`]);
+      if (agent.role !== "department") continue;
+      if (!(agent.workflows || []).length) checks.push(["warn", `${agent.name} ajanının akış izni yok; görev alsa da iş yapamaz.`]);
+      for (const grant of agent.workflows || []) {
+        const flow = workflows.find((item) => item.id === grant.workflow_id);
+        if (!flow) checks.push(["warn", `${agent.name} ajanının izinli akışlarından biri artık bulunmuyor.`]);
+        else if (flow.agent_supported === false) checks.push(["warn", `${agent.name}: «${flow.name}» ajanla çalıştırılamaz.`]);
+      }
+    }
+    if (agents.length && !checks.some(([kind]) => kind === "warn")) checks.unshift(["ok", "Kurulum tutarlı: her ajanın modeli ve görevine uygun izinleri var."]);
+    return checks;
+  }
+
   function mountOrganization(container, options) {
     const view = setup(container, options);
-    const tree = el("section", undefined, "agent-organization");
-    const humans = el("section", undefined, "agent-panel");
-    container.append(el("h2", "Organizasyon"),
-      el("p", "Bir yönetici ajan, ona bağlı departman ajanları ve kendi Studio hesabıyla çalışan ekip üyeleri.", "muted"),
-      tree, humans);
     const agents = options.agents || [];
     const manager = agents.find((item) => item.role === "manager");
-    const managerCard = el("article", undefined, "agent-card agent-manager-card");
+    const linked = agents.filter((item) => item.role === "department" && manager && item.manager_id === manager.id);
+    const independent = agents.filter((item) => item.role === "department" && !linked.includes(item));
+    const tree = el("section", undefined, "agent-organization");
+    const humans = el("section", undefined, "agent-panel");
+    const checks = el("ul", undefined, "agent-org-checks");
+    checks.setAttribute("aria-label", "Kurulum kontrolü");
+    for (const [kind, text] of organizationChecks(agents, options.connections || [], options.workflows || [])) {
+      const item = el("li", text); item.dataset.kind = kind; checks.append(item);
+    }
+    container.append(el("h2", "Organizasyon"),
+      el("p", "Görevler yöneticiden departmanlara iner; sorular ve sonuçlar yöneticiye çıkar. Departmanlar birbiriyle doğrudan konuşmaz; böylece bir departmanın bilgisi veya izni diğerine kendiliğinden geçmez.", "muted"),
+      checks, tree, humans);
+    const departmentCard = (agent) => {
+      const card = el("article", undefined, "agent-card agent-org-card");
+      card.append(el("span", agent.department, "agent-eyebrow"), el("h3", agent.name),
+        el("p", `${agent.workflows?.length || 0} izinli akış`, "agent-help"));
+      return card;
+    };
+    const managerCard = el("article", undefined, "agent-card agent-manager-card agent-org-card");
     managerCard.append(el("span", "Yönetici ajan", "agent-eyebrow"),
       el("h3", manager?.name || "Yönetici henüz eklenmedi"),
-      el("p", manager?.description || "Ajanlar sekmesinden Yönetici rolüyle bir ajan ekleyin.", "muted"));
+      el("p", manager ? `${linked.length} departmana görev verebilir. Akış çalıştırmaz.` : "İsterseniz Ajanlar sekmesinden Yönetici rolüyle bir ajan ekleyin.", "muted"));
     tree.append(managerCard);
-    const departments = el("div", undefined, "agent-cards");
-    for (const agent of agents.filter((item) => item.role === "department")) {
-      const card = el("article", undefined, "agent-card");
-      card.append(el("span", agent.department, "agent-eyebrow"), el("h3", agent.name),
-        el("p", agent.manager_id === manager?.id ? "Yöneticiye bağlı" : "Bağımsız departman ajanı", "muted"),
-        el("p", `${agent.workflows?.length || 0} izinli akış`, "agent-help"));
-      departments.append(card);
+    if (manager) {
+      const legend = el("ul", undefined, "agent-org-legend");
+      legend.setAttribute("aria-label", "İletişim yönleri");
+      for (const text of ["↓ Görev verir", "↑ Soru sorar", "↓ Yanıtlar", "↑ Sonuç teslim eder"]) legend.append(el("li", text));
+      const row = el("div", undefined, "agent-cards agent-org-departments");
+      row.append(...linked.map(departmentCard));
+      if (!linked.length) row.append(el("p", "Bağlı departman yok. Departman ajanını düzenleyip Bağlı yönetici alanında bu yöneticiyi seçin.", "agent-help"));
+      tree.append(legend, row);
     }
-    tree.append(departments, el("p", "Bağlı yöneticiyi veya departmanı Ajanlar → Düzenle formundan değiştirin.", "agent-help"));
+    if (independent.length) {
+      tree.append(el("h3", "Bağımsız ajanlar"),
+        el("p", "Bu ajanlara görevi doğrudan siz verirsiniz; takılınca size sorarlar ve diğer ajanlarla iletişim kurmazlar.", "agent-help"));
+      const row = el("div", undefined, "agent-cards");
+      row.append(...independent.map(departmentCard));
+      tree.append(row);
+    }
+    if (options.session.can_manage && options.openTab) tree.append(button("Ajanları düzenle", () => options.openTab("agents")));
     humans.append(el("h3", "İnsan çalışanlar"), el("p", "Kurum hesapları yükleniyor…", "muted"));
     view.request("/api/agents/central/members").then((data) => {
       if (!view.alive) return;
@@ -113,7 +161,7 @@
       for (const member of data.uyeler || []) {
         list.append(el("li", `${member.ad_soyad}${member.onayci ? " · Onay yetkilisi" : ""}`));
       }
-      humans.append(list, el("p", "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır.", "agent-help"));
+      humans.append(list, el("p", "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır.", "agent-help"));
     }).catch((error) => {
       if (view.alive) humans.replaceChildren(el("h3", "İnsan çalışanlar"), el("p", error.message, "agent-warning"));
     });
@@ -192,10 +240,10 @@
     function newAgentTask() {
       view.current = "new_agent";
       detail.hidden = false;
-      detail.replaceChildren(el("h3", "Yapay Zeka Ajanına Görev Ver"));
+      detail.replaceChildren(el("h3", "Ajana görev ver"));
       const availableAgents = options.agents || [];
       if (!availableAgents.length) {
-        detail.append(el("p", "Henüz bir yapay zeka ajanı oluşturulmadı. Önce Ajanlar sekmesinden bir ajan ekleyin.", "agent-warning"),
+        detail.append(el("p", "Henüz ajan oluşturulmadı. Önce Ajanlar sekmesinden bir ajan ekleyin.", "agent-warning"),
           button("Vazgeç", () => { detail.hidden = true; detail.replaceChildren(); view.current = null; }));
         return;
       }
@@ -204,7 +252,7 @@
       const agentDropdown = dropdown("Ajan seçin", availableAgents.map((a) => [a.id, `${a.name} (${a.department || "Genel"})`]));
       const form = id(el("form"));
       form.append(agentDropdown.wrapper, title.wrapper, instructions.wrapper);
-      const submit = id(el("button", "Ajanı Çalıştır", "button primary")); submit.type = "submit";
+      const submit = id(el("button", "Görevi başlat", "button primary")); submit.type = "submit";
       form.append(submit);
       form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -301,14 +349,20 @@
       } else if (item.status === "pending") detail.append(el("p", "Kararı firmanın onay yetkilisi verebilir.", "muted"));
       detail.append(button("Ayrıntıyı kapat", () => { detail.hidden = true; detail.replaceChildren(); }));
     }
+    let members = null;
     polling(view, async () => {
       try {
+        if (members === null) {
+          // Names are only a label; a failed member list must not hide approvals.
+          members = await view.request("/api/agents/central/members").then((data) => data.uyeler || []).catch(() => []);
+        }
         const data = await view.request("/api/agents/central/approvals");
         if (!view.alive) return;
         note.textContent = "Onay akışa, girdilere ve tek denemeye bağlıdır. Süresi dolan onayla işlem başlatılmaz.";
         const cards = (data.approvals || []).map((item) => {
           const card = el("article", undefined, "agent-card");
-          card.append(state(item.status), el("p", `İsteyen hesap: ${item.requester_user_id}`, "agent-help"),
+          const requester = members.find((member) => member.kullanici_id === item.requester_user_id)?.ad_soyad;
+          card.append(state(item.status), el("p", `İsteyen: ${requester || `hesap ${item.requester_user_id}`}`, "agent-help"),
             el("p", `Oluşturma: ${time(item.created_at)}`, "agent-help"), button("Onayı incele", () => view.act(() => show(item.id))));
           return card;
         });

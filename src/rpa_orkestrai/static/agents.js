@@ -39,12 +39,47 @@
   };
   const defaultLimits = { max_turns: 20, max_workflow_runs: 10, max_seconds: 1800, max_tokens: 50000,
     max_retries: 1, max_tasks: 20, busy_wait_seconds: 60, approval_timeout_seconds: 900, question_timeout_seconds: 900 };
-  const limitLabels = { max_turns: "En fazla karar turu", max_workflow_runs: "En fazla akış çalıştırma",
-    max_seconds: "En fazla süre (saniye)", max_tokens: "En fazla token", max_retries: "En fazla yeniden deneme", max_tasks: "En fazla alt görev",
-    busy_wait_seconds: "Masaüstü sırası bekleme (saniye)", approval_timeout_seconds: "Onay bekleme (saniye)",
-    question_timeout_seconds: "Yanıt bekleme (saniye)" };
+  const limitLabels = { max_turns: "Karar adımı", max_workflow_runs: "Akış çalıştırma",
+    max_seconds: "Görevin en uzun süresi (dakika)", max_tokens: "Token bütçesi", max_retries: "Hatalı akışı yeniden deneme",
+    max_tasks: "Alt görev (yönetici ekibi)", busy_wait_seconds: "Masaüstü boşalana kadar bekleme (dakika)",
+    approval_timeout_seconds: "Onay için bekleme (dakika)", question_timeout_seconds: "Yanıt için bekleme (dakika)" };
+  const limitHelp = {
+    max_turns: "Ajanın modele danışıp karar verdiği adım sayısı. Dolunca görev durur.",
+    max_workflow_runs: "Bir görevde başlatabileceği akış sayısı.",
+    max_seconds: "Görev bu süreyi aşarsa durdurulur.",
+    max_tokens: "Model kullanımının üst sınırı; bulut sağlayıcıda maliyeti sınırlar.",
+    max_retries: "Hata veren akışın aynı görevde tekrar denenme sayısı. Hedef bulunamazsa körlemesine tekrar edilmez.",
+    max_tasks: "Yöneticinin bir görevde dağıtabileceği alt görev sayısı.",
+    busy_wait_seconds: "Bilgisayarda başka bir akış çalışıyorsa bu kadar bekler.",
+    approval_timeout_seconds: "Onay bu sürede gelmezse işlem başlatılmaz.",
+    question_timeout_seconds: "Soru bu sürede yanıtlanmazsa ajan tahminle devam etmez.",
+  };
+  const minuteLimits = new Set(["max_seconds", "busy_wait_seconds", "approval_timeout_seconds", "question_timeout_seconds"]);
   const limitMax = { max_turns: 1000, max_workflow_runs: 1000, max_seconds: 86400, max_tokens: 10000000,
     max_retries: 10, max_tasks: 1000, busy_wait_seconds: 3600, approval_timeout_seconds: 86400, question_timeout_seconds: 86400 };
+  const limitPresets = {
+    careful: ["Temkinli", "Kısa ve sınırlı işler: az akış, kısa süre, düşük maliyet.", { max_turns: 10, max_workflow_runs: 3,
+      max_seconds: 600, max_tokens: 20000, max_retries: 0, max_tasks: 5, busy_wait_seconds: 60, approval_timeout_seconds: 900, question_timeout_seconds: 900 }],
+    balanced: ["Dengeli", "Çoğu günlük iş için önerilen varsayılan.", defaultLimits],
+    wide: ["Geniş", "Uzun, çok adımlı işler. Bulut modelde maliyeti izleyin.", { max_turns: 60, max_workflow_runs: 30,
+      max_seconds: 7200, max_tokens: 200000, max_retries: 2, max_tasks: 50, busy_wait_seconds: 300, approval_timeout_seconds: 3600, question_timeout_seconds: 3600 }],
+  };
+  const toolTitles = { run_workflow: "Akış çalıştırma isteği", describe_workflow: "Akış inceleniyor", list_workflows: "İzinli akışlar okunuyor",
+    get_run: "Akış sonucu okunuyor", list_recent_runs: "Geçmiş çalışmalar okunuyor", read_artifact: "Çıktı dosyası okunuyor",
+    ask_user: "Size soru", ask_manager: "Yöneticiye soru", finish: "Görevi bitiriyor", list_team: "Ekip okunuyor",
+    delegate_task: "Görev devri", get_task: "Alt görev durumu okunuyor", list_tasks: "Alt görevler okunuyor",
+    wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt" };
+  const eventTitles = { created: "Görev alındı", queue: "Masaüstü sırası bekleniyor", workflow_started: "Akış başladı",
+    question: "Size soru soruldu", user_answer: "Yanıtınız iletildi", approval_requested: "Onay istendi",
+    approval_decision: "Onay kararı verildi", approval_submitted: "Onay kararı gönderildi", approval_consumed: "Onay kullanıldı",
+    approval_expired: "Onay süresi doldu", task_delegated: "Görev devredildi", manager_question: "Yöneticiye soru soruldu",
+    manager_answer: "Yöneticiden yanıt geldi", manager_question_expired: "Yönetici süre içinde yanıt vermedi",
+    department_question: "Departmandan soru geldi", department_answered: "Departmana yanıt verildi",
+    context_compacted: "Konuşma kısaltıldı", output_limited: "Yanıt bütçesi daraltıldı", interrupted: "Çalışma yarıda kaldı",
+    assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek" };
+  const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
+  const quietTools = new Set(["list_workflows", "describe_workflow", "get_run", "list_recent_runs", "list_team", "get_task",
+    "list_tasks", "wait_tasks", "read_artifact"]);
   const extensions = new Map();
   let active = null;
   let sequence = 0;
@@ -136,10 +171,22 @@
     return value;
   }
 
+  function agentName(view, identity) {
+    return view.agents.find((item) => item.id === identity)?.name || "Ajan";
+  }
+  function workflowName(view, identity) {
+    return view.workflows.find((item) => item.id === identity)?.name || "İzinli akış";
+  }
+  function text(value) {
+    if (value === null || value === undefined) return "";
+    return typeof value === "string" ? value : JSON.stringify(value);
+  }
+
   function unmount() {
     if (!active) return;
     active.alive = false;
     clearTimeout(active.timer);
+    clearTimeout(active.attentionTimer);
     document.removeEventListener("visibilitychange", active.visibility);
     active.extensionCleanup?.();
     active = null;
@@ -171,7 +218,8 @@
     };
     view.visibility = () => {
       clearTimeout(view.timer);
-      if (!document.hidden && view.alive) schedulePoll(view, 0);
+      clearTimeout(view.attentionTimer);
+      if (!document.hidden && view.alive) { schedulePoll(view, 0); pollAttention(view); }
     };
     document.addEventListener("visibilitychange", view.visibility);
     try {
@@ -183,6 +231,7 @@
       [view.session, view.agents, view.connections, view.workflows] = values;
       shell(view);
       showTab(view, view.tabButtons.has(options.initialTab) ? options.initialTab : "agents");
+      pollAttention(view);
     } catch (error) {
       if (!view.alive) return;
       const notice = empty("Ajanlar açılamadı", error?.message || "Lisansı ve bağlantıyı kontrol edin.");
@@ -208,7 +257,42 @@
       tabs.append(button);
     }
     view.pane = element("div", null, "agent-pane");
-    view.container.replaceChildren(header, tabs, view.pane);
+    view.attention = element("section", null, "agent-attention");
+    view.attention.hidden = true; view.attention.setAttribute("aria-label", "Sizi bekleyen işler");
+    view.container.replaceChildren(header, tabs, view.attention, view.pane);
+  }
+
+  // A light status read keeps questions and approvals visible from every tab; it never loads run history.
+  async function pollAttention(view) {
+    clearTimeout(view.attentionTimer);
+    // The banner exists only after the page shell loaded; a failed first load has nothing to update.
+    if (!view.alive || !view.attention || document.hidden || view.attentionLoading) return;
+    view.attentionLoading = true;
+    try {
+      const data = await view.request("/api/agents/office");
+      if (view.alive) renderAttention(view, Array.isArray(data?.agents) ? data.agents : []);
+    } catch {
+      if (view.alive) renderAttention(view, []);
+    } finally {
+      view.attentionLoading = false;
+      if (view.alive && !document.hidden) view.attentionTimer = setTimeout(() => pollAttention(view), 5000);
+    }
+  }
+  function renderAttention(view, agents) {
+    const waiting = agents.filter((item) => ["waiting_user", "waiting_approval"].includes(item.status)
+      && typeof item.run_id === "string" && /^[a-f0-9]{32}$/.test(item.run_id)).slice(0, 6);
+    const key = JSON.stringify(waiting.map((item) => [item.run_id, item.status, item.name]));
+    if (key === view.attentionKey) return;
+    view.attentionKey = key;
+    view.attention.hidden = !waiting.length;
+    if (!waiting.length) { view.attention.replaceChildren(); return; }
+    const list = element("div", null, "agent-actions");
+    for (const item of waiting) {
+      list.append(action(`${item.name}: ${item.status === "waiting_user" ? "yanıtınızı bekliyor" : "onay bekliyor"}`,
+        () => openRun(view, item.run_id)));
+    }
+    view.attention.replaceChildren(element("strong", waiting.length === 1 ? "Sizi bekleyen bir iş var" : `Sizi bekleyen ${waiting.length} iş var`),
+      element("p", "Yanıt veya onay gelene kadar ajan bekler; süre dolarsa tahminle devam etmez.", "agent-help"), list);
   }
 
   function showTab(view, tab) {
@@ -228,7 +312,8 @@
     else if (extensions.has(tab)) {
       view.pane.replaceChildren();
       const result = extensions.get(tab).mount(view.pane, { ...view.options, session: view.session,
-        agents: view.agents, openAgentRun: (identity) => openRun(view, identity),
+        agents: view.agents, connections: view.connections, workflows: view.workflows,
+        openAgentRun: (identity) => openRun(view, identity),
         openTab: (name) => { if (view.tabButtons.has(name)) showTab(view, name); } });
       if (typeof result === "function") view.extensionCleanup = result;
       else if (result?.then) result.then((cleanup) => {
@@ -258,10 +343,12 @@
   // Kart, ajanın kayıtlı izinlerinden üretilir; elle yazılmış bir vaat göstermez.
   function permissionSummary(view, agent) {
     const can = [], approval = [], cannot = [];
-    const common = [
+    const rules = [
       "Serbest web araması yapamaz; web ve veritabanına yalnız izinli akışlarla erişir.",
       "Bilgisayarda komut çalıştıramaz; fare ve klavyeyi akış dışında kullanamaz.",
       "Kayıtlı şifreleri ve API anahtarlarını göremez.",
+      "Hedef bulunamazsa tahminle tıklamaz veya yazmaz; durur.",
+      "Bilmediği bilgiyi uydurmaz; sorar ya da durur.",
     ];
     if (agent.role === "manager") {
       const team = view.agents.filter((item) => item.manager_id && item.manager_id === agent.id);
@@ -273,8 +360,8 @@
       approval.push("Kendisi onay veremez; departmanların riskli akışları kurum onaycısına gider.");
       cannot.push("Akış çalıştıramaz; işi yalnız departman ajanları yapar.",
         "Departman ajanlarının akış izinlerini genişletemez.",
-        "Kendisine bağlı olmayan ajanlara görev veremez.", ...common);
-      return { can, approval, cannot };
+        "Kendisine bağlı olmayan ajanlara görev veremez.");
+      return { can, approval, cannot, rules };
     }
     for (const grant of agent.workflows || []) {
       const identity = typeof grant === "string" ? grant : grant.workflow_id;
@@ -294,9 +381,8 @@
     can.push(manager ? `Takıldığında önce yöneticisi ${manager.name} ajanına, gerekirse size sorar.` : "Takıldığında size sorar.");
     cannot.push("İzin verilmeyen akışları çalıştıramaz.",
       manager ? "Diğer departman ajanlarıyla doğrudan konuşamaz; yalnız yöneticisi üzerinden iletişim kurar."
-        : "Bir yöneticiye bağlı değil; diğer ajanlarla iletişim kurmaz.",
-      "Hedef bulunamazsa tahminle tıklamaz veya yazmaz; durur.", ...common);
-    return { can, approval, cannot };
+        : "Bir yöneticiye bağlı değil; diğer ajanlarla iletişim kurmaz.");
+    return { can, approval, cannot, rules };
   }
   function permissionCard(summary) {
     const section = element("section", null, "agent-permissions");
@@ -311,6 +397,11 @@
       const list = element("ul");
       for (const text of items) list.append(element("li", text));
       column.append(element("h4", title), items.length ? list : element("p", none, "agent-help"));
+      if (kind === "cannot" && summary.rules?.length) {
+        const rules = element("ul");
+        for (const text of summary.rules) rules.append(element("li", text));
+        column.append(disclosure(`Her ajan için geçerli ${summary.rules.length} güvenlik kuralı`, rules));
+      }
       section.append(column);
     }
     return section;
@@ -339,7 +430,46 @@
       cards.append(card);
     }
     if (!view.agents.length) cards.append(empty("İlk ajanınızı oluşturun", "Önce bir model bağlantısı ekleyin, sonra ajanın kullanabileceği akışları seçin."));
-    view.pane.replaceChildren(toolbar, cards);
+    view.pane.replaceChildren(toolbar, ...gettingStarted(view), cards);
+  }
+  function gettingStarted(view) {
+    const departments = view.agents.filter((item) => item.role === "department");
+    const manager = view.agents.find((item) => item.role === "manager");
+    const steps = [
+      ["Model bağlantısı ekleyin", "Yerel (Ollama) veya bulut sağlayıcı seçin.", view.connections.length > 0,
+        view.session.can_manage ? ["Bağlantılar", () => showTab(view, "connections")] : null],
+      ["Departman ajanı oluşturun ve akış izni verin", "Ajan yalnız seçtiğiniz akışları çalıştırır.",
+        departments.some((item) => (item.workflows || []).length), view.session.can_manage ? ["Ajan ekle", () => editAgent(view)] : null],
+      ["İsterseniz yönetici ajan ekleyin", "Yönetici tek görevi departmanlara dağıtır, sorularını yanıtlar ve sonuçları birleştirir.",
+        Boolean(manager) && departments.some((item) => item.manager_id === manager.id), null],
+    ];
+    const result = [];
+    if (steps.slice(0, 2).some(([, , done]) => !done)) {
+      const card = element("section", null, "agent-start");
+      card.setAttribute("aria-label", "Başlarken");
+      const list = element("ol", null, "agent-start-steps");
+      for (const [title, help, done, button] of steps) {
+        const item = element("li", null, done ? "done" : "");
+        item.append(element("strong", `${done ? "✓ " : ""}${title}`), element("p", help, "agent-help"));
+        if (!done && button) item.append(action(button[0], button[1]));
+        list.append(item);
+      }
+      card.append(element("h2", "Başlarken"), list,
+        element("p", "Hazır olduğunuzda ajan kartındaki Görev ver ile başlayın. Riskli işlemler her zaman onay ister.", "agent-help"));
+      result.push(card);
+    }
+    const flow = element("ol", null, "agent-flow");
+    for (const [title, help] of [
+      ["Görev verirsiniz", "Hedefi düz bir cümleyle yazın."],
+      ["Ajan izinli akışları çalıştırır", "Yalnız sizin seçtiğiniz akışlar; başka araç yoktur."],
+      ["Riskli işte onay ister", "Geri alınamaz işlem onaysız başlamaz."],
+      ["Takılınca sorar", "Önce yöneticisine, gerekirse size. Tahmin yürütmez."],
+      ["Sonucu teslim eder", "Özet ve yapılandırılmış sonuç Çalışmalar sekmesinde."],
+    ]) {
+      const item = element("li"); item.append(element("strong", title), element("span", help, "agent-help")); flow.append(item);
+    }
+    result.push(disclosure("Ajanlar nasıl çalışır?", flow));
+    return result;
   }
 
   function editAgent(view, original = null) {
@@ -448,14 +578,37 @@
     filterGrants();
     const updateRole = () => { grants.hidden = role.input.value === "manager"; manager.wrapper.hidden = role.input.value === "manager"; };
     role.input.addEventListener("change", updateRole); updateRole();
-    const limits = element("div", null, "agent-form-grid");
+    const limits = element("div", null, "agent-limits");
+    const limitGrid = element("div", null, "agent-form-grid");
     const limitFields = {};
+    const preset = select("Sınır profili", [...Object.entries(limitPresets).map(([key, [label]]) => [key, label]), ["custom", "Özel"]], "custom");
+    const presetHelp = element("p", "", "agent-help");
     for (const [key, initial] of Object.entries(defaultLimits)) {
-      const item = field(limitLabels[key], agent.limits?.[key] ?? initial, "number");
-      item.input.min = ["max_retries", "max_workflow_runs", "busy_wait_seconds"].includes(key) ? "0" : "1";
-      item.input.max = String(limitMax[key]); item.input.required = true;
-      limits.append(item.wrapper); limitFields[key] = item.input;
+      const stored = agent.limits?.[key] ?? initial;
+      const minutes = minuteLimits.has(key);
+      const item = field(limitLabels[key], minutes ? Math.round(stored / 60 * 100) / 100 : stored, "number", limitHelp[key]);
+      item.input.min = ["max_retries", "max_workflow_runs", "busy_wait_seconds"].includes(key) ? "0" : minutes ? "0.1" : "1";
+      item.input.max = String(minutes ? limitMax[key] / 60 : limitMax[key]); item.input.step = minutes ? "any" : "1";
+      item.input.required = true;
+      limitGrid.append(item.wrapper); limitFields[key] = item.input;
     }
+    const readLimits = () => Object.fromEntries(Object.entries(limitFields).map(([key, input]) =>
+      [key, minuteLimits.has(key) ? Math.round(Number(input.value) * 60) : Number(input.value)]));
+    const matchPreset = () => {
+      const current = readLimits();
+      const found = Object.entries(limitPresets).find(([, [, , values]]) => Object.keys(defaultLimits).every((key) => values[key] === current[key]));
+      preset.input.value = found ? found[0] : "custom";
+      presetHelp.textContent = found ? found[1][1] : "Değerleri kendiniz belirlediniz.";
+    };
+    preset.input.addEventListener("change", () => {
+      const values = limitPresets[preset.input.value]?.[2];
+      if (values) for (const [key, input] of Object.entries(limitFields)) input.value = minuteLimits.has(key) ? values[key] / 60 : values[key];
+      matchPreset();
+    });
+    limitGrid.addEventListener("input", matchPreset);
+    preset.wrapper.append(presetHelp);
+    limits.append(preset.wrapper, limitGrid);
+    matchPreset();
     const buttons = element("div", null, "agent-actions");
     const save = action("Ajanı kaydet", () => form.requestSubmit(), "primary");
     buttons.append(save, action("Vazgeç", () => renderAgents(view)));
@@ -478,7 +631,7 @@
         workflow_id: item.workflow.id, allow_without_approval: item.automatic.input.checked,
         allowed_roots: item.roots.input.value.split("\n").map((line) => line.trim()).filter(Boolean),
         allowed_hosts: item.grant?.allowed_hosts || [],
-      })), limits: Object.fromEntries(Object.entries(limitFields).map(([key, input]) => [key, Number(input.value)])) });
+      })), limits: readLimits() });
     const refreshPreview = () => {
       const current = draft();
       previewBody.replaceChildren(permissionCard(permissionSummary(view, current)), element("p", limitSummary(current), "agent-help agent-limit-line"));
@@ -511,7 +664,7 @@
     form.append(element("h2", `${agent.name} için görev`));
     const task = field("Hedefiniz", "", "textarea", "Beklediğiniz sonucu yazın. Ajan yalnız izin verdiğiniz akışları kullanır.");
     task.input.required = true; task.input.maxLength = 16000; task.input.rows = 6;
-    const inputs = field("Başlangıç girdileri (JSON)", "{}", "textarea", "Gerekmiyorsa boş nesne olarak bırakın.");
+    const inputs = field("Başlangıç girdileri (JSON)", "{}", "textarea", "Gerekmiyorsa boş bırakın. Örnek: {\"donem\": \"2026-09\", \"dosya\": \"rapor.csv\"}");
     const start = action("Görevi başlat", () => form.requestSubmit(), "primary");
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -523,7 +676,12 @@
     });
     const buttons = element("div", null, "agent-actions");
     buttons.append(start, action("Vazgeç", () => renderAgents(view)));
-    form.append(task.wrapper, disclosure("Girdi değişkenleri", inputs.wrapper), buttons);
+    const scope = disclosure("Bu ajan neler yapabilir?", permissionCard(permissionSummary(view, agent)));
+    scope.open = true;
+    const hint = element("p", agent.role === "manager"
+      ? "Yönetici işi bağlı departmanlara dağıtır. Hedefi bütün olarak yazın; hangi departmanın ne yapacağını o belirler."
+      : "Hedefi, ajanın izinli akışlarıyla yapılabilecek biçimde yazın. İzni olmayan işi yapmaz, size bildirir.", "agent-help");
+    form.append(hint, task.wrapper, disclosure("Girdi değişkenleri (isteğe bağlı)", inputs.wrapper), scope, buttons);
     view.pane.replaceChildren(form); task.input.focus();
   }
 
@@ -545,7 +703,8 @@
     const nodes = view.runs.filter((item) => !view.filterAgent || item.agent_id === view.filterAgent).map((run) => {
       const button = action("", () => openRun(view, run.id), "agent-run-choice");
       button.classList.toggle("selected", run.id === view.selectedRun);
-      button.append(element("strong", run.title || run.task?.slice(0, 100) || "Ajan görevi"), status(run.status),
+      button.append(element("small", `${run.parent_run_id ? "↳ Alt görev · " : ""}${agentName(view, run.agent_id)}`, "agent-eyebrow"),
+        element("strong", run.title || run.task?.slice(0, 100) || "Ajan görevi"), status(run.status),
         element("small", timeLabel(run.created_at), "muted"));
       return button;
     });
@@ -569,13 +728,24 @@
         if (view.alive) await openRun(view, run.id);
       }), "danger");
       const statusBox = element("div", null, "agent-actions"); header.append(title, statusBox, stop);
+      const owner = element("p", "", "agent-eyebrow");
       const task = element("p", run.task, "agent-task-text");
       const stats = element("p", "", "agent-help");
+      const usage = element("section", null, "agent-usage"); usage.setAttribute("aria-label", "Sınırların kullanımı");
+      const team = element("section", null, "agent-team-links");
+      const waiting = element("p", "", "agent-notice"); waiting.hidden = true;
       const pending = element("div");
+      const technical = toggle("Teknik kayıtları göster", Boolean(view.showTechnical));
       const timeline = element("ol", null, "agent-timeline"); timeline.setAttribute("aria-label", "Çalışma zaman çizelgesi");
+      timeline.classList.toggle("show-technical", Boolean(view.showTechnical));
+      technical.input.addEventListener("change", () => {
+        view.showTechnical = technical.input.checked; timeline.classList.toggle("show-technical", view.showTechnical);
+      });
+      const timelineHead = element("div", null, "agent-toolbar");
+      timelineHead.append(element("h3", "Zaman çizelgesi"), technical.wrapper);
       const result = element("section", null, "agent-run-result");
-      view.runPane.replaceChildren(header, task, stats, pending, timeline, result);
-      view.runView = { id: run.id, title, task, stop, statusBox, stats, pending, pendingKey: null,
+      view.runPane.replaceChildren(header, owner, task, stats, usage, team, waiting, pending, result, timelineHead, timeline);
+      view.runView = { id: run.id, title, owner, task, stop, statusBox, stats, usage, team, teamKey: null, waiting, pending, pendingKey: null,
         questionId: null, answerInput: null, timeline, events: new Map(), result, resultKey: null };
     }
     const ui = view.runView;
@@ -583,7 +753,14 @@
     ui.task.textContent = run.task || "";
     ui.statusBox.replaceChildren(status(run.status));
     ui.stop.hidden = terminal.has(run.status);
-    ui.stats.textContent = `${run.workflow_count || 0} akış · ${run.turns || 0} karar turu · ${run.total_tokens || 0} token · Başlangıç: ${timeLabel(run.started_at)}`;
+    const runner = view.agents.find((item) => item.id === run.agent_id);
+    ui.owner.textContent = runner ? `${runner.name} · ${runner.role === "manager" ? "Yönetici ajan" : runner.department}` : "Kaldırılmış ajan";
+    ui.stats.textContent = `Başlangıç: ${timeLabel(run.started_at)}${run.finished_at ? ` · Bitiş: ${timeLabel(run.finished_at)}` : ""}`;
+    updateUsage(ui.usage, run, runner);
+    updateTeam(view, run, ui);
+    const asked = [...(run.events || [])].reverse().find((event) => ["manager_question", "manager_answer", "manager_question_expired"].includes(event.kind));
+    ui.waiting.hidden = terminal.has(run.status) || asked?.kind !== "manager_question";
+    ui.waiting.textContent = ui.waiting.hidden ? "" : "Ajan yöneticisine soru sordu ve yanıtını bekliyor. Yönetici bilmiyorsa soruyu size iletir.";
     updatePending(view, run, ui);
     const visibleEvents = new Set();
     for (const event of run.events || []) {
@@ -591,13 +768,18 @@
       const signature = JSON.stringify([event.kind, event.message, event.timestamp, event.data]);
       const previous = ui.events.get(event.id);
       if (previous?.signature === signature) continue;
-      const item = element("li", null, "agent-event");
-      item.append(element("small", timeLabel(event.timestamp), "muted"), element("p", event.message || event.kind));
+      const item = element("li", null, `agent-event${isTechnical(event) ? " technical" : ""}`);
+      item.dataset.kind = event.kind;
+      const detail = eventDetail(view, event);
+      item.append(element("small", timeLabel(event.timestamp), "muted"), element("strong", eventTitle(event)));
+      // The server sentence only repeats the title when a readable detail exists; the model's own note is always shown.
+      if (!detail || event.kind === "assistant") item.append(element("p", event.message || event.kind));
+      if (detail) item.append(element("p", detail, "agent-task-text agent-event-detail"));
       const runId = event.kind === "workflow_started" ? event.data?.run_id : null;
       if (typeof runId === "string" && /^[a-f0-9]{32}$/.test(runId)) {
         item.append(action("Akış çalışma kaydını aç", () => Promise.resolve(view.options.openRun(runId)).catch(view.error)));
       }
-      if (event.data && Object.keys(event.data).length) item.append(disclosure("Ayrıntı", jsonBlock(event.data)));
+      if (event.data && Object.keys(event.data).length) item.append(disclosure("Teknik ayrıntı", jsonBlock(event.data)));
       if (previous) previous.item.replaceWith(item);
       else ui.timeline.append(item);
       ui.events.set(event.id, { signature, item });
@@ -612,6 +794,76 @@
       if (run.error) ui.result.append(element("p", run.error, "agent-error"));
       if (run.summary) ui.result.append(element("h3", "Sonuç"), element("p", run.summary, "agent-task-text"));
       if (run.result !== null && run.result !== undefined) ui.result.append(disclosure("Yapılandırılmış sonuç", jsonBlock(run.result)));
+    }
+  }
+  function isTechnical(event) {
+    return technicalEvents.has(event.kind) || (event.kind === "tool_call" && quietTools.has(event.data?.name))
+      || (event.kind === "assistant" && !String(event.message || "").trim());
+  }
+  function eventTitle(event) {
+    if (event.kind === "tool_call") return toolTitles[event.data?.name] || "Araç kullanıldı";
+    if (event.kind === "approval_decision") return event.data?.approved ? "İşlem onaylandı" : "İşlem reddedildi";
+    return eventTitles[event.kind] || "Kayıt";
+  }
+  // Event data are untrusted model or user text; they are only ever rendered with textContent.
+  function eventDetail(view, event) {
+    const data = event.data || {}, args = data.arguments || {};
+    if (event.kind === "tool_call") {
+      if (data.name === "run_workflow") return `«${workflowName(view, args.workflow_id)}»${args.reason ? ` · Gerekçe: ${text(args.reason)}` : ""}`;
+      if (data.name === "delegate_task") return `${agentName(view, args.agent_id)}: ${text(args.title)}`;
+      if (["ask_user", "ask_manager"].includes(data.name)) return text(args.question);
+      if (data.name === "answer_department") return text(args.answer);
+      if (data.name === "finish") return text(args.summary);
+      return "";
+    }
+    if (["question", "manager_question"].includes(event.kind)) return text(data.question);
+    if (["user_answer", "manager_answer", "department_answered"].includes(event.kind)) return text(data.answer);
+    if (event.kind === "department_question") return `${agentName(view, data.agent_id)}: ${text(data.question)}`;
+    if (event.kind === "task_delegated") return agentName(view, data.agent_id);
+    if (event.kind === "workflow_started") return `«${workflowName(view, data.workflow_id)}»`;
+    return "";
+  }
+  function updateUsage(box, run, agent) {
+    const limits = { ...defaultLimits, ...(agent?.limits || {}) };
+    const team = agent?.role === "manager" && !run.parent_run_id ? run.team_usage || {} : null;
+    const last = Date.parse(run.events?.at(-1)?.timestamp || "");
+    const started = Date.parse(run.started_at || "");
+    const ended = Date.parse(run.finished_at || "") || (terminal.has(run.status) && Number.isFinite(last) ? last : Date.now());
+    const elapsed = Number.isFinite(started) ? Math.max(0, (ended - started) / 1000) : 0;
+    const rows = [
+      ["Karar adımı", team ? team.turns : run.turns, limits.max_turns, count],
+      ["Akış çalıştırma", team ? team.workflow_count : run.workflow_count, limits.max_workflow_runs, count],
+      ...(team ? [["Alt görev", team.task_count, limits.max_tasks, count]] : []),
+      ["Süre", elapsed, limits.max_seconds, duration],
+      ["Token", team ? team.total_tokens : run.total_tokens, limits.max_tokens, count],
+    ];
+    const items = rows.map(([label, used, limit, format]) => {
+      const value = Number(used) || 0, ratio = limit > 0 ? Math.min(1, value / limit) : 0;
+      const item = element("div", null, `agent-usage-item${ratio >= .8 ? " near" : ""}`);
+      const bar = element("div", null, "agent-usage-bar");
+      bar.setAttribute("role", "progressbar"); bar.setAttribute("aria-label", label);
+      bar.setAttribute("aria-valuemin", "0"); bar.setAttribute("aria-valuemax", String(limit)); bar.setAttribute("aria-valuenow", String(Math.round(value)));
+      const fill = element("span"); fill.style.width = `${Math.round(ratio * 100)}%`; bar.append(fill);
+      item.append(element("span", `${label} · ${format(value)} / ${format(limit)}`), bar);
+      return item;
+    });
+    box.replaceChildren(element("h3", team ? "Ekip bütçesi (departmanlar dahil)" : "Sınırların kullanımı"), ...items);
+  }
+  function updateTeam(view, run, ui) {
+    const children = view.runs.filter((item) => item.parent_run_id === run.id);
+    const key = JSON.stringify([run.parent_run_id, children.map((item) => [item.id, item.status, item.agent_id])]);
+    if (key === ui.teamKey) return;
+    ui.teamKey = key; ui.team.replaceChildren(); ui.team.hidden = !run.parent_run_id && !children.length;
+    if (run.parent_run_id) ui.team.append(element("p", "Bu görevi yönetici ajan verdi.", "agent-help"),
+      action("Yönetici görevini aç", () => openRun(view, run.parent_run_id)));
+    if (children.length) {
+      const list = element("ul", null, "agent-team-children");
+      for (const child of children) {
+        const item = element("li");
+        item.append(action(`${agentName(view, child.agent_id)}: ${child.title || "Alt görev"}`, () => openRun(view, child.id)), status(child.status));
+        list.append(item);
+      }
+      ui.team.append(element("h3", "Departmanlara verilen görevler"), list);
     }
   }
   function updatePending(view, run, ui) {
@@ -652,7 +904,7 @@
           controls.append(button);
         }
         card.append(controls);
-      } else card.append(element("p", "Bu işlemi yalnız ürün sahibi onaylayabilir. Onay gelene kadar akış başlamaz.", "agent-notice"));
+      } else card.append(element("p", "Bu işlemi yalnız firmanın onay yetkilisi onaylayabilir. Onay gelene kadar akış başlamaz.", "agent-notice"));
       ui.pending.append(card);
     }
   }

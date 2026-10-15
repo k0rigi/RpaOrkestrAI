@@ -148,6 +148,7 @@ class AgentStore:
                     task.events = [event for event in run.events if event.kind in {
                         "created", "workflow_started", "question", "user_answer", "approval_requested",
                         "approval_decision", "approval_consumed", "approval_expired", "task_delegated", "interrupted",
+                        "manager_question", "manager_answer", "department_question", "department_answered",
                     }]
                     task.approvals = [event for event in task.events if event.kind.startswith("approval_")]
                     self.save_task(task)

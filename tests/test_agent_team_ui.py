@@ -85,3 +85,23 @@ def test_remote_approval_preview_is_text_and_only_owner_has_decision(team):
     page.get_by_role("button", name="Onayı incele", exact=True).click()
     page.get_by_role("heading", name="Güncelle", exact=True).wait_for()
     assert page.get_by_role("button", name="Onayla", exact=True).count() == 0
+
+
+def test_organization_explains_communication_and_flags_incomplete_setup(team):
+    page, _, _, _, _ = team
+    page.get_by_role("button", name="Organizasyon", exact=True).click()
+    checks = page.locator(".agent-org-checks")
+    checks.wait_for()
+    # The only agent is independent and has a working connection and a granted workflow.
+    assert "Kurulum tutarlı" in checks.inner_text()
+    assert page.get_by_text("Bağımsız ajanlar", exact=True).is_visible()
+    assert "Departmanlar birbiriyle doğrudan konuşmaz" in page.locator(".agent-root").inner_text()
+    assert page.locator("img").count() == 0
+    assert_unique_interactive_ids(page)
+
+
+def test_approval_card_names_the_requester(team):
+    page, _, _, _, _ = team
+    page.get_by_role("button", name="Onaylar", exact=True).click()
+    page.get_by_text("İsteyen: " + ATTACK, exact=True).wait_for()
+    assert page.locator("img").count() == 0
