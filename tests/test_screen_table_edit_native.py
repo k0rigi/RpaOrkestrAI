@@ -83,7 +83,8 @@ $window.Content = $grid
                                 '-File', str(script)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         windows, backend = Win32Windows(), UiaTables()
-        deadline, grids = time.monotonic() + 30, []
+        # A cold PowerShell/WPF start on a busy CI runner can exceed 30 seconds.
+        deadline, grids = time.monotonic() + 90, []
         while time.monotonic() < deadline:
             assert process.poll() is None, process.communicate()[1].decode(errors='replace')
             found = [w for w in windows.list_windows() if w.title == title]

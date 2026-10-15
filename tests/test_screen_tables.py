@@ -260,7 +260,7 @@ def test_slow_clipboard_retries_only_read_with_focus_guard(runtime, monkeypatch,
         with pytest.raises(WindowError, match="kopyalanamadı" if failure == "no_response" else "odağı"):
             screen_table_cell(service, window.result(), desktop, value="YENI", **options)
         desktop.paste.assert_not_called()
-        assert len(copies) == (3 if failure == "no_response" else 1)
+        assert len(copies) == (4 if failure == "no_response" else 1)
         assert desktop.click.call_count == 1
     else:
         assert screen_table_cell(service, window.result(), desktop, value="YENI", **options)["value"] == "YENI"
