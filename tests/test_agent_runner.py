@@ -279,7 +279,9 @@ def test_risky_flow_waits_for_single_use_approval(runtime):
 @pytest.mark.parametrize("decision", ["reject", "expire"])
 def test_rejected_or_expired_approval_never_runs(runtime, decision):
     flow, target = write_flow(runtime)
-    item = runtime.agent(flow, limits=AgentLimits(max_seconds=5, approval_timeout_seconds=0.15))
+    # Only the expiry case needs a short approval window; a rejection must not race it on slow runners.
+    timeout = 0.15 if decision == "expire" else AGENT_TEST_SECONDS
+    item = runtime.agent(flow, limits=AgentLimits(max_seconds=max(5, timeout + 1), approval_timeout_seconds=timeout))
     run = runtime.start(item, response(run_call(flow)), response(finish()))
     pending = approval_wait(runtime, run)
     if decision == "reject":
@@ -444,7 +446,8 @@ def test_agent_policy_cancellation_precedes_manager_signal_without_becoming_fail
 
 
 def test_busy_result_does_not_cancel_unrelated_work(runtime):
-    manual_flow = runtime.workflow(Step(action="core.wait", params={"seconds": 1}))
+    # Keep the desktop busy for longer than a slow CI runner needs to reach run_workflow; stopped below.
+    manual_flow = runtime.workflow(Step(action="core.wait", params={"seconds": 30}))
     manual = runtime.manager.start(manual_flow)
     allowed = runtime.workflow(Step(action="core.set", params={"name": "value", "value": 1}))
     item = runtime.agent(allowed, limits=AgentLimits(max_seconds=5, busy_wait_seconds=0.05))
