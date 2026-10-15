@@ -228,7 +228,7 @@ class ProviderConnectionStore:
             raise ValueError("Model adı kayıtlı bir gizli değer içeremez.")
         provider = self.provider(identity, company_id, transport=transport)
         response = provider.complete([{"role": "user", "content": "Bağlantı testi. Kısaca tamam yaz."}], [],
-                                     model=selected_model, max_tokens=64,
+                                     model=selected_model, max_tokens=256,
                                      cancel=cancel or threading.Event(), deadline=time.monotonic() + 30)
         return {"ok": True, "input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens,
                 "message": "Sağlayıcı bağlantısı doğrulandı."}

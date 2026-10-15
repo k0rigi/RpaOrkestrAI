@@ -95,7 +95,9 @@ sınırları vardır.
 
 Ortak arayüz OpenAI, Gemini, Anthropic, Ollama ve OpenAI uyumlu yerel sunucuları
 kapsar. Model adı serbest metindir; sağlayıcıda gerçekten bulunan ve araç çağırmayı
-destekleyen bir model seçilmelidir. Başka ücretli sağlayıcıya otomatik geçiş yoktur.
+destekleyen bir model seçilmelidir. Formdaki model çipleri yalnız öneridir; seçtiğiniz ad
+değiştirilmeden kullanılır, eski bir ad başka modele sessizce çevrilmez. Gemini Flash
+modellerinde düşünme kapatılır; Pro modellere bu ayar gönderilmez. Başka ücretli sağlayıcıya otomatik geçiş yoktur.
 Bulut bağlantısı kullanılırsa akış sonuçları o sağlayıcıya gönderilir; hassas veri
 için yerel model tercih edilebilir. Bağlantı testi bile bulut sağlayıcıda kullanım
 oluşturabilir; test yalnız kullanıcının düğmeye basmasıyla yapılır.
@@ -140,6 +142,41 @@ genişletemez. Hiyerarşi tek seviyelidir. Devirler kök görevin tur, token, s�
 akış ve görev bütçesini paylaşır. Aynı ajanın görevleri kuyruğa giriş sırasıyla
 çalışır; önceki görevin bitiş anı veya bilgisayar saatinin değişmesi bu sırayı
 bozmaz. Masaüstü akışları tek çalışan kuralını korur. Kuyruk durumu Studio'da görünür.
+
+### Ajanlar arası iletişim (0.9.27)
+
+Ajanlar yalnız yönetici üzerinden haberleşir:
+
+- **Görev:** Yönetici, kendisine doğrudan bağlı departman ajanlarına görev verir.
+- **Soru:** Yöneticinin verdiği görevde takılan departman ajanı önce yöneticisine
+  sorar (`ask_manager`). Yönetici yanıtlar (`answer_department`). Bilmediği konuda
+  yanıt uydurmaz; önce size sorar, yanıtınızı departmana iletir. Yanıt süre
+  içinde gelmezse departman ajanı tahminle devam etmez; size sorar veya görevi
+  açıklamayla bitirir. Bekleme süresi ajanın **Yanıt bekleme** sınırıdır.
+- **Aktarım:** Yönetici bir departmanın bitmesini bekleyip (`wait_tasks`) sonucunu
+  başka bir departmanın görevine girdi olarak ekleyebilir.
+- **Sonuç:** Departman sonuçları yöneticiye döner; yönetici size tek özet sunar.
+
+Departman ajanları birbirleriyle doğrudan konuşmaz; böylece bir departmanın
+bilgisi veya izni başka bir departmana kendiliğinden geçmez. Sizin doğrudan
+başlattığınız departman görevinde yönetici yoktur; ajan takılınca size sorar.
+Soru ve yanıtlar iki tarafın çalışma kaydında da görünür.
+
+### Yetki kartı
+
+Her ajan kartında ve düzenleme formunda **Yapabilir · Onay ister · Yapamaz**
+özeti bulunur. Özet elle yazılmaz, ajanın kayıtlı izinlerinden üretilir:
+
+- Okuma/analiz akışları ve onaysız çalışma izni verilmiş akışlar **Yapabilir**
+  altında görünür.
+- Geri alınamaz işlem içeren akışlar **Onay ister** altında görünür.
+- Ajanla çalıştırılamayan veya silinmiş akışlar ve sabit güvenlik sınırları
+  **Yapamaz** altında görünür.
+
+Düzenleme formundaki özet, siz izin ve sınırları değiştirdikçe anında
+güncellenir. Kartın altında sınırlar sade dille yazılır (ör. «Her görevde en
+fazla 10 akış çalıştırma, 20 karar adımı, 30 dk»). Yöneticinin sınırları,
+departmanların harcadıkları dahil bütün ekip için ortaktır.
 
 Her insan çalışan kendi Studio hesabıyla giriş yapar. Kurum yetkilisi **Görevler**
 sekmesinden lisanslı çalışana görev atar. Atanan kişi başlatma, bekleme, bitirme
@@ -194,8 +231,15 @@ Her ajan ve çalışan kodla üretilmiş bir karakterle temsil edilir. Ajan dü�
 üç nokta, soru sorarken soru işareti, onay beklerken ünlem ve kaldırılmış el
 görünür. Akış sırasında ekranı ve durum halkası canlanır; başarılı görev tesliminde
 karakter yöneticiye dosya taşır, görev devrinde bir görev kartı departmana gider.
-Başarısız veya iptal edilen iş teslim edilmiş gibi gösterilmez. İşletim sisteminin
-hareket azaltma tercihi açıkken yürüyüş ve uçuşlar kaldırılır, durum simgeleri korunur.
+Başarısız veya iptal edilen iş teslim edilmiş gibi gösterilmez.
+Yöneticiye soru soran departman ajanı yöneticinin odasının önüne yürür ve yanıt
+gelene kadar orada «Soru» balonuyla bekler; yanıt gelince yöneticinin üzerinde
+«Yanıt» balonu çıkar ve ajan masasına döner. Görev verilirken yöneticide «Görev»,
+başarılı teslimde ajanda «Sonuç» balonu görünür. Balonlar yalnız mesajın türünü
+gösterir; soru ve yanıt metni ofise taşınmaz. 2D planda soru soran ajan ile
+yönetici arasında kesikli çizgi görünür. İşletim sisteminin
+hareket azaltma tercihi açıkken yürüyüş ve uçuşlar kaldırılır, durum simgeleri ve
+balonlar korunur.
 
 Ofis yalnız durum okur; işlem başlatmaz. Ajanlar kendi departmanlarında, insan
 çalışanlar ortak çalışan alanında gösterilir. İnsan hesaplarının departman bilgisi

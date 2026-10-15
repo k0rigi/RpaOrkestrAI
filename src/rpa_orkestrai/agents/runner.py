@@ -48,6 +48,16 @@ SYSTEM = (
     "Eksik bilgiyi uydurma; ask_user kullan. Hedef/odak hatasında aynı girdilerle yeniden deneme. "
     "Tamamlanınca finish aracını kısa özet ve yapılandırılmış sonuçla çağır."
 )
+MANAGER_GUIDE = (
+    "\nYöneticisin: işi list_team ile tanıdığın, doğrudan bağlı departman ajanlarına delegate_task ile ver. "
+    "Bir departmanın sonucu başka bir departmana gerekiyorsa wait_tasks(until='any') ile bekle ve sonucu yeni "
+    "görevin girdilerine ekle. Departman ajanı soru sorarsa answer_department ile yanıtla; bilmediğin konuyu "
+    "uydurma, önce ask_user ile kullanıcıya sor ve yanıtı ilet."
+)
+DELEGATED_GUIDE = (
+    "\nBu görevi yöneticin verdi. Belirsizlikte önce ask_manager ile yöneticine sor; yönetici gerekirse "
+    "kullanıcıya iletir. Diğer departman ajanlarıyla doğrudan iletişimin yoktur."
+)
 MAX_AUDIT_BYTES = 4 * 1024 * 1024
 MAX_REQUEST_BYTES = 60_000
 
@@ -87,6 +97,7 @@ class Context:
     stop_reason: str = "Çalışma kullanıcı tarafından durduruldu."
     finished: bool = False
     question: dict | None = None
+    manager_question: dict | None = None
     approval: dict | None = None
     calls: dict[str, tuple[str, Any]] = field(default_factory=dict)
     repeats: dict[str, int] = field(default_factory=dict)
@@ -331,13 +342,92 @@ class AgentService:
                 "workflow_run_ids": task.workflow_run_ids,
                 "tokens_in": task.tokens_in, "tokens_out": task.tokens_out}
 
-    def _wait_children(self, context):
+    def _wait_children(self, context, until="all"):
+        """Return when the requested tasks finish or a department asks the manager a question."""
+        if context.agent.role != "manager":
+            raise WorkflowError("Yalnız yönetici ajan devrettiği görevleri bekleyebilir.")
+        started = None
         while True:
             self._check(context)
             tasks = [self._delegated_task(context, identity) for identity in context.run.delegated_task_ids]
-            if all(task["status"] in TERMINAL_STATUSES for task in tasks):
-                return tasks
-            context.cancel.wait(0.05)
+            done = {task["id"] for task in tasks if task["status"] in TERMINAL_STATUSES}
+            started = done if started is None else started
+            questions = self._department_questions(context)
+            if questions or len(done) == len(tasks) or (until == "any" and done - started):
+                return tasks, questions
+            context.wake.wait(0.05)
+            context.wake.clear()
+
+    def _department_questions(self, context):
+        if context.agent.role != "manager":
+            return []
+        with self._lock:
+            pending = [{"question_id": child.manager_question["id"], "agent_id": child.agent.id,
+                        "agent_name": child.agent.name, "task_id": child.run.task_id,
+                        "question": child.manager_question["question"], "options": child.manager_question["options"]}
+                       for child in self._contexts.values()
+                       if child.run.parent_run_id == context.run.id and child.manager_question
+                       and not child.manager_question["answered"]]
+        return context.redactor.sanitize(pending)
+
+    def _ask_manager(self, context, question, options):
+        if context.agent.role != "department" or context.run.parent_run_id is None:
+            raise WorkflowError("Yöneticiye yalnız yöneticinin devrettiği görevde soru sorulabilir; ask_user kullanın.")
+        deadline = min(context.deadline, time.monotonic() + context.agent.limits.question_timeout_seconds)
+        pending = {"id": uid(), "question": question, "options": options}
+        with self._lock:
+            parent = self._contexts.get(context.run.parent_run_id)
+            if parent is None or parent.run.status in TERMINAL_STATUSES:
+                raise WorkflowError("Yönetici çalışması artık açık değil; gerekirse ask_user ile kullanıcıya sorun.")
+            context.manager_question = {**pending, "deadline": deadline, "answered": False, "answer": None}
+            self._event(context, "manager_question", "Yöneticiye soru soruldu.", {**pending, "manager_id": parent.agent.id})
+            self._notify(parent, "department_question", "Departman ajanı yöneticiye soru sordu.",
+                         {"question_id": pending["id"], "agent_id": context.agent.id, "task_id": context.run.task_id,
+                          "question": question})
+            parent.wake.set()
+        try:
+            while True:
+                self._check(context)
+                with self._lock:
+                    if context.manager_question["answered"]:
+                        return {"answer": context.manager_question["answer"], "from": "manager"}
+                if time.monotonic() >= deadline:
+                    with self._lock:
+                        self._event(context, "manager_question_expired", "Yönetici süre içinde yanıt vermedi.",
+                                    {"question_id": pending["id"]})
+                    return {"answered": False, "message": "Yönetici süre içinde yanıt vermedi. Tahmin yürütmeyin; "
+                            "gerekirse ask_user ile kullanıcıya sorun veya görevi açıklamayla bitirin."}
+                context.wake.wait(0.05)
+                context.wake.clear()
+        finally:
+            with self._lock:
+                context.manager_question = None
+                self._save(context)
+
+    def _notify(self, other, kind, message, data):
+        """Record a team message on the other run; its audit limit must not stop the sender."""
+        try:
+            self._event(other, kind, message, data, refresh_secrets=False)
+        except AgentStopped:
+            pass
+
+    def _answer_department(self, context, question_id, answer):
+        if context.agent.role != "manager":
+            raise WorkflowError("Departman sorularını yalnız yönetici ajan yanıtlayabilir.")
+        with self._lock:
+            child = next((item for item in self._contexts.values()
+                          if item.run.parent_run_id == context.run.id and item.manager_question
+                          and item.manager_question["id"] == question_id), None)
+            if child is None or child.manager_question["answered"] or time.monotonic() >= child.manager_question["deadline"]:
+                raise WorkflowError("Bu soru artık yanıt beklemiyor veya süresi doldu.")
+            clean = context.redactor.text(answer)
+            child.manager_question["answered"], child.manager_question["answer"] = True, clean
+            self._event(context, "department_answered", "Departman ajanının sorusu yanıtlandı.",
+                        {"question_id": question_id, "agent_id": child.agent.id, "answer": clean})
+            self._notify(child, "manager_answer", "Yönetici soruyu yanıtladı.",
+                         {"question_id": question_id, "answer": clean})
+            child.wake.set()
+        return {"answered": True, "agent_id": child.agent.id, "task_id": child.run.task_id}
 
     def start(self, agent_id: str, body: AgentRunRequest) -> AgentRun:
         actor = self._authorize()
@@ -462,6 +552,7 @@ class AgentService:
             task.events = [event for event in clean.events if event.kind in {
                 "created", "workflow_started", "question", "user_answer", "approval_requested",
                 "approval_decision", "approval_consumed", "approval_expired", "task_delegated",
+                "manager_question", "manager_answer", "department_question", "department_answered",
             }]
             task.approvals = [event for event in task.events if event.kind.startswith("approval_")]
             self.agent_store.save_task(task)
@@ -512,11 +603,13 @@ class AgentService:
         self._refresh_redactor(context)
         if context.redactor.contains_secret(context.agent.model):
             raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
-        system = context.redactor.text(SYSTEM + "\nAjan talimatı:\n" + context.agent.instructions)
+        guide = (MANAGER_GUIDE if context.agent.role == "manager" else
+                 DELEGATED_GUIDE if context.run.parent_run_id is not None else "")
+        system = context.redactor.text(SYSTEM + guide + "\nAjan talimatı:\n" + context.agent.instructions)
         task = self._clean_mapping(context, {"task": context.run.task, "inputs": context.run.inputs})
         first = [{"role": "system", "content": system},
                  {"role": "user", "content": json.dumps({"untrusted_data": task}, ensure_ascii=False)}]
-        definitions = tool_definitions(context.agent.role)
+        definitions = tool_definitions(context.agent.role, delegated=context.run.parent_run_id is not None)
         requested = allowance if allowance is not None else context.agent.limits.max_tokens - context.run.total_tokens
         desired = min(requested, limits.max_output_tokens) if limits else requested
         removed = 0
@@ -632,7 +725,7 @@ class AgentService:
                     else:
                         repeated = context.repeats.get(signature, 0) + 1
                         context.repeats[signature] = repeated
-                        if repeated >= 3 and call.name not in {"get_run", "list_recent_runs"}:
+                        if repeated >= 3 and call.name not in {"get_run", "list_recent_runs", "wait_tasks", "list_tasks"}:
                             raise AgentStopped("Aynı araç ve girdilerle tekrarlayan döngü algılandı.")
                         context.current_call_id = call.id
                         self._event(context, "tool_call", "Ajan aracı çağrıldı.",

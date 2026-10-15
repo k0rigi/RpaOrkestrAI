@@ -263,3 +263,19 @@ def test_existing_approval_refreshes_when_preview_is_redacted(ui):
     page.wait_for_function("value => !document.body.textContent.includes(value)", arg=original)
     assert page.get_by_role("button", name="Onayla", exact=True).count() == 1
     assert_unique_interactive_ids(page)
+
+
+def test_permission_card_is_built_from_saved_grants_and_previews_edits(ui):
+    page, calls, _, _, _ = ui
+    card = page.locator(".agent-card .agent-permissions")
+    assert card.locator('[data-kind="can"]').inner_text().count("«Bilgileri oku» akışını çalıştırabilir") == 1
+    assert "Takıldığında size sorar." in card.inner_text()
+    assert "Serbest web araması yapamaz" in card.locator('[data-kind="cannot"]').inner_text()
+    assert "30 dk" in page.locator(".agent-card .agent-limit-line").inner_text()
+    page.get_by_role("button", name="Düzenle", exact=True).click()
+    preview = page.locator(".agent-preview")
+    assert "«Bilgileri oku»" in preview.inner_text()
+    page.get_by_label("Bilgileri oku", exact=True).uncheck()
+    assert "Henüz akış izni yok" in preview.locator('[data-kind="cannot"]').inner_text()
+    assert_unique_interactive_ids(page)
+    assert not [call for call in calls if call[0] == "PUT"]

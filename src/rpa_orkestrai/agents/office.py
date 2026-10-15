@@ -26,6 +26,11 @@ def remember_completion(service, context) -> None:
         service._office_recent = dict(sorted(recent.items(), key=lambda item: item[1]["at"])[-500:])
 
 
+def _open_question(context):
+    question = getattr(context, "manager_question", None)
+    return question if question and not question["answered"] else None
+
+
 def human_snapshot(value: dict) -> dict:
     """Fail closed if a central scene record cannot be safely projected."""
     if not isinstance(value, dict):
@@ -75,14 +80,27 @@ def snapshot(service) -> dict:
                 continue
             state = "queued" if context.thread is None else context.run.status
             events = context.run.events[-50:]
-            delegation = next((event for event in reversed(events) if event.kind == "task_delegated"), None)
+            # Only the kind and the counterpart travel to the office; question/answer texts stay in the run.
+            message = next((event for event in reversed(events)
+                            if event.kind in {"task_delegated", "department_answered"}), None)
             recent_event = events[-1].kind if events else ""
-            activity = ("workflow" if getattr(context, "active_workflow_id", None) else
+            asking = _open_question(context)
+            parent = service._contexts.get(context.run.parent_run_id) if context.run.parent_run_id else None
+            reviewing = any(child.run.parent_run_id == context.run.id and _open_question(child)
+                            for child in service._contexts.values())
+            activity = ("asking_manager" if asking else "reviewing" if reviewing else
+                        "workflow" if getattr(context, "active_workflow_id", None) else
                         "queued" if recent_event == "queue" else "thinking") if state == "running" else state
+            if asking and parent is not None:
+                event = {"id": asking["id"], "kind": "question", "to_agent_id": parent.agent.id}
+            elif message is not None:
+                event = {"id": message.id, "kind": "delegated" if message.kind == "task_delegated" else "answered",
+                         "to_agent_id": message.data.get("agent_id")}
+            else:
+                event = None
             runs.append({"agent_id": context.run.agent_id, "status": state, "run_id": context.run.id,
                          "task_id": context.run.task_id, "created_at": context.run.created_at,
-                         "activity": activity, "event": {"id": delegation.id, "kind": "delegated",
-                         "to_agent_id": delegation.data.get("agent_id")} if delegation else None})
+                         "activity": activity, "event": event})
         recent = {key: value for key, value in getattr(service, "_office_recent", {}).items()
                   if time.monotonic() - value["at"] < 60}
         service._office_recent = recent

@@ -6,6 +6,37 @@
   const terminal = new Set(["succeeded", "failed", "cancelled"]);
   const providers = { shared: "Kurum sunucusu", ollama: "Ollama · bu bilgisayar", local_openai: "Yerel OpenAI uyumlu sunucu",
     openai: "OpenAI", gemini: "Google Gemini", anthropic: "Anthropic Claude" };
+  // Yalnız öneridir; model adı serbesttir ve sağlayıcıda gerçekten bulunan, araç çağırabilen model seçilmelidir.
+  const suggestedModels = {
+    gemini: [
+      ["gemini-3.8-flash", "gemini-3.8-flash · Önerilen"],
+      ["gemini-flash-latest", "gemini-flash-latest · Her zaman en güncel Flash"],
+      ["gemini-pro-latest", "gemini-pro-latest · Daha güçlü akıl yürütme"],
+      ["gemini-3.5-flash-lite", "gemini-3.5-flash-lite · Hafif ve ekonomik"],
+    ],
+    ollama: [
+      ["qwen3:8b", "qwen3:8b · Önerilen yerel model"],
+      ["llama3.1", "llama3.1 · 8B yerel model"],
+      ["llama3.2", "llama3.2 · 3B hızlı yerel model"],
+      ["qwen2.5:7b", "qwen2.5:7b · Çok dilli model"],
+    ],
+    openai: [
+      ["gpt-5.6-sol", "gpt-5.6-sol · Önerilen"],
+      ["gpt-5.6-terra", "gpt-5.6-terra"],
+      ["gpt-5.6-luna", "gpt-5.6-luna"],
+    ],
+    anthropic: [
+      ["claude-sonnet-5-5", "claude-sonnet-5-5 · Önerilen"],
+      ["claude-haiku-4-5", "claude-haiku-4-5 · Hızlı ve ekonomik"],
+      ["claude-opus-5-5", "claude-opus-5-5 · En güçlü"],
+    ],
+    local_openai: [
+      ["default", "default · Yerel varsayılan"],
+      ["local-model", "local-model"],
+    ],
+    // Kurum sunucusundaki model adı kuruluma göre değişir; tahmini ad önerilmez.
+    shared: [],
+  };
   const defaultLimits = { max_turns: 20, max_workflow_runs: 10, max_seconds: 1800, max_tokens: 50000,
     max_retries: 1, max_tasks: 20, busy_wait_seconds: 60, approval_timeout_seconds: 900, question_timeout_seconds: 900 };
   const limitLabels = { max_turns: "En fazla karar turu", max_workflow_runs: "En fazla akış çalıştırma",
@@ -208,6 +239,83 @@
     schedulePoll(view, 0);
   }
 
+  function duration(seconds) {
+    const value = Math.max(0, Math.round(Number(seconds) || 0));
+    if (value < 60) return `${value} sn`;
+    const hours = Math.floor(value / 3600), minutes = Math.round((value % 3600) / 60);
+    return hours ? `${hours} sa${minutes ? ` ${minutes} dk` : ""}` : `${minutes} dk`;
+  }
+  function count(value) { return Number(value || 0).toLocaleString("tr-TR"); }
+  function limitSummary(agent) {
+    const limits = { ...defaultLimits, ...(agent.limits || {}) };
+    const scope = agent.role === "manager"
+      ? `Ekip bütçesi (departmanlar dahil): en fazla ${count(limits.max_tasks)} alt görev, `
+      : "Her görevde en fazla ";
+    return `${scope}${count(limits.max_workflow_runs)} akış çalıştırma, ${count(limits.max_turns)} karar adımı, `
+      + `${duration(limits.max_seconds)} ve ${count(limits.max_tokens)} token. Yanıt için ${duration(limits.question_timeout_seconds)}, `
+      + `onay için ${duration(limits.approval_timeout_seconds)} bekler; süre dolunca tahminle devam etmez.`;
+  }
+  // Kart, ajanın kayıtlı izinlerinden üretilir; elle yazılmış bir vaat göstermez.
+  function permissionSummary(view, agent) {
+    const can = [], approval = [], cannot = [];
+    const common = [
+      "Serbest web araması yapamaz; web ve veritabanına yalnız izinli akışlarla erişir.",
+      "Bilgisayarda komut çalıştıramaz; fare ve klavyeyi akış dışında kullanamaz.",
+      "Kayıtlı şifreleri ve API anahtarlarını göremez.",
+    ];
+    if (agent.role === "manager") {
+      const team = view.agents.filter((item) => item.manager_id && item.manager_id === agent.id);
+      if (team.length) can.push(`Bağlı ${team.length} departman ajanına görev verebilir: ${team.map((item) => `${item.name} (${item.department})`).join(", ")}.`);
+      else cannot.push("Henüz bağlı departman ajanı yok; görev dağıtamaz. Departman ajanını düzenleyip bu yöneticiyi seçin.");
+      can.push("Bir departmanın sonucunu başka bir departmana girdi olarak aktarabilir.",
+        "Departman ajanlarının sorularını yanıtlar; bilmediği konuyu size sorar.",
+        "Departman sonuçlarını birleştirip size tek bir özet sunar.");
+      approval.push("Kendisi onay veremez; departmanların riskli akışları kurum onaycısına gider.");
+      cannot.push("Akış çalıştıramaz; işi yalnız departman ajanları yapar.",
+        "Departman ajanlarının akış izinlerini genişletemez.",
+        "Kendisine bağlı olmayan ajanlara görev veremez.", ...common);
+      return { can, approval, cannot };
+    }
+    for (const grant of agent.workflows || []) {
+      const identity = typeof grant === "string" ? grant : grant.workflow_id;
+      const flow = view.workflows.find((item) => item.id === identity);
+      const name = `«${flow?.name || "Bulunamayan akış"}»`;
+      if (!flow) cannot.push(`${name} artık bulunamıyor; ajan bu izni kullanamaz.`);
+      else if (flow.agent_supported === false) cannot.push(`${name} ajanla çalıştırılamaz: ${flow.blocked_reason || "desteklenmeyen adım içeriyor."}`);
+      else if (flow.risk === "geri_alinamaz" && !grant.allow_without_approval) approval.push(`${name} akışını çalıştırmadan önce onay ister.`);
+      else if (flow.risk === "geri_alinamaz") can.push(`${name} akışını onaysız çalıştırabilir (onay yetkilisi izin verdi).`);
+      else can.push(`${name} akışını çalıştırabilir (okuma / analiz).`);
+      const roots = grant.allowed_roots || [];
+      if (flow && roots.length) can.push(`${name} dosyalara yalnız şu klasörlerde erişir: ${roots.join(", ")}.`);
+    }
+    if (!(agent.workflows || []).length) cannot.push("Henüz akış izni yok; görev verilse bile iş yapamaz.");
+    else can.push("İzinli akışların ürettiği CSV, JSON ve metin çıktılarını okuyup yorumlayabilir.");
+    const manager = view.agents.find((item) => item.id === agent.manager_id);
+    can.push(manager ? `Takıldığında önce yöneticisi ${manager.name} ajanına, gerekirse size sorar.` : "Takıldığında size sorar.");
+    cannot.push("İzin verilmeyen akışları çalıştıramaz.",
+      manager ? "Diğer departman ajanlarıyla doğrudan konuşamaz; yalnız yöneticisi üzerinden iletişim kurar."
+        : "Bir yöneticiye bağlı değil; diğer ajanlarla iletişim kurmaz.",
+      "Hedef bulunamazsa tahminle tıklamaz veya yazmaz; durur.", ...common);
+    return { can, approval, cannot };
+  }
+  function permissionCard(summary) {
+    const section = element("section", null, "agent-permissions");
+    section.setAttribute("aria-label", "Yetki özeti");
+    for (const [kind, title, items, none] of [
+      ["can", "Yapabilir", summary.can, "Şu an yapabileceği bir iş yok."],
+      ["approval", "Onay ister", summary.approval, "Onay gerektiren izni yok."],
+      ["cannot", "Yapamaz", summary.cannot, ""],
+    ]) {
+      const column = element("div", null, "agent-permission-column");
+      column.dataset.kind = kind;
+      const list = element("ul");
+      for (const text of items) list.append(element("li", text));
+      column.append(element("h4", title), items.length ? list : element("p", none, "agent-help"));
+      section.append(column);
+    }
+    return section;
+  }
+
   function renderAgents(view) {
     const toolbar = element("div", null, "agent-toolbar");
     toolbar.append(element("p", `${view.agents.length} ajan`, "muted"));
@@ -220,45 +328,8 @@
         element("h2", agent.name),
         element("p", agent.description || "Henüz açıklama eklenmedi.", "muted")
       );
-      const capContent = element("div", null, "agent-capabilities");
-      const isManager = agent.role === "manager";
-      const tools = isManager ? [
-        "list_team: Bağlı departman ajanlarını ve kuyruk durumlarını listeleme",
-        "delegate_task: Alt departman ajanlarına hedef odaklı görev devretme",
-        "get_task / list_tasks: Devredilen işlerin durumunu izleme",
-        "ask_user: Belirsizlik durumunda yöneticiye / insana soru sorma",
-        "finish: Departman sonuçlarını toparlayıp nihai özet sunma"
-      ] : [
-        "run_workflow: İzin verilen RPA / SQL / API akışlarını otonom çalıştırma",
-        "describe_workflow: Akış girdi parametrelerini ve gereksinimlerini inceleme",
-        "read_artifact: Çalışma sonucu üretilen CSV, JSON, TXT çıktılarını okuma ve yorumlama",
-        "ask_user: Eksik girdi veya beklenmedik durumda kullanıcıdan yanıt alma",
-        "finish: Görevi tamamlayıp yapılandırılmış sonuç ve özet üretme"
-      ];
-      const toolsUl = element("ul", null, "agent-tools-list");
-      for (const t of tools) toolsUl.append(element("li", t));
-
-      const workflowNames = (agent.workflows || []).map((wid) => view.workflows.find((w) => w.id === wid)?.name || wid);
-      const wfText = workflowNames.length > 0
-        ? `📋 İzinli Akışlar (${workflowNames.length}): ${workflowNames.join(", ")}`
-        : "📋 İzinli Akışlar: Henüz bir akış atanmamış (Düzenle'den akış ekleyebilirsiniz).";
-
-      const safetyUl = element("ul", null, "agent-safety-list");
-      safetyUl.append(
-        element("li", "❌ Serbest web araması (Google vb.) yapamaz."),
-        element("li", "❌ Bilgisayarda keyfi işletim sistemi komutu veya rastgele dosya çalıştıramaz."),
-        element("li", "✅ Web ve Veritabanı erişimi YALNIZCA sizin tanımlayıp yetki verdiğiniz akış adımları üzerinden mümkündür."),
-        element("li", "🛡️ Geri alınamaz veya kritik adımlarda onay almadan işlem yapamaz; Kurum Onayları'na yönlendirir.")
-      );
-
-      capContent.append(
-        element("h4", "🛠️ Kullanabildiği Araçlar (Tools)"),
-        toolsUl,
-        element("p", isManager ? "⚠️ Yönetici ajan doğrudan akış çalıştırmaz; koordinasyon sağlayarak işi departman ajanlarına devreder." : wfText, "agent-help"),
-        element("h4", "🌐 İnternet ve Güvenlik Sınırları"),
-        safetyUl
-      );
-      card.append(disclosure("Yetenekler ve Sınırlar", capContent));
+      card.append(permissionCard(permissionSummary(view, agent)), element("p", limitSummary(agent), "agent-help agent-limit-line"));
+      if (agent.instructions) card.append(disclosure("Talimatlar", element("p", agent.instructions, "agent-help agent-instructions")));
 
       const buttons = element("div", null, "agent-actions");
       buttons.append(action("Görev ver", () => runForm(view, agent), "primary"));
@@ -293,11 +364,43 @@
     const connection = select("Model bağlantısı", [["", "Bağlantı seçin"], ...view.connections.map((item) => [item.id, item.name])],
       agent.provider_connection_id || "", "Bağlantılar bölümünden yerel veya bulut sağlayıcı ekleyebilirsiniz.");
     connection.input.required = true;
-    const model = field("Model adı", agent.model, "text", "Sunucuda bulunan model adını yazın; model adı serbesttir.");
+    const model = field("Model adı", agent.model, "text", "Aşağıdaki güncel modellerden seçebilir veya kendi model adınızı yazabilirsiniz.");
     model.input.required = true; model.input.maxLength = 200;
+    const modelList = identify(element("datalist"), "agent-models");
+    model.input.setAttribute("list", modelList.id);
+    const modelChips = element("div", null, "agent-chips");
+    model.wrapper.append(modelList, modelChips);
+    function updateAgentModelSuggestions() {
+      const selectedConn = view.connections.find((item) => item.id === connection.input.value);
+      const providerKey = selectedConn?.provider || "";
+      const suggestions = suggestedModels[providerKey] || [];
+      modelList.replaceChildren();
+      modelChips.replaceChildren();
+      const allChoices = [];
+      if (selectedConn?.model && !suggestions.some(([val]) => val === selectedConn.model)) {
+        allChoices.push([selectedConn.model, `${selectedConn.model} (Bağlantı varsayılanı)`]);
+      }
+      allChoices.push(...suggestions);
+      for (const [val, label] of allChoices) {
+        const opt = element("option"); opt.value = val; opt.textContent = label;
+        modelList.append(opt);
+        const chip = identify(element("button", val, "agent-chip"), "model-chip");
+        chip.type = "button"; chip.title = label;
+        chip.addEventListener("click", () => {
+          model.input.value = val;
+          model.input.focus();
+        });
+        modelChips.append(chip);
+      }
+    }
+    updateAgentModelSuggestions();
     connection.input.addEventListener("change", () => {
       const selected = view.connections.find((item) => item.id === connection.input.value);
-      if (!model.input.value.trim() && selected?.model) model.input.value = selected.model;
+      updateAgentModelSuggestions();
+      if (selected?.model) model.input.value = selected.model;
+      else if (!model.input.value.trim() && suggestedModels[selected?.provider]?.length) {
+        model.input.value = suggestedModels[selected.provider][0][0];
+      }
       cloudWarning.textContent = providerNotice(selected?.provider);
       cloudWarning.hidden = !cloudWarning.textContent;
     });
@@ -365,25 +468,40 @@
       }), "danger");
       buttons.append(remove);
     }
+    const preview = element("section", null, "agent-preview");
+    const previewBody = element("div");
+    preview.append(element("h3", "Bu ajan ne yapabilir?"),
+      element("p", "Özet, formdaki seçimlerinize göre anında güncellenir. Kaydetmeden önce kontrol edin.", "agent-help"), previewBody);
+    const draft = () => ({ ...agent, name: name.input.value.trim() || "Bu ajan", role: role.input.value,
+      department: department.input.value.trim(), manager_id: role.input.value === "manager" ? null : manager.input.value || null,
+      workflows: role.input.value === "manager" ? [] : grantRows.filter((item) => item.allowed.input.checked).map((item) => ({
+        workflow_id: item.workflow.id, allow_without_approval: item.automatic.input.checked,
+        allowed_roots: item.roots.input.value.split("\n").map((line) => line.trim()).filter(Boolean),
+        allowed_hosts: item.grant?.allowed_hosts || [],
+      })), limits: Object.fromEntries(Object.entries(limitFields).map(([key, input]) => [key, Number(input.value)])) });
+    const refreshPreview = () => {
+      const current = draft();
+      previewBody.replaceChildren(permissionCard(permissionSummary(view, current)), element("p", limitSummary(current), "agent-help agent-limit-line"));
+    };
+    form.addEventListener("input", refreshPreview);
+    form.addEventListener("change", refreshPreview);
+    refreshPreview();
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       view.busy(save, async () => {
+        const { workflows, limits: chosenLimits } = draft();
         const body = { name: name.input.value.trim(), description: description.input.value, instructions: instructions.input.value,
           department: department.input.value.trim(), role: role.input.value,
           manager_id: role.input.value === "manager" ? null : manager.input.value || null,
           provider_connection_id: connection.input.value || null, model: model.input.value.trim(),
-          workflows: role.input.value === "manager" ? [] : grantRows.filter((item) => item.allowed.input.checked).map((item) => ({
-            workflow_id: item.workflow.id, allow_without_approval: item.automatic.input.checked,
-            allowed_roots: item.roots.input.value.split("\n").map((line) => line.trim()).filter(Boolean),
-            allowed_hosts: item.grant?.allowed_hosts || [],
-          })), limits: Object.fromEntries(Object.entries(limitFields).map(([key, input]) => [key, Number(input.value)])) };
+          workflows, limits: chosenLimits };
         const saved = await view.request(original ? `/api/agents/${original.id}` : "/api/agents", original ? "PUT" : "POST", body);
         view.agents = [...view.agents.filter((item) => item.id !== saved.id), saved];
         if (view.alive) { view.options.toast("Ajan kaydedildi."); renderAgents(view); }
       });
     });
     form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants,
-      disclosure("Çalışma sınırları", limits), buttons);
+      disclosure("Çalışma sınırları", limits), preview, buttons);
     view.pane.replaceChildren(form);
     name.input.focus();
   }
@@ -576,8 +694,29 @@
     form.append(element("h2", original ? "Bağlantıyı düzenle" : "Yeni model bağlantısı"));
     const name = field("Bağlantı adı", connection.name); name.input.required = true; name.input.maxLength = 120;
     const provider = select("Sağlayıcı", Object.entries(providers), connection.provider); provider.input.disabled = Boolean(original);
-    const model = field("Varsayılan model adı", connection.model, "text", "Ollama veya sağlayıcı hesabınızda bulunan model adını yazın.");
+    const model = field("Varsayılan model adı", connection.model, "text", "Aşağıdaki güncel modellerden seçebilir veya kendi model adınızı yazabilirsiniz.");
     model.input.maxLength = 200;
+    const modelList = identify(element("datalist"), "conn-models");
+    model.input.setAttribute("list", modelList.id);
+    const modelChips = element("div", null, "agent-chips");
+    model.wrapper.append(modelList, modelChips);
+    function updateConnModelSuggestions() {
+      const providerKey = provider.input.value || "ollama";
+      const suggestions = suggestedModels[providerKey] || [];
+      modelList.replaceChildren();
+      modelChips.replaceChildren();
+      for (const [val, label] of suggestions) {
+        const opt = element("option"); opt.value = val; opt.textContent = label;
+        modelList.append(opt);
+        const chip = identify(element("button", val, "agent-chip"), "model-chip");
+        chip.type = "button"; chip.title = label;
+        chip.addEventListener("click", () => {
+          model.input.value = val;
+          model.input.focus();
+        });
+        modelChips.append(chip);
+      }
+    }
     const address = field("Yerel sunucu adresi", connection.base_url || "", "url", "Bu bilgisayardaki loopback adresini kullanın. Ortak sunucu ayrı kurum bağlantısıyla tanımlanır.");
     const key = field("Yeni API anahtarı", "", "password", original?.has_key ? "Anahtar kayıtlı. Değiştirmeyecekseniz boş bırakın." : "Yalnız sistem şifre kasasına yazılır.");
     key.input.autocomplete = "new-password"; key.input.maxLength = 1000;
@@ -590,8 +729,18 @@
       key.wrapper.hidden = provider.input.value === "ollama" || shared;
       key.input.disabled = key.wrapper.hidden;
       if (!cloud && !shared && !address.input.value) address.input.value = provider.input.value === "ollama" ? "http://127.0.0.1:11434" : "http://127.0.0.1:1234";
+      updateConnModelSuggestions();
     };
-    provider.input.addEventListener("change", () => { address.input.value = ""; update(); }); update();
+    provider.input.addEventListener("change", () => {
+      address.input.value = "";
+      update();
+      if (!model.input.value.trim() && suggestedModels[provider.input.value]?.length) {
+        model.input.value = suggestedModels[provider.input.value][0][0];
+      }
+    }); update();
+    if (!connection.model && !original && suggestedModels[connection.provider]?.length) {
+      model.input.value = suggestedModels[connection.provider][0][0];
+    }
     const controls = element("div", null, "agent-actions");
     const save = action("Bağlantıyı kaydet", () => form.requestSubmit(), "primary");
     controls.append(save, action("Vazgeç", () => renderConnections(view)));

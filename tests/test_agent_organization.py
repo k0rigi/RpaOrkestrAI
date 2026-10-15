@@ -79,7 +79,10 @@ def test_manager_delegates_and_combines_completed_children_without_elevating_per
     assert any("children_completed" in message.get("content", "") for message in result)
     assert runtime.service.get_task(saved.task_id).summary == "Ekip işi tamamladı"
     tools = {tool["name"] for tool in manager_provider.requests[0]["tools"]}
-    assert tools == {"list_team", "delegate_task", "get_task", "list_tasks", "ask_user", "finish"}
+    assert tools == {"list_team", "delegate_task", "get_task", "list_tasks", "wait_tasks", "answer_department",
+                     "ask_user", "finish"}
+    child_tools = {tool["name"] for tool in child_provider.requests[0]["tools"]}
+    assert "ask_manager" in child_tools and not child_tools & {"delegate_task", "answer_department", "wait_tasks"}
 
 
 def test_manager_cannot_delegate_to_self_unrelated_or_other_company(runtime):
@@ -290,3 +293,99 @@ def test_provider_key_accidentally_pasted_in_agent_definition_is_not_saved(runti
     assert secret not in runtime.service.agent_store.agent(item.id).model_dump_json()
     with pytest.raises(AgentServiceError):
         runtime.service.update_agent(item.id, AgentInput(name="Ajan", model=secret))
+
+
+def ask_manager(question="Hangi dönemi kullanayım?"):
+    return ToolCall(uid(), "ask_manager", {"question": question, "options": ["Mart", "Nisan"]})
+
+
+def last_tool_data(request):
+    message = request["messages"][-1]
+    return json.loads(message["content"])["untrusted_data"] if message.get("role") == "tool" else {}
+
+
+def test_department_asks_manager_and_gets_answer_without_user(runtime):
+    from rpa_orkestrai.agents.office import snapshot
+
+    manager, child = make_team(runtime)
+    gate, office = threading.Event(), {}
+
+    def manager_reply(request):
+        data = last_tool_data(request)
+        if data.get("status") != "department_question":
+            return None
+        office.update(snapshot(runtime.service))
+        gate.set()
+        question = data["questions"][0]
+        assert question["agent_id"] == child.id and question["question"] == "Hangi dönemi kullanayım?"
+        return response(ToolCall(uid(), "answer_department", {"question_id": question["question_id"], "answer": "Mart"}),
+                        finish())
+
+    manager_provider = ScriptedProvider([response(delegate(child)), response(finish()), response(finish("Ekip bitirdi"))],
+                                        callback=manager_reply)
+    child_provider = ScriptedProvider([response(ask_manager()), response(finish("Mart raporu hazır"))])
+    providers(runtime, {manager.id: manager_provider, child.id: child_provider})
+    run = runtime.service.start(manager.id, AgentRunRequest(task="Raporu hazırlat"))
+    saved = runtime.done(run)
+    assert gate.is_set() and saved.status == "succeeded"
+    child_task = runtime.service.get_task(saved.delegated_task_ids[0])
+    assert child_task.status == "succeeded" and child_task.summary == "Mart raporu hazır"
+    answer = last_tool_data(child_provider.requests[1])
+    assert answer == {"answer": "Mart", "from": "manager"}
+    assert "ask_manager" in child_provider.requests[0]["messages"][0]["content"]
+    assert {"department_question", "department_answered"} <= {event.kind for event in saved.events}
+    child_run = runtime.service.get_run(child_task.run_id)
+    assert {"manager_question", "manager_answer"} <= {event.kind for event in child_run.events}
+    assert child_run.pending_question is None and not any(event.kind == "question" for event in child_run.events)
+    # The office sees who asks whom, never the question text.
+    people = {item["id"]: item for item in office["agents"]}
+    assert people[child.id]["activity"] == "asking_manager"
+    assert people[child.id]["event"]["kind"] == "question" and people[child.id]["event"]["to_agent_id"] == manager.id
+    assert people[manager.id]["activity"] == "reviewing"
+    assert "Hangi dönemi" not in json.dumps(office, ensure_ascii=False)
+
+
+def test_ask_manager_is_only_for_delegated_work_and_answers_stay_scoped(runtime):
+    manager, child = make_team(runtime)
+    other = runtime.agent()
+    run = runtime.start(child, response(ask_manager()), response(finish()))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded"
+    assert "ask_manager" not in {tool["name"] for tool in runtime.state["provider"].requests[0]["tools"]}
+    error = next(event.data["untrusted_data"] for event in saved.events if event.kind == "tool_result")
+    assert error["status"] == "error" and "ask_user" in error["error"]
+    # A department agent cannot answer questions or wait for team tasks.
+    run = runtime.start(other, response(ToolCall(uid(), "answer_department", {"question_id": uid(), "answer": "Evet"}),
+                                        ToolCall(uid(), "wait_tasks", {})), response(finish()))
+    saved = runtime.done(run)
+    results = [event.data["untrusted_data"] for event in saved.events if event.kind == "tool_result"]
+    assert [item.get("status") for item in results[:2]] == ["error", "error"]
+
+
+def test_manager_waits_for_any_task_to_hand_results_to_next_department(runtime):
+    manager = runtime.service.create_agent(AgentInput(name="Yönetici", role="manager", model="test",
+                                                      limits=AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
+    first = runtime.service.create_agent(AgentInput(name="Muhasebe", department="Muhasebe", manager_id=manager.id,
+                                                    model="test", limits=AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
+    second = runtime.service.create_agent(AgentInput(name="Satış", department="Satış", manager_id=manager.id,
+                                                     model="test", limits=AgentLimits(max_seconds=AGENT_TEST_SECONDS)))
+
+    def manager_reply(request):
+        data = last_tool_data(request)
+        if "tasks" in data and data.get("status") is None and all(task["status"] == "succeeded" for task in data["tasks"]):
+            total = data["tasks"][0]["result"]["toplam"]
+            return response(ToolCall(uid(), "delegate_task", {"agent_id": second.id, "title": "Teklif",
+                                     "instructions": "Toplamı kullan", "inputs": {"toplam": total}}))
+        return None
+
+    manager_provider = ScriptedProvider([response(delegate(first)), response(ToolCall(uid(), "wait_tasks", {"until": "any"})),
+                                         response(finish()), response(finish("Zincir tamam"))], callback=manager_reply)
+    providers(runtime, {
+        manager.id: manager_provider,
+        first.id: ScriptedProvider([response(ToolCall(uid(), "finish", {"summary": "Toplam", "result": {"toplam": 42}}))]),
+        second.id: ScriptedProvider([response(finish("Teklif hazır"))]),
+    })
+    saved = runtime.done(runtime.service.start(manager.id, AgentRunRequest(task="Zinciri yürüt")))
+    assert saved.status == "succeeded" and len(saved.delegated_task_ids) == 2
+    handed = runtime.service.get_task(saved.delegated_task_ids[1])
+    assert handed.assigned_agent_id == second.id and runtime.service.get_run(handed.run_id).inputs == {"toplam": 42}

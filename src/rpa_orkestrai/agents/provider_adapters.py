@@ -350,13 +350,19 @@ class HttpProvider:
                         contents.append({"role": "user", "parts": [part]})
                 else:
                     contents.append({"role": "user", "parts": [{"text": _content(message)}]})
-            payload = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
+            clean_model = model.removeprefix("models/").strip()
+            generation = {"maxOutputTokens": max_tokens}
+            # Düşünme, küçük çıktı bütçesini boş yanıtla tüketebilir. Flash modelleri kapatmaya izin verir;
+            # Pro modeller yalnız düşünme kipinde çalıştığından onlara bu ayar gönderilmez.
+            if "flash" in clean_model.lower():
+                generation["thinkingConfig"] = {"thinkingBudget": 0}
+            payload = {"contents": contents, "generationConfig": generation}
             if system:
                 payload["systemInstruction"] = {"parts": system}
             if tools:
                 payload["tools"] = [{"functionDeclarations": [{"name": tool["name"], "description": tool.get("description", ""),
                                       "parametersJsonSchema": tool["parameters"]} for tool in tools]}]
-            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(model.removeprefix("models/"), safe="") + ":generateContent"
+            endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(clean_model, safe="") + ":generateContent"
             return endpoint, payload, {"x-goog-api-key": self._key}
         if self.kind == "anthropic":
             system, history = [], []

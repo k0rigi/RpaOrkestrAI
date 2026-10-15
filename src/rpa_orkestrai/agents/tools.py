@@ -96,6 +96,15 @@ class TasksArgument(Model):
     filter: TaskFilter | None = None
 
 
+class WaitArgument(Model):
+    until: Literal["any", "all"] = "all"
+
+
+class AnswerArgument(Model):
+    question_id: Identifier
+    answer: str = Field(min_length=1, max_length=4000)
+
+
 TOOLS = {
     "list_workflows": (Empty, "Yalnız ajana izin verilen akışları ve beklenen girdilerini listeler."),
     "describe_workflow": (WorkflowArgument, "İzinli akışın güvenli adım ve değişken özetini verir."),
@@ -109,13 +118,20 @@ TOOLS = {
     "delegate_task": (DelegateArgument, "Görevi doğrudan bağlı departman ajanının kuyruğuna ekler."),
     "get_task": (TaskArgument, "Yöneticinin bu çalışma kapsamında devrettiği görevin durumunu verir."),
     "list_tasks": (TasksArgument, "Yöneticinin bu çalışma kapsamında devrettiği görevleri listeler."),
+    "wait_tasks": (WaitArgument, "Devredilen görevlerden biri ('any') veya tümü ('all') bitene ya da bir departman "
+                                 "ajanı soru sorana kadar bekler."),
+    "answer_department": (AnswerArgument, "Departman ajanının yöneticiye sorduğu soruyu yanıtlar. Bilmediğin konuda "
+                                          "yanıt uydurma; önce ask_user ile kullanıcıya sor."),
+    "ask_manager": (QuestionArgument, "Görevi veren yöneticiye soru sorar ve yanıtını bekler."),
 }
-MANAGER_TOOLS = frozenset({"list_team", "delegate_task", "get_task", "list_tasks", "ask_user", "finish"})
-DEPARTMENT_TOOLS = frozenset(set(TOOLS) - {"list_team", "delegate_task", "get_task", "list_tasks"})
+MANAGER_TOOLS = frozenset({"list_team", "delegate_task", "get_task", "list_tasks", "wait_tasks",
+                           "answer_department", "ask_user", "finish"})
+DEPARTMENT_TOOLS = frozenset(set(TOOLS) - MANAGER_TOOLS | {"ask_user", "finish"})
 
 
-def tool_definitions(role="department") -> list[dict]:
-    allowed = MANAGER_TOOLS if role == "manager" else DEPARTMENT_TOOLS
+def tool_definitions(role="department", *, delegated=False) -> list[dict]:
+    """Departman ajanı yöneticisine yalnız yöneticinin devrettiği görevde soru sorabilir."""
+    allowed = MANAGER_TOOLS if role == "manager" else DEPARTMENT_TOOLS - (set() if delegated else {"ask_manager"})
     return [{"type": "function", "name": name, "description": description,
              "parameters": model.model_json_schema()} for name, (model, description) in TOOLS.items() if name in allowed]
 
@@ -305,10 +321,17 @@ class AgentTools:
     def ask_user(self, arguments):
         return self.service._wait_question(self.context, arguments.question, arguments.options)
 
+    def ask_manager(self, arguments):
+        return self.service._ask_manager(self.context, arguments.question, arguments.options)
+
     def finish(self, arguments):
         if self.context.agent.role == "manager" and self.context.run.delegated_task_ids:
             if not self.context.children_reported:
-                tasks = self.service._wait_children(self.context)
+                tasks, questions = self.service._wait_children(self.context)
+                if questions:
+                    return {"status": "department_question", "tasks": tasks, "questions": questions,
+                            "message": "Soruları answer_department ile yanıtlayın (bilmiyorsanız önce ask_user ile "
+                                       "kullanıcıya sorun), sonra finish aracını yeniden çağırın."}
                 self.context.children_reported = True
                 return {"status": "children_completed", "tasks": tasks,
                         "message": "Alt görev sonuçlarını birleştirin ve finish aracını yeniden çağırın."}
@@ -334,7 +357,14 @@ class AgentTools:
                 tasks = [task for task in tasks if task["agent_id"] == arguments.filter.agent_id]
             if arguments.filter.status:
                 tasks = [task for task in tasks if task["status"] == arguments.filter.status]
-        return {"tasks": tasks}
+        return {"tasks": tasks, "questions": self.service._department_questions(self.context)}
+
+    def wait_tasks(self, arguments):
+        tasks, questions = self.service._wait_children(self.context, until=arguments.until)
+        return {"tasks": tasks, "questions": questions}
+
+    def answer_department(self, arguments):
+        return self.service._answer_department(self.context, arguments.question_id, arguments.answer)
 
 
 def call_fingerprint(call: ToolCall) -> str:

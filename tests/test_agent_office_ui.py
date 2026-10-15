@@ -320,3 +320,34 @@ def test_list_and_svg_keyboard_focus_survives_status_refresh(office_browser):
     assert page.evaluate("document.activeElement.dataset.person") == "human-18"
     page.keyboard.press("Enter")
     assert page.locator(".office-detail").is_visible()
+
+
+def test_department_question_walks_to_manager_and_shows_only_message_type(office_browser):
+    start, _, _, _, data = office_browser
+    populated(data)
+    manager, asker = data["agents"][0], data["agents"][1]
+    manager["activity"] = "reviewing"
+    asker.update(activity="asking_manager", event={"id": "1" * 32, "kind": "question", "to_agent_id": manager["id"]})
+    page = start()
+    label = page.locator(f'.office-person-label[data-person="{asker["id"]}"]')
+    assert label.get_attribute("data-activity") == "asking_manager"
+    assert label.locator(".office-person-bubble").inner_text() == "?"
+    label.locator(".office-person-speech").get_by_text("Soru", exact=True).wait_for()
+    assert page.locator(f'.office-person-label[data-person="{manager["id"]}"] .office-person-bubble').inner_text() == "✎"
+    assert "Yöneticiye soru soruyor" in page.locator(".office-list").inner_text()
+    if os.environ.get("RPA_OFFICE_SHOT"):
+        page.wait_for_timeout(4000)
+        page.screenshot(path=os.environ["RPA_OFFICE_SHOT"] + "-question.png")
+    # The manager answers: only the type travels, and the department returns to its desk.
+    asker.update(activity="thinking", event=None)
+    manager.update(activity="thinking", event={"id": "2" * 32, "kind": "answered", "to_agent_id": asker["id"]})
+    manager_label = page.locator(f'.office-person-label[data-person="{manager["id"]}"]')
+    manager_label.locator(".office-person-speech").get_by_text("Yanıt", exact=True).wait_for()
+    assert label.locator(".office-person-speech").is_hidden()
+    if os.environ.get("RPA_OFFICE_SHOT"):
+        page.screenshot(path=os.environ["RPA_OFFICE_SHOT"] + "-answer.png")
+    asker.update(activity="asking_manager", event={"id": "3" * 32, "kind": "question", "to_agent_id": manager["id"]})
+    page.get_by_role("button", name="2D plan", exact=True).click()
+    page.locator(".office-plan-link").wait_for()
+    assert page.locator(".office-plan-link-label").text_content() == "Soru"
+    interactive_ids(page)

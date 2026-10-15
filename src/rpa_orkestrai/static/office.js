@@ -4,9 +4,10 @@
 let serial = 0;
 const states = { idle: "Boşta", queued: "Sırada", running: "Çalışıyor", waiting_user: "Yanıt bekliyor",
   waiting_approval: "Onay bekliyor", succeeded: "Tamamlandı", failed: "Hata", cancelled: "Durduruldu", unknown: "Durum paylaşılmıyor" };
-const activityNames = { thinking: "Düşünüyor", workflow: "Akış çalıştırıyor" };
+const activityNames = { thinking: "Düşünüyor", workflow: "Akış çalıştırıyor", asking_manager: "Yöneticiye soru soruyor",
+  reviewing: "Departman sorusunu yanıtlıyor" };
 function stateName(person) { return activityNames[person.activity] || states[person.status] || "Bilinmiyor"; }
-function symbol(person) { return ({ thinking: "…", workflow: "↻", waiting_approval: "!", waiting_user: "?",
+function symbol(person) { return ({ thinking: "…", workflow: "↻", waiting_approval: "!", waiting_user: "?", asking_manager: "?", reviewing: "✎",
   failed: "!", succeeded: "✓", queued: "◷", running: "…", unknown: "—" })[person.activity || person.status] || "·"; }
 function node(tag, text, className) {
   const result = document.createElement(tag);
@@ -76,11 +77,11 @@ export function mountOffice(container, options) {
   const frame = node("div", undefined, "office-frame"), view = node("div", undefined, "office-view");
   view.append(node("p", "Ofis hazırlanıyor…", "office-loading"));
   const preview = node("span", "CANLI OFİS", "office-preview");
-  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı", "office-legend");
+  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı · Balonlar: Görev, Soru, Yanıt, Sonuç", "office-legend");
   frame.append(view, preview, legend);
   const panel = node("aside", undefined, "office-detail"); panel.hidden = true; panel.setAttribute("aria-label", "Çalışan ayrıntısı");
   const layout = node("div", undefined, "office-layout"); layout.append(frame, panel);
-  const note = node("p", "Bu görünüm yalnız bilgi gösterir. İş verileri ofise taşınmaz; ayrıntıları görmek için bir çalışan seçin.", "agent-help");
+  const note = node("p", "Bu görünüm yalnız bilgi gösterir. Departman ajanları birbirleriyle doğrudan konuşmaz; görev, soru ve sonuçlar yönetici üzerinden akar. Balonlarda yalnız mesajın türü görünür, içeriği ofise taşınmaz; ayrıntı için bir çalışan seçin.", "agent-help");
   const humanWarning = node("p", "", "agent-warning office-human-warning"); humanWarning.hidden = true; humanWarning.setAttribute("role", "status");
   const summary = node("p", "", "office-summary"), list = node("div", undefined, "office-list");
   container.replaceChildren(title, toolbar, layout, summary, humanWarning, note, list); container.classList.add("office-root");
@@ -227,11 +228,17 @@ function renderPlan(host, data, selectPerson) {
   }
   floor.append(create("rect", { x: 398, y: py(-3.8), width: 204, height: 6.2 * 24, rx: 10, class: "office-plan-manager" }),
     create("text", { x: 500, y: py(-2.7), "text-anchor": "middle" }, "Yönetici"));
+  const head = seats.find((seat) => seat.person.role === "manager");
+  for (const seat of seats) {
+    if (!head || seat === head || seat.person.activity !== "asking_manager") continue;
+    floor.append(create("line", { x1: px(seat.x), y1: py(seat.z) + 28, x2: px(head.x), y2: py(head.z) + 28, class: "office-plan-link" }),
+      create("text", { x: (px(seat.x) + px(head.x)) / 2, y: (py(seat.z) + py(head.z)) / 2 + 22, "text-anchor": "middle", class: "office-plan-link-label" }, "Soru"));
+  }
   for (const seat of seats) {
     const person = seat.person, x = px(seat.x), y = py(seat.z);
     floor.append(create("rect", { x: x - 28, y: y - 5, width: 56, height: 22, rx: 4, class: "office-plan-desk" }));
     const mark = create("g", { role: "button", tabindex: "0", id: `rpa-office-plan-person-${++serial}`,
-      "aria-label": `${person.name} · ${stateName(person)}`, class: "office-plan-person", "data-status": person.status, "data-person": person.id });
+      "aria-label": `${person.name} · ${stateName(person)}`, class: "office-plan-person", "data-status": person.status, "data-activity": person.activity || person.status, "data-person": person.id });
     mark.append(create("circle", { cx: x, cy: y + 28, r: 12 }), create("text", { x, y: y + 34, "text-anchor": "middle", class: "office-plan-symbol" }, symbol(person)),
       create("text", { x, y: y + 59, "text-anchor": "middle", class: "office-plan-name" }, String(person.name).slice(0, 12)));
     mark.addEventListener("click", () => selectPerson(person.id));
@@ -355,20 +362,26 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     const name = button("", () => selectPerson(person.id)); name.className = "office-person-label";
     name.dataset.person = person.id; overlay.append(name);
     const bubble = node("span", "", "office-person-bubble"), caption = node("span", "", "office-person-name");
-    name.append(bubble, caption);
+    const speech = node("span", "", "office-person-speech"); speech.hidden = true; speech.setAttribute("aria-hidden", "true");
+    name.append(speech, bubble, caption);
     const labelItem = { node: name, point: new THREE.Vector3(x, 2.9, z + .95), character: root }; labels.push(labelItem);
     root.traverse((child) => { if (child.isMesh) child.userData.personId = person.id; });
     characters.set(person.id, { root, body, head, arms, legs, folder, ring, screen, statusMat, name, bubble, caption, labelItem,
-      origin: root.position.clone(), person, delivery: null });
+      speech, said: null, origin: root.position.clone(), person, delivery: null, trip: null });
   }
   seating(data).forEach(character);
+  // Balloons show only the message type; the office never receives question or answer texts.
+  function say(item, text, duration, stamp) { item.said = { text, until: stamp + duration }; }
   function eventFor(person, stamp) {
     const event = person.event;
     if (!event?.id || seenEvents.has(event.id)) return;
     seenEvents.add(event.id); if (seenEvents.size > 1000) seenEvents.delete(seenEvents.values().next().value);
-    if (reduced.matches) return;
     const source = characters.get(person.id), destination = characters.get(event.to_agent_id);
     if (!source || !destination) return;
+    if (event.kind === "answered") say(source, "Yanıt", 4500, stamp);
+    else if (event.kind === "delegated") say(source, "Görev", 3000, stamp);
+    else if (event.kind === "completed" && person.status === "succeeded") say(source, "Sonuç", 4500, stamp);
+    if (reduced.matches) return;
     if (event.kind === "completed" && person.status === "succeeded") source.delivery = { stamp, target: destination.origin.clone() };
     else if (event.kind === "delegated") {
       const card = box(.65, .45, .06, paperMat, source.origin.x, 2.7, source.origin.z);
@@ -391,6 +404,25 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     });
     request();
   }
+  const TRIP = 3500;
+  function route(item, endX) {
+    const side = item.origin.x < 0 ? -4 : 4;
+    return [item.origin, new THREE.Vector3(side, .05, item.origin.z), new THREE.Vector3(side, .05, 3.3),
+      new THREE.Vector3(endX, .05, 3.3), new THREE.Vector3(endX, .05, 1.9)];
+  }
+  function askingSlot(item) {
+    // Several departments can wait in front of the manager at once; give each a fixed place.
+    const waiting = [...characters.values()].filter((other) => (other.person.activity || other.person.status) === "asking_manager");
+    const index = Math.max(0, waiting.indexOf(item));
+    return (index % 2 ? 1 : -1) * (1.2 + Math.floor(index / 2) * 1.2);
+  }
+  function walk(item, path, phase, back, stamp, stepping) {
+    const piece = Math.min(3, Math.floor(phase * 4)), fraction = phase * 4 - piece;
+    item.root.position.lerpVectors(path[piece], path[piece + 1], fraction);
+    const direction = path[piece + 1].clone().sub(path[piece]);
+    item.root.rotation.y = Math.atan2(-direction.x, -direction.z) + (back ? Math.PI : 0);
+    if (stepping) item.legs.forEach((leg, index) => { leg.rotation.x = Math.sin(stamp / 130 + index * Math.PI) * .35; });
+  }
   function animate(stamp) {
     let active = false;
     for (const item of characters.values()) {
@@ -406,18 +438,32 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
         item.arms.forEach((arm, index) => { arm.rotation.x = -.55 + (moving && state === "workflow" ? Math.sin(stamp / 180 + index) * .08 : 0); });
         item.body.position.y = moving ? Math.sin(stamp / 850) * .025 : 0; active ||= moving;
       }
-      if (item.delivery && moving) {
+      const asking = state === "asking_manager";
+      const speech = asking ? "Soru" : item.said && item.said.until > stamp ? item.said.text : "";
+      if (item.said && item.said.until <= stamp) item.said = null;
+      item.speech.textContent = speech; item.speech.hidden = !speech; active ||= Boolean(item.said);
+      if (asking && moving && !item.trip) {
+        item.trip = { out: true, stamp, route: route(item, askingSlot(item)) }; item.delivery = null;
+      } else if (item.trip?.out && (!asking || !moving)) {
+        const reached = Math.min(1, (stamp - item.trip.stamp) / TRIP);
+        item.trip = { ...item.trip, out: false, stamp: stamp - (1 - reached) * TRIP };
+      }
+      if (item.trip) {
+        const elapsed = (stamp - item.trip.stamp) / TRIP, phase = item.trip.out ? Math.min(1, elapsed) : 1 - elapsed;
+        if ((!item.trip.out && phase <= 0) || !moving) item.trip = null;
+        else {
+          walk(item, item.trip.route, phase, !item.trip.out, stamp, phase < 1);
+          if (phase >= 1) item.root.rotation.y = 0;
+          active ||= phase < 1;
+        }
+      }
+      if (item.delivery && moving && !item.trip) {
         const progress = (stamp - item.delivery.stamp) / 8000;
         if (progress >= 1) { item.delivery = null; item.folder.visible = false; }
         else {
           // Walk to the open front of the manager room, then return to the same desk.
           const phase = progress < .5 ? progress * 2 : (1 - progress) * 2;
-          const route = [item.origin, new THREE.Vector3(item.origin.x < 0 ? -4 : 4, .05, item.origin.z),
-            new THREE.Vector3(item.origin.x < 0 ? -4 : 4, .05, 3.3), new THREE.Vector3(0, .05, 3.3), new THREE.Vector3(0, .05, 1.9)];
-          const piece = Math.min(3, Math.floor(phase * 4)), fraction = phase * 4 - piece;
-          item.root.position.lerpVectors(route[piece], route[piece + 1], fraction);
-          const direction = route[piece + 1].clone().sub(route[piece]); item.root.rotation.y = Math.atan2(-direction.x, -direction.z) + (progress >= .5 ? Math.PI : 0);
-          item.legs.forEach((leg, index) => { leg.rotation.x = Math.sin(stamp / 130 + index * Math.PI) * .35; }); active = true;
+          walk(item, route(item, 0), phase, progress >= .5, stamp, true); active = true;
         }
       }
       item.labelItem.point.copy(item.root.position).add(new THREE.Vector3(0, 2.85, 0));

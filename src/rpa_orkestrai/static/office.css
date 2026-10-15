@@ -55,3 +55,10 @@
 .office-plan-person .office-plan-name { font-size: 11px; }
 .office-plan-person:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
 @media (max-width: 1080px) { .office-layout.office-with-panel { grid-template-columns: minmax(0, 1fr); } .office-detail { max-height: none; } }
+.office-person-speech { position: relative; padding: 3px 9px; border-radius: var(--r-m); background: var(--surface); border: 1px solid var(--accent-line); color: var(--accent-text); font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: var(--shadow-soft); }
+.office-person-speech::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 8px; height: 8px; background: inherit; border-right: 1px solid var(--accent-line); border-bottom: 1px solid var(--accent-line); transform: translateX(-50%) rotate(45deg); }
+.office-person-speech[hidden] { display: none; }
+.office-person-label[data-activity="asking_manager"] .office-person-bubble { color: var(--info); border-color: var(--info-line); background: var(--info-tint); }
+.office-plan-link { stroke: var(--info); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
+.office-plan-link-label { fill: var(--info); font-size: 11px; font-weight: 700; }
+.office-plan-person[data-activity="asking_manager"] circle { fill: var(--info-tint); stroke: var(--info); }
