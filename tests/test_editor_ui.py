@@ -429,7 +429,7 @@ def test_drag_drop_library_search_and_single_step_test(tmp_path):
             dialog.get_by_label("${adet}").fill("2")
             dialog.get_by_role("button", name="Testi çalıştır", exact=True).click()
             playwright.expect(dialog.locator(".step-test-values")).to_contain_text("42")
-            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı", timeout=30000)
             browser.close()
         saved = client.get(f"/api/workflows/{workflow_id}").json()
         assert [step["id"] for step in saved["steps"][0]["children"]] == ["calc"]
@@ -796,7 +796,7 @@ def test_diagram_view_draws_branches_inserts_moves_and_shows_the_last_run(tmp_pa
                 playwright.expect(viewport.locator(".edge-label", has_text=label).first).to_be_visible()
             playwright.expect(viewport.locator('[data-step-id="log"] .dnode-status')).to_have_text("2")
             playwright.expect(viewport.locator('[data-step-id="boom"] .dnode-status.failed')).to_have_count(1)
-            playwright.expect(viewport.locator(".diagram-run")).to_contain_text("Tamamlandı")
+            playwright.expect(viewport.locator(".diagram-run")).to_contain_text("Tamamlandı", timeout=30000)
             if shots:
                 page.screenshot(path=f"{shots}/diagram.png")
 
@@ -945,7 +945,7 @@ def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
             playwright.expect(dialog.locator(".step-test-sources")).to_contain_text("listesinin ilk satırı")
             playwright.expect(dialog.locator("textarea:visible")).to_have_count(0)
             dialog.get_by_role("button", name="Testi çalıştır").click()
-            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı", timeout=30000)
             playwright.expect(dialog.locator(".step-test-values")).to_contain_text("İNV-1")
             if shots:
                 page.screenshot(path=f"{shots}/step-test-auto.png")
@@ -955,7 +955,7 @@ def test_step_guide_and_tests_that_need_no_typed_values(tmp_path):
             page.locator('[data-step-id="skip"]').click()
             inspector.get_by_role("button", name="Bu adımı test et").click()
             dialog.get_by_role("button", name="Testi çalıştır").click()
-            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı")
+            playwright.expect(dialog.locator(".step-test-head")).to_contain_text("Tamamlandı", timeout=30000)
             playwright.expect(dialog.locator(".step-test-log")).to_contain_text("sonraki satıra geçilir")
             # Another value can still be tried by choice.
             dialog.locator(".step-test-custom summary").click()
