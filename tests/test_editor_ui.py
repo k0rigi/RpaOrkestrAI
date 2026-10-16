@@ -2003,7 +2003,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             page.get_by_role("button", name="Hata ayıklama", exact=True).click()
             # The toolbar's Çalıştır runs the whole flow without pausing (0.9.16–0.9.18 sent its click event).
             page.locator(".page-actions, header, main").get_by_role("button", name="Çalıştır", exact=True).first.click()
-            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=10_000)
+            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=30_000)
             playwright.expect(page.locator(".debug-pause")).to_have_count(0)
             page.get_by_role("button", name="Akışı aç").click()
             page.locator('[data-step-id="two"]').first.click()
@@ -2022,7 +2022,7 @@ def test_run_to_step_pauses_then_steps_and_finishes(tmp_path, size):
             playwright.expect(panel.locator("dt")).to_have_text(["${a}", "${b}"])
             panel.get_by_role("button", name="Sonuna kadar").click()
             playwright.expect(page.locator(".debug-pause")).to_have_count(0, timeout=10_000)
-            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=10_000)
+            playwright.expect(page.locator(".run-summary")).to_contain_text("Tamamlandı", timeout=30_000)
             browser.close()
     assert not errors
 

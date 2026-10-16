@@ -126,14 +126,14 @@ def test_folder_trigger_waits_for_complete_new_files_and_ignores_existing_and_te
     assert len(runs(auto.runtime)) == 1
 
 
-def test_only_managers_change_automations_and_secrets_or_bad_triggers_are_refused(auto, monkeypatch):
+def test_only_managers_change_automations_and_secrets_or_bad_triggers_are_refused(auto, tmp_path):
     agent = auto.runtime.agent()
     with pytest.raises(ValueError):
         AutomationTrigger(kind="workflow")
     with pytest.raises(ValueError):
         AutomationTrigger(kind="folder", folder="göreli/klasör")
     with pytest.raises(AgentServiceError):
-        auto.service.create(body(agent, kind="folder", folder="/olmayan/klasor/yolu"))
+        auto.service.create(body(agent, kind="folder", folder=str(tmp_path / "olmayan-klasor")))
     with pytest.raises(AgentServiceError, match="geçmişte"):
         auto.service.create(body(agent, kind="schedule", schedule_kind="once", date="2026-10-15", time="09:00"))
     created = auto.service.create(body(agent))
