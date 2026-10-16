@@ -117,6 +117,55 @@ def _check_databases(folder: Path) -> None:
         sa.create_engine(f"{scheme}://kullanici:sifre@localhost/veritabani").dispose()
 
 
+def _check_integrations(folder: Path) -> None:
+    """Kurumsal entegrasyon inside the package: a real SQLite write with rollback, IMAP/FTP/API/message
+    helpers and the agent web guard. Nothing connects to a network."""
+    import ftplib
+    import imaplib
+    import sqlite3
+
+    from .actions.transfer import message_payload
+    from .agents.automations import safe_names
+    from .agents.web import check_url
+    from .database.query import QueryDatabase
+    from .errors import WorkflowError
+    from .integrations import api, ftp, imap
+
+    database = folder / "yazma.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE siparis (no INTEGER, durum TEXT)")
+        connection.executemany("INSERT INTO siparis VALUES (?, ?)", [(1, "Yeni"), (2, "Yeni")])
+    connection.close()
+    config = {"engine": "sqlite", "path": str(database), "allow_write": True, "write_targets": ["siparis"]}
+    with QueryDatabase(config, read_only=False) as writer:
+        changed = writer.execute("UPDATE siparis SET durum = ${d} WHERE no = ${n}", {"d": "İşlendi", "n": 1}.get, 1)
+        try:
+            writer.execute("UPDATE siparis SET durum = 'x' WHERE no > 0", lambda name: None, 1)
+            raise RuntimeError("Paket içindeki veritabanı yazma sınırı değişikliği geri almadı.")
+        except WorkflowError:
+            pass
+    with sqlite3.connect(database) as connection:
+        states = [row[0] for row in connection.execute("SELECT durum FROM siparis ORDER BY no")]
+    connection.close()
+    if changed["affected"] != 1 or states != ["İşlendi", "Yeni"]:
+        raise RuntimeError("Paket içindeki veritabanında değişiklik yap adımı doğrulanamadı.")
+    if not (imaplib.IMAP4_SSL and ftplib.FTP_TLS) or imap.folder_name("Gelen/Ödemeler") != '"Gelen/&ANY-demeler"':
+        raise RuntimeError("Paket içindeki e-posta (IMAP) ve FTP desteği yüklenemedi.")
+    if api.resolve_url({"base_url": "https://erp.example.com/api"}, "/v1/siparis") != "https://erp.example.com/api/v1/siparis":
+        raise RuntimeError("Paket içindeki API bağlantısı adresi çözemedi.")
+    if message_payload("teams", "Başlık", "Metin")["attachments"][0]["content"]["type"] != "AdaptiveCard":
+        raise RuntimeError("Paket içindeki mesaj gönderme biçimi doğrulanamadı.")
+    if safe_names({"Müşteri Adı": "x"}) != {"Musteri_Adi": "x"}:
+        raise RuntimeError("Paket içindeki otomasyon kayıt adları doğrulanamadı.")
+    for refused in (lambda: ftp.remote("../disari"), lambda: check_url("http://127.0.0.1/", None),
+                    lambda: api.resolve_url({"base_url": "https://erp.example.com"}, "https://baska.example.com/x")):
+        try:
+            refused()
+        except WorkflowError:
+            continue
+        raise RuntimeError("Paket içindeki bağlantı güvenlik kontrolleri çalışmıyor.")
+
+
 def _check_documents(folder: Path) -> None:
     """Zip with Turkish names, PDF text and page rendering (pdfminer + pdfium) inside the package."""
     from types import SimpleNamespace
@@ -312,6 +361,7 @@ def run_check(report: Path) -> int:
             _check_accessibility()
             _check_ocr_and_tables(root)
             _check_databases(root)
+            _check_integrations(root)
             _check_documents(root)
             _check_web_driver()
             _check_windows_identity()
@@ -380,7 +430,8 @@ def run_check(report: Path) -> int:
                       "checks": ["native-import", "automation-imports", "target-crop-and-match", "native-picker-overlay",
                                  "license-verification", "license-gate", "accessibility-backend", "system-ocr",
                                  "screen-table-target", "excel-tables", "http-api", "login-item", "password-store",
-                                 "bundled-static-files", "local-three-office-assets", "offline-ai-json-schema"]}
+                                 "bundled-static-files", "local-three-office-assets", "offline-ai-json-schema",
+                                 "enterprise-integrations"]}
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:

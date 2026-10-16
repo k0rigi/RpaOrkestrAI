@@ -1,4 +1,4 @@
-"""Named connections (Google Sheets, databases) that steps select, like n8n credentials.
+"""Named connections (Google Sheets, databases, mail, APIs, FTP, messaging) that steps select, like n8n credentials.
 
 Profiles live in the workspace (data/connections.json, owner-only permissions) and
 are never part of an exported workflow: a step stores only the profile id. The
@@ -14,13 +14,28 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .config import atomic_json
 from .errors import WorkflowError
 
-TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı", "smtp": "E-posta (SMTP)"}
+TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı", "smtp": "E-posta (SMTP)",
+         "imap": "Gelen e-posta (IMAP)", "api": "Web servisi (API)", "ftp": "FTP / FTPS",
+         "webhook": "Mesajlaşma (Teams, Slack…)"}
 SHEETS_METHODS = {"apps_script": "Apps Script", "service_account": "Servis hesabı"}
-SECRET_FIELDS = {"script_token", "credentials_path", "url", "password"}
+SECRET_FIELDS = {"script_token", "credentials_path", "url", "password", "token", "api_key", "client_secret"}
+API_AUTH = {"none": "Kimlik doğrulama yok", "bearer": "Bearer token", "basic": "Kullanıcı adı ve şifre (Basic)",
+            "api_key": "API anahtarı", "oauth2": "OAuth 2.0 istemci bilgileri"}
+IMAP_SECURITY = {"ssl": "SSL/TLS (genellikle 993)", "starttls": "STARTTLS (genellikle 143)",
+                 "none": "Şifrelemesiz (yalnız iç ağ)"}
+IMAP_PORTS = {"ssl": "993", "starttls": "143", "none": "143"}
+FTP_SECURITY = {"ftps": "FTPS · açık TLS (önerilen)", "none": "Şifrelemesiz FTP (yalnız iç ağ)"}
+WEBHOOK_SERVICES = {"teams": "Microsoft Teams (İş Akışları)", "slack": "Slack", "google_chat": "Google Chat",
+                    "discord": "Discord", "generic": "Diğer (JSON gövde)"}
+HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,100}$")
+# Credentials belong in the protected fields, never in plain default headers.
+CREDENTIAL_HEADERS = {"authorization", "proxy-authorization", "cookie", "x-api-key", "api-key"}
+WRITE_TARGET = re.compile(r"^[A-Za-z0-9_$#@.\[\]\"` -]{1,200}$")
 DATABASE_FIELDS = ("host", "port", "database", "user", "path")
 SMTP_SECURITY = {"starttls": "STARTTLS (genellikle 587)", "ssl": "SSL/TLS (genellikle 465)",
                  "none": "Şifrelemesiz (yalnız iç ağ)"}
@@ -115,6 +130,14 @@ class Connections:
                     "credentials_path": secret("credentials_path", "Servis hesabı dosyası")}
         if kind == "smtp":
             return self._clean_smtp(config, previous, secret)
+        if kind == "imap":
+            return self._clean_imap(config, previous, secret)
+        if kind == "api":
+            return self._clean_api(config, previous, secret)
+        if kind == "ftp":
+            return self._clean_ftp(config, previous, secret)
+        if kind == "webhook":
+            return self._clean_webhook(config, previous, secret)
         from .database.query import ENGINES
 
         tables = config.get("allowed_tables", previous.get("allowed_tables", []))
@@ -140,7 +163,121 @@ class Connections:
         else:
             cleaned["password"] = secret("password", "Şifre") if previous.get("engine") == engine or \
                 config.get("password") else ""
+        # Changing records is a separate, explicit permission with its own list of tables and procedures.
+        allow_write = config.get("allow_write", previous.get("allow_write", False))
+        if not isinstance(allow_write, bool):
+            raise ValueError("Yazma izni açık veya kapalı olmalıdır.")
+        targets = config.get("write_targets", previous.get("write_targets", []))
+        if isinstance(targets, str):
+            targets = [part.strip() for part in re.split(r"[,\n]", targets)]
+        if not isinstance(targets, list) or not all(isinstance(item, str) for item in targets):
+            raise ValueError("Değiştirilebilecek tablolar virgülle ayrılmış adlar olmalıdır.")
+        targets = [item.strip() for item in targets if item.strip()]
+        if len(targets) > 200 or any(not WRITE_TARGET.fullmatch(item) for item in targets):
+            raise ValueError("Değiştirilebilecek tablo ve yordam adlarını şema.ad biçiminde yazın (en fazla 200).")
+        if allow_write and not targets:
+            raise ValueError("Yazma izni için değiştirilebilecek en az bir tablo veya saklı yordam yazın.")
+        cleaned.update(allow_write=allow_write, write_targets=targets)
         return cleaned
+
+    @staticmethod
+    def _value(config: dict, previous: dict, key: str, label: str, limit: int = 320) -> str:
+        raw = config.get(key, previous.get(key, ""))
+        raw = str(raw) if isinstance(raw, int) and not isinstance(raw, bool) else raw
+        return _text(raw, label, limit)
+
+    @staticmethod
+    def _port(value: str) -> str:
+        if not (value.isdigit() and 0 < int(value) < 65536):
+            raise ValueError("Port 1 ile 65535 arasında bir sayı olmalıdır.")
+        return value
+
+    def _clean_imap(self, config: dict, previous: dict, secret: Any) -> dict:
+        security = config.get("security") or previous.get("security") or "ssl"
+        if security not in IMAP_SECURITY:
+            raise ValueError("Şifreleme SSL/TLS, STARTTLS veya şifrelemesiz olmalıdır.")
+        cleaned = {"host": self._value(config, previous, "host", "IMAP sunucusu", 255), "security": security,
+                   "user": self._value(config, previous, "user", "Kullanıcı"),
+                   "folder": self._value(config, previous, "folder", "Klasör", 200) or "INBOX"}
+        cleaned["port"] = self._port(self._value(config, previous, "port", "Port", 5) or IMAP_PORTS[security])
+        if any(char in cleaned["folder"] for char in "\r\n\"\\"):
+            raise ValueError("Klasör adında tırnak, ters bölü veya satır sonu olamaz.")
+        same = previous.get("host") == cleaned["host"] and previous.get("user") == cleaned["user"]
+        cleaned["password"] = secret("password", "Şifre") if same or config.get("password") else ""
+        return cleaned
+
+    def _clean_api(self, config: dict, previous: dict, secret: Any) -> dict:
+        base = self._value(config, previous, "base_url", "Ana adres", 2000).rstrip("/")
+        if base:
+            parts = urlsplit(base)
+            if parts.scheme not in {"https", "http"} or not parts.hostname:
+                raise ValueError("Ana adres https:// (veya iç ağda http://) ile başlayan tam bir adres olmalıdır.")
+            if parts.username or parts.password or parts.fragment:
+                raise ValueError("Ana adrese kullanıcı adı, şifre veya # bölümü yazmayın; kimlik doğrulama alanlarını "
+                                 "kullanın.")
+        auth = config.get("auth") or previous.get("auth") or "none"
+        if auth not in API_AUTH:
+            raise ValueError("Kimlik doğrulama türü geçersiz.")
+        headers = config.get("headers", previous.get("headers", {})) or {}
+        if not isinstance(headers, dict) or len(headers) > 30:
+            raise ValueError("Varsayılan başlıklar en fazla 30 alanlı bir nesne olmalıdır.")
+        clean_headers = {}
+        for name, value in headers.items():
+            if not isinstance(name, str) or not HEADER_NAME.fullmatch(name):
+                raise ValueError(f"Başlık adı geçersiz: {name}")
+            if name.casefold() in CREDENTIAL_HEADERS:
+                raise ValueError(f"{name} başlığını kimlik doğrulama alanlarına yazın; düz başlıklar korunmaz.")
+            value = str(value)
+            if len(value) > 1000 or any(char in value for char in "\r\n"):
+                raise ValueError(f"{name} başlığının değeri en fazla 1000 karakter olmalı ve satır sonu içermemelidir.")
+            clean_headers[name] = value
+        key_in = config.get("key_in") or previous.get("key_in") or "header"
+        if key_in not in {"header", "query"}:
+            raise ValueError("API anahtarı başlıkta veya adres parametresinde gönderilmelidir.")
+        key_name = self._value(config, previous, "key_name", "Anahtar adı", 100) or "X-API-Key"
+        if not HEADER_NAME.fullmatch(key_name):
+            raise ValueError("Anahtar adı yalnız harf, rakam ve - _ . karakterlerinden oluşmalıdır.")
+        token_url = self._value(config, previous, "token_url", "Token adresi", 2000)
+        if token_url and urlsplit(token_url).scheme != "https":
+            raise ValueError("OAuth token adresi https:// ile başlamalıdır.")
+        test_path = self._value(config, previous, "test_path", "Test adresi", 500)
+        if "://" in test_path:
+            raise ValueError("Test adresi ana adrese göre bir yol olmalıdır (ör. /v1/durum).")
+        cleaned = {"base_url": base, "auth": auth, "headers": clean_headers, "key_in": key_in, "key_name": key_name,
+                   "user": self._value(config, previous, "user", "Kullanıcı"), "token_url": token_url,
+                   "client_id": self._value(config, previous, "client_id", "İstemci kimliği", 500),
+                   "scope": self._value(config, previous, "scope", "Kapsam (scope)", 1000), "test_path": test_path}
+        # Secrets typed for one server are never sent to another one the user switched to.
+        same = urlsplit(previous.get("base_url", "")).netloc == urlsplit(base).netloc
+        for key, label in (("token", "Token"), ("password", "Şifre"), ("api_key", "API anahtarı"),
+                           ("client_secret", "İstemci sırrı")):
+            cleaned[key] = secret(key, label) if same or config.get(key) else ""
+        return cleaned
+
+    def _clean_ftp(self, config: dict, previous: dict, secret: Any) -> dict:
+        security = config.get("security") or previous.get("security") or "ftps"
+        if security not in FTP_SECURITY:
+            raise ValueError("FTP güvenliği FTPS veya şifrelemesiz olmalıdır.")
+        passive = config.get("passive", previous.get("passive", True))
+        if not isinstance(passive, bool):
+            raise ValueError("Pasif mod açık veya kapalı olmalıdır.")
+        cleaned = {"host": self._value(config, previous, "host", "FTP sunucusu", 255), "security": security,
+                   "user": self._value(config, previous, "user", "Kullanıcı"), "passive": passive,
+                   "base_dir": self._value(config, previous, "base_dir", "Başlangıç klasörü", 500) or "/"}
+        cleaned["port"] = self._port(self._value(config, previous, "port", "Port", 5) or "21")
+        same = previous.get("host") == cleaned["host"] and previous.get("user") == cleaned["user"]
+        cleaned["password"] = secret("password", "Şifre") if same or config.get("password") else ""
+        return cleaned
+
+    @staticmethod
+    def _clean_webhook(config: dict, previous: dict, secret: Any) -> dict:
+        service = config.get("service") or previous.get("service") or "teams"
+        if service not in WEBHOOK_SERVICES:
+            raise ValueError("Mesajlaşma servisi geçersiz.")
+        url = secret("url", "Webhook adresi")
+        if url and urlsplit(url).scheme != "https":
+            raise ValueError("Webhook adresi https:// ile başlamalıdır.")
+        return {"service": service, "url": url}
 
     @staticmethod
     def _clean_smtp(config: dict, previous: dict, secret: Any) -> dict:
@@ -171,6 +308,16 @@ class Connections:
         config = item["config"]
         if item["type"] == "smtp":
             return bool(config.get("host") and config.get("sender"))
+        if item["type"] == "imap":
+            return bool(config.get("host") and config.get("user") and config.get("password"))
+        if item["type"] == "ftp":
+            return bool(config.get("host"))
+        if item["type"] == "webhook":
+            return bool(config.get("url"))
+        if item["type"] == "api":
+            needed = {"none": (), "bearer": ("token",), "basic": ("user", "password"), "api_key": ("api_key",),
+                      "oauth2": ("token_url", "client_id", "client_secret")}[config.get("auth", "none")]
+            return bool(config.get("base_url")) and all(config.get(key) for key in needed)
         if item["type"] == "database":
             engine = config.get("engine") or "url"
             if engine == "url":
@@ -195,6 +342,22 @@ class Connections:
             data.update(has_password=bool(config.get("password")), security_label=SMTP_SECURITY[config["security"]],
                         **{key: config.get(key, "") for key in ("host", "port", "security", "user", "sender",
                                                                 "sender_name")})
+        elif item["type"] == "imap":
+            data.update(has_password=bool(config.get("password")), security_label=IMAP_SECURITY[config["security"]],
+                        **{key: config.get(key, "") for key in ("host", "port", "security", "user", "folder")})
+        elif item["type"] == "ftp":
+            data.update(has_password=bool(config.get("password")), security_label=FTP_SECURITY[config["security"]],
+                        passive=bool(config.get("passive", True)),
+                        **{key: config.get(key, "") for key in ("host", "port", "security", "user", "base_dir")})
+        elif item["type"] == "webhook":
+            data.update(service=config["service"], service_label=WEBHOOK_SERVICES[config["service"]],
+                        has_url=bool(config.get("url")))
+        elif item["type"] == "api":
+            data.update(auth_label=API_AUTH[config["auth"]], headers=dict(config.get("headers") or {}),
+                        has_token=bool(config.get("token")), has_password=bool(config.get("password")),
+                        has_api_key=bool(config.get("api_key")), has_client_secret=bool(config.get("client_secret")),
+                        **{key: config.get(key, "") for key in ("base_url", "auth", "key_in", "key_name", "user",
+                                                                "token_url", "client_id", "scope", "test_path")})
         else:
             from .database.query import engine_label
 
@@ -203,6 +366,7 @@ class Connections:
                         engine=config.get("engine") or "url", engine_label=engine_label(config),
                         has_password=bool(config.get("password")),
                         url_kind=re.split(r"[:+]", url, 1)[0] if url else "",
+                        allow_write=bool(config.get("allow_write")), write_targets=config.get("write_targets", []),
                         **{key: config.get(key, "") for key in DATABASE_FIELDS})
         return data
 
@@ -221,7 +385,7 @@ class Connections:
     def create(self, data: dict) -> dict:
         kind = data.get("type")
         if kind not in TYPES:
-            raise ValueError("Bağlantı türü Google Sheets, veritabanı veya e-posta (SMTP) olmalıdır.")
+            raise ValueError("Bağlantı türü geçersiz.")
         with self._lock:
             items = self._load()
             item = {"id": uuid.uuid4().hex, "name": self._name(data.get("name"), kind, items), "type": kind,

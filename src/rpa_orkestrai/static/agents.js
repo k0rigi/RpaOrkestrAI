@@ -68,7 +68,8 @@
     get_run: "Akış sonucu okunuyor", list_recent_runs: "Geçmiş çalışmalar okunuyor", read_artifact: "Çıktı dosyası okunuyor",
     ask_user: "Size soru", ask_manager: "Yöneticiye soru", finish: "Görevi bitiriyor", list_team: "Ekip okunuyor",
     delegate_task: "Görev devri", get_task: "Alt görev durumu okunuyor", list_tasks: "Alt görevler okunuyor",
-    wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt", suggest_note: "Not önerisi" };
+    wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt", suggest_note: "Not önerisi",
+    web_search: "İnternette arama", fetch_page: "Web sayfası okuma" };
   const eventTitles = { created: "Görev alındı", queue: "Masaüstü sırası bekleniyor", workflow_started: "Akış başladı",
     question: "Size soru soruldu", user_answer: "Yanıtınız iletildi", approval_requested: "Onay istendi",
     approval_decision: "Onay kararı verildi", approval_submitted: "Onay kararı gönderildi", approval_consumed: "Onay kullanıldı",
@@ -77,10 +78,11 @@
     department_question: "Departmandan soru geldi", department_answered: "Departmana yanıt verildi",
     context_compacted: "Konuşma kısaltıldı", output_limited: "Yanıt bütçesi daraltıldı", interrupted: "Çalışma yarıda kaldı",
     assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek",
-    note_suggested: "Ajan kalıcı not önerdi" };
+    note_suggested: "Ajan kalıcı not önerdi", web_search: "İnternette arandı", web_fetch: "Web sayfası okundu",
+    automation: "Otomasyonla başladı" };
   const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
   const quietTools = new Set(["list_workflows", "describe_workflow", "get_run", "list_recent_runs", "list_team", "get_task",
-    "list_tasks", "wait_tasks", "read_artifact", "suggest_note"]);
+    "list_tasks", "wait_tasks", "read_artifact", "suggest_note", "web_search", "fetch_page"]);
   const extensions = new Map();
   let active = null;
   let sequence = 0;
@@ -464,8 +466,10 @@
   // Kart, ajanın kayıtlı izinlerinden üretilir; elle yazılmış bir vaat göstermez.
   function permissionSummary(view, agent) {
     const can = [], approval = [], cannot = [];
+    const access = agent.web_access || "off";
     const rules = [
-      "Serbest web araması yapamaz; web ve veritabanına yalnız izinli akışlarla erişir.",
+      access === "off" ? "İnternete erişemez; web, API ve veritabanına yalnız izinli akışlarla ulaşır."
+        : "İnternette yalnız okur: arar ve sayfa okur; form gönderemez, oturum açamaz, dosya indiremez, iç ağa erişemez.",
       "Bilgisayarda komut çalıştıramaz; fare ve klavyeyi akış dışında kullanamaz.",
       "Kayıtlı şifreleri ve API anahtarlarını göremez.",
       "Hedef bulunamazsa tahminle tıklamaz veya yazmaz; durur.",
@@ -473,6 +477,8 @@
     ];
     const noteCount = (view.notes?.[agent.id] || []).length;
     if (noteCount) can.push(`Onaylanmış ${noteCount} kalıcı notu bilir ve kullanır; notlar izin vermez.`);
+    if (access === "open") can.push("İnternette araştırabilir (tüm web, bir görevde en fazla 20 istek).");
+    else if (access === "allowlist") can.push(`İnternette yalnız şu sitelerde araştırabilir: ${(agent.web_domains || []).join(", ")}.`);
     if (agent.role === "manager") {
       const team = view.agents.filter((item) => item.manager_id && item.manager_id === agent.id);
       if (team.length) can.push(`Bağlı ${team.length} departman ajanına görev verebilir: ${team.map((item) => `${item.name} (${item.department})`).join(", ")}.`);
@@ -658,6 +664,18 @@
       cloudWarning.textContent = providerNotice(selected?.provider);
       cloudWarning.hidden = !cloudWarning.textContent;
     });
+    const webAccess = select("İnternet erişimi", [["off", "Kapalı (önerilen varsayılan)"], ["allowlist", "Yalnız izinli siteler"],
+      ["open", "Tüm web"]], agent.web_access || "off",
+    "Ajan arama yapıp sayfa okuyabilir; yalnız okur. Web araması hizmeti Ajanlar → Bağlantılar'dan seçilir.");
+    const webDomains = field("İzinli siteler", (agent.web_domains || []).join("\n"), "textarea",
+      "Her satıra bir site: mevzuat.gov.tr veya alt alan adlarıyla *.gib.gov.tr. Ajan yalnız bu sitelerde arar ve okur.");
+    webDomains.input.rows = 3;
+    const webWarning = element("p", "Tüm web açıkken ajan herhangi bir açık siteyi okuyabilir. Sayfalar ajanı yanıltmaya çalışabilir; "
+      + "riskli akışlar yine onay ister. Mümkünse yalnız izinli siteleri kullanın.", "agent-notice");
+    const paintWeb = () => { webDomains.wrapper.hidden = webAccess.input.value !== "allowlist"; webWarning.hidden = webAccess.input.value !== "open"; };
+    webAccess.input.addEventListener("change", paintWeb);
+    paintWeb();
+    const readDomains = () => webDomains.input.value.split(/[\n,]/).map((line) => line.trim()).filter(Boolean);
     const description = field("Kısa açıklama", agent.description, "textarea");
     description.input.maxLength = 2000;
     const instructions = field("Talimatlar", agent.instructions, "textarea", "Ajanın amacı, çalışma şekli ve belirsizlikte size sorması gereken konular.");
@@ -755,7 +773,8 @@
         workflow_id: item.workflow.id, allow_without_approval: item.automatic.input.checked,
         allowed_roots: item.roots.input.value.split("\n").map((line) => line.trim()).filter(Boolean),
         allowed_hosts: item.grant?.allowed_hosts || [],
-      })), limits: readLimits() });
+      })), limits: readLimits(), web_access: webAccess.input.value,
+      web_domains: webAccess.input.value === "allowlist" ? readDomains() : [] });
     const refreshPreview = () => {
       const current = draft();
       previewBody.replaceChildren(permissionCard(permissionSummary(view, current)), element("p", limitSummary(current), "agent-help agent-limit-line"));
@@ -766,18 +785,20 @@
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       view.busy(save, async () => {
-        const { workflows, limits: chosenLimits } = draft();
+        const { workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains } = draft();
         const body = { name: name.input.value.trim(), description: description.input.value, instructions: instructions.input.value,
           department: department.input.value.trim(), role: role.input.value,
           manager_id: role.input.value === "manager" ? null : manager.input.value || null,
           provider_connection_id: connection.input.value || null, model: model.input.value.trim(),
-          workflows, limits: chosenLimits };
+          workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains };
         const saved = await view.request(original ? `/api/agents/${original.id}` : "/api/agents", original ? "PUT" : "POST", body);
         view.agents = [...view.agents.filter((item) => item.id !== saved.id), saved];
         if (view.alive) { view.options.toast("Ajan kaydedildi."); renderAgents(view); }
       });
     });
-    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants,
+    const internet = element("section", null, "agent-grants");
+    internet.append(element("h3", "İnternet araştırması"), webAccess.wrapper, webDomains.wrapper, webWarning);
+    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants, internet,
       disclosure("Çalışma sınırları", limits), preview, buttons);
     view.pane.replaceChildren(form);
     name.input.focus();
@@ -965,6 +986,9 @@
     if (event.kind === "task_delegated") return agentName(view, data.agent_id);
     if (event.kind === "workflow_started") return `«${workflowName(view, data.workflow_id)}»`;
     if (event.kind === "note_suggested") return text(data.text);
+    if (event.kind === "web_search") return `«${text(data.query)}» · ${data.count ?? 0} sonuç${(data.urls || []).length ? ` · ${(data.urls || []).slice(0, 3).join(", ")}` : ""}`;
+    if (event.kind === "web_fetch") return `${text(data.title) || "Başlıksız sayfa"} · ${text(data.url)}`;
+    if (event.kind === "automation") return text(data.name);
     return "";
   }
   function updateUsage(box, run, agent) {
@@ -1092,7 +1116,60 @@
       card.append(controls); cards.append(card);
     }
     if (!view.connections.length) cards.append(empty("Model bağlantısı ekleyin", "Başlangıç için bu bilgisayardaki Ollama sunucusunu kullanabilirsiniz."));
-    view.pane.replaceChildren(toolbar, cards);
+    const search = element("section", null, "agent-form agent-search");
+    search.append(element("h2", "Web araması"), element("p", "İnterneti açılan ajanların arama yaparken kullandığı hizmet. Sayfa okuma için "
+      + "hizmet gerekmez; ajanın internet izni ajan formundan verilir.", "muted"), element("p", "Yükleniyor…", "agent-help"));
+    view.pane.replaceChildren(toolbar, cards, search);
+    renderSearch(view, search);
+  }
+  const searchProviders = [
+    ["none", "Kapalı"], ["tavily", "Tavily · ayda 1.000 ücretsiz arama, kart gerekmez (önerilen)"],
+    ["wikipedia", "Vikipedi · anahtarsız ve ücretsiz, yalnız ansiklopedik bilgi"],
+    ["brave", "Brave Search · aylık 5 $ kredi (≈1.000 arama), sonrası ücretli"], ["searxng", "SearXNG · kendi sunucunuz, ücretsiz"],
+  ];
+  async function renderSearch(view, box) {
+    let settings;
+    try { settings = await view.request("/api/agents/search"); } catch (error) {
+      box.lastElementChild.textContent = error.message; return;
+    }
+    if (!view.alive || !box.isConnected) return;
+    const provider = select("Arama hizmeti", searchProviders, settings.provider);
+    const key = field("Hizmet anahtarı", "", "password", settings.has_key ? "Anahtar kayıtlı. Değiştirmeyecekseniz boş bırakın." : "Yalnız sistem şifre kasasına yazılır.");
+    key.input.autocomplete = "new-password"; key.input.maxLength = 500;
+    const url = field("SearXNG adresi", settings.searxng_url || "", "url", "JSON çıktısı açık bir SearXNG sunucusu (ör. https://arama.firma.com).");
+    const language = field("Vikipedi dili", settings.language || "tr", "text", "İki harfli dil kodu: tr, en, de…");
+    language.input.maxLength = 3;
+    const cost = element("p", "", "agent-notice");
+    const paint = () => {
+      const value = provider.input.value;
+      key.wrapper.hidden = !["tavily", "brave"].includes(value);
+      url.wrapper.hidden = value !== "searxng";
+      language.wrapper.hidden = value !== "wikipedia";
+      cost.textContent = value === "brave" ? "Brave aylık 5 $ krediyi aşan aramaları ücretlendirir; kredi için sitenizde Brave atfı gerekir."
+        : value === "tavily" ? "Ücretsiz plan ayda 1.000 aramayla sınırlıdır; dolunca aramalar ay başına kadar durur, ücret çıkmaz."
+          : value === "none" ? "Arama kapalıyken interneti açık ajanlar yalnız adresini bildikleri sayfaları okuyabilir." : "";
+      cost.hidden = !cost.textContent;
+    };
+    provider.input.addEventListener("change", paint);
+    const controls = element("div", null, "agent-actions");
+    if (view.session.can_manage) {
+      const save = action("Web aramasını kaydet", () => view.busy(save, async () => {
+        const body = { provider: provider.input.value, searxng_url: url.input.value.trim(), language: language.input.value.trim() || "tr" };
+        if (key.input.value) body.key = key.input.value;
+        await view.request("/api/agents/search", "PUT", body);
+        key.input.value = "";
+        if (view.alive) { view.options.toast("Web araması kaydedildi."); renderSearch(view, box); }
+      }), "primary");
+      const test = action("Aramayı test et", () => view.busy(test, async () => {
+        const result = await view.request("/api/agents/search/test", "POST", {});
+        if (view.alive) view.options.toast(result.message);
+      }));
+      controls.append(save, test);
+    } else {
+      provider.input.disabled = key.input.disabled = url.input.disabled = language.input.disabled = true;
+    }
+    box.replaceChildren(box.firstElementChild, box.children[1], provider.wrapper, key.wrapper, url.wrapper, language.wrapper, cost, controls);
+    paint();
   }
   function editConnection(view, original = null) {
     const connection = original || { name: "", provider: "ollama", model: "", base_url: "http://127.0.0.1:11434" };

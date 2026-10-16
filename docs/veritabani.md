@@ -66,6 +66,29 @@ GO
 
 `db_owner`, `db_datawriter`, `sysadmin` gibi geniş roller vermeyin. Yalnız iki tablo gereken durumda `db_datareader` da tüm tabloları açacağından gerekli değildir. DBA mevcut rol üyeliklerini ve `public` izinlerini de denetlemelidir. [Microsoft nesne bazlı yetkilendirme](https://learn.microsoft.com/en-us/sql/t-sql/statements/grant-object-permissions-transact-sql?view=sql-server-ver16), [en az yetki ilkesi](https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/getting-started-with-database-engine-permissions?view=sql-server-ver17).
 
+## Kayıt değiştirme yetkisi (Veritabanında değişiklik yap)
+
+0.9.30 ile akışlar **Veritabanında değişiklik yap** adımıyla kayıt ekleyip güncelleyebilir. Uygulama komutu yalnız bağlantıda izin verilen tablo ve saklı yordamlarda, tek komut ve kendi işleminde çalıştırır; yine de asıl sınır veritabanı kullanıcısının yetkisidir. Okuma ve yazma için iki ayrı bağlantı ve iki ayrı kullanıcı önerilir:
+
+```sql
+-- SQL Server: yalnız iki tabloda güncelleme ve bir yordamı çalıştırma yetkisi
+CREATE LOGIN rpa_yazici WITH PASSWORD = 'GÜÇLÜ-BİR-PAROLA';
+CREATE USER rpa_yazici FOR LOGIN rpa_yazici;
+GRANT SELECT, UPDATE ON dbo.siparisler TO rpa_yazici;
+GRANT SELECT, INSERT ON dbo.siparis_notlari TO rpa_yazici;
+GRANT EXECUTE ON dbo.sp_fatura_kapat TO rpa_yazici;
+```
+
+```sql
+-- PostgreSQL
+CREATE ROLE rpa_yazici LOGIN PASSWORD 'GÜÇLÜ-BİR-PAROLA';
+GRANT USAGE ON SCHEMA public TO rpa_yazici;
+GRANT SELECT, UPDATE ON public.siparisler TO rpa_yazici;
+GRANT EXECUTE ON PROCEDURE public.fatura_kapat(text) TO rpa_yazici;
+```
+
+ERP'nin kendi tablolarına doğrudan yazmak, ERP'nin iş kurallarını (stok, muhasebe kaydı, onay zinciri) atlayabilir. Mümkünse ERP üreticisinin sunduğu API'yi veya saklı yordamı kullanın; doğrudan tablo güncellemesini ERP sorumlusuyla birlikte tasarlayın ve önce test veritabanında deneyin.
+
 ## Bağlantı yapılandırması
 
 Bağlantı Studio'da adımın **Bağlantı** alanından form ile kurulur (veritabanı türü, sunucu, port, veritabanı adı, kullanıcı, şifre). Şifre yalnız o bilgisayardaki çalışma alanında saklanır, dışa aktarılan akışa eklenmez ve çalışma günlüğünde gizlenir. Aşağıdaki `.env` ayarı yalnız ilk açılışta varsayılan bağlantı oluşturmak içindir.

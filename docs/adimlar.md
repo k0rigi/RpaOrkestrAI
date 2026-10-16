@@ -1,6 +1,6 @@
 # Adım rehberi
 
-Adım kütüphanesi 88 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
+Adım kütüphanesi 92 adımdır ve hareketleriniz kaydedilip adımlara çevrilebilir. Her adım macOS ve Windows'ta aynı biçimde çalışır; işletim sistemine özgü farklar tabloda belirtilmiştir. Kütüphanenin üstündeki **Adım ara** kutusuna "excel", "tıkla", "bekle" gibi bir kelime yazarak adımı bulabilirsiniz.
 
 ## Akışı düzenleme
 
@@ -232,6 +232,7 @@ Bu adım ajan lisansı gerektirir ve şu aşamada yalnız elle başlatılan akı
 | Adım | Ne yapar | Sonuç |
 | --- | --- | --- |
 | Veritabanı sorgusu | Seçilen bağlantıda tek bir `SELECT` (veya `WITH`) sorgusu çalıştırır; sonuç sütun adlarıyla gelen satır listesidir ve doğrudan **Her satır için** döngüsüne verilir. | `${rows}` |
+| Veritabanında değişiklik yap (0.9.30+) | Tek bir `INSERT`, `UPDATE … SET … WHERE`, `DELETE FROM … WHERE`, `MERGE` veya saklı yordam (`EXEC dbo.yordam @p = ${deger}`, `CALL yordam(…)`) çalıştırır. Yalnız bağlantıda yazmaya izin verilen tablo ve yordamlarda çalışır. | `${db_result.affected}`, `${db_result.rows}` |
 
 **Bağlantı:** Adımın **Bağlantı** alanından (veya editördeki **Bağlantılar** düğmesinden) **Veritabanı türü** seçilir: SQL Server, PostgreSQL, MySQL / MariaDB, Oracle (servis adıyla) veya SQLite dosyası. Sunucu, port (boşsa varsayılan), veritabanı adı, kullanıcı ve şifre girilir; **Bağlantıyı test et** bağlantıyı dener. SQL Server'da adlı örnek için sunucuya `SUNUCU\SQLEXPRESS` yazıp portu boş bırakın. Windows'ta SQL Server bilgisayardaki ODBC sürücüsüyle (varsa ODBC Driver 18/17, yoksa Windows'un kendi "SQL Server" sürücüsü), Mac'te uygulamayla gelen sürücüyle bağlanır; ek kurulum gerekmez. Listede olmayan durumlar için **Bağlantı adresi (gelişmiş)** seçilip SQLAlchemy adresi yazılabilir.
 
@@ -250,6 +251,17 @@ Tırnak dışındaki `${durum}` sorguya metin olarak eklenmez, ayrı parametre o
 **Yalnız okuma:** Adım `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `SELECT … INTO`, `FOR UPDATE`, `EXEC` gibi değiştiren veya kilitleyen ifadeleri ve noktalı virgülle ayrılmış birden fazla komutu reddeder. Sorgu bittikten sonra işlem her zaman geri alınır. PostgreSQL, MySQL ve Oracle oturumu ayrıca salt okunur açılır; SQLite dosyası salt okunur açılır. SQL Server'da salt okunur oturum yoktur: bağlantıda yalnız okuma yetkisi olan bir kullanıcı kullanın ([veritabanı yetki rehberi](veritabani.md)).
 
 **Satır sınırı:** **En fazla satır** (varsayılan 1000, en çok 100.000) aşılırsa ilk satırlar alınır ve çalışma günlüğünde uyarı görünür. Tarihler `2026-10-05 09:30:00` biçiminde metin, ondalıklar sayı olarak gelir.
+
+**Kayıt değiştirme (0.9.30+):** Ayarlar → Bağlantılar'da veritabanı bağlantısını açıp **Kayıt değiştirmeye izin ver** seçeneğini işaretleyin ve **Değiştirilebilecek tablolar ve saklı yordamlar** alanına adları virgülle yazın (ör. `dbo.siparisler, dbo.sp_fatura_kapat`). **Veritabanında değişiklik yap** adımı:
+
+- Tek bir komut çalıştırır; noktalı virgülle ayrılmış komutlar, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `GRANT`, dinamik SQL (`EXEC('…')`, `sp_executesql`) ve `xp_` yordamları reddedilir.
+- `UPDATE` ve `DELETE` için `WHERE` zorunludur. `UPDATE` tablonun adıyla yazılır (`UPDATE dbo.siparisler SET … WHERE …`); takma adlı `UPDATE f … FROM …` biçimi kabul edilmez.
+- Komutun hedefi bağlantıdaki listede olmalıdır. Şemasız ad (`siparisler`) şemalı liste kaydıyla (`dbo.siparisler`) eşleşir.
+- Değerler `${…}` ile güvenli parametre olarak gönderilir (okuma adımıyla aynı kurallar).
+- Komut kendi işleminde çalışır. **En fazla değişecek satır** (varsayılan 1) aşılacaksa hiçbir şey kaydedilmez, akış durur. **Hiç satır değişmezse** varsayılan olarak akış durur (kayıt bulunamadı); **Devam et** seçilebilir. Saklı yordamlar değişen satır sayısını bildirmeyebilir; bu durumda sınır uygulanamaz ve `${db_result.affected}` boş olur.
+- Ajanların bu adımı içeren akışları değişiklik sınıfındadır; akışa «onaysız çalışabilir» izni verilmedikçe kurum onayı ister.
+
+Veritabanı kullanıcısına yalnız gereken tablolarda yazma yetkisi verin; okuma için ayrı, salt okunur bir bağlantı kullanmak önerilir ([veritabanı yetki rehberi](veritabani.md)). Bu adımı içeren akışlar 0.9.29 ve önceki sürümlerde açılmaz.
 
 Eski akışlardaki **Tablo oku** adımı çalışmaya devam eder; yeni akışlarda **Veritabanı sorgusu** kullanın. **Veritabanı sorgusu** adımı ve yeni bağlantı formu 0.9.3 ve önceki sürümlerde yoktur; bu adımı içeren akışlar o sürümlerde açılmaz.
 
@@ -276,7 +288,10 @@ Bir akış 10.000 adıma ve 50 seviye iç içe bloğa (koşul, döngü, hata olu
 | --- | --- | --- |
 | Mesaj kutusu göster | Tamam, Tamam/İptal veya Evet/Hayır; yanıt beklenir. **Otomatik kapanma** verilirse kutu o kadar saniye sonra kendiliğinden kapanır (macOS ve Windows). | `${answer}`: `ok`, `cancel`, `yes`, `no`; süre dolarsa `timeout` |
 | Kullanıcıdan değer iste | Çalışma sırasında tarih veya fatura no gibi bir değer sorar. | `${user_input}` |
-| HTTP isteği gönder (API) | GET/POST/PUT/PATCH/DELETE; JSON gövde ve başlıklarla. | `${response.status}`, `${response.body}` |
+| HTTP isteği gönder (API) | GET/POST/PUT/PATCH/DELETE; JSON gövde ve başlıklarla. 0.9.30+: **API bağlantısı** seçilirse adres bağlantının ana adresine göre bir yol olur (ör. `/v1/siparisler/${row.no}`) ve kimlik bilgileri (Bearer, Basic, API anahtarı, OAuth 2.0) otomatik eklenir; yalnız o sunucuya gönderilir. | `${response.status}`, `${response.body}` |
+| E-postaları oku (0.9.30+) | Gelen e-posta (IMAP) bağlantısındaki klasörden iletileri okur; okunmamış, gönderen, konu ve gün süzgeçleri vardır. Okumak iletiyi okundu yapmaz; istenirse okundu işaretler ve ekleri klasöre kaydeder. | `${emails}`: her biri `subject`, `from`, `text`, `attachments` |
+| FTP dosya aktarımı (0.9.30+) | FTP / FTPS sunucusundan dosya indirir, sunucuya yükler veya klasörü listeler. Uzak yollar bağlantının başlangıç klasörüne göredir ve onun dışına çıkamaz. SFTP desteklenmez. | `${ftp_result}` |
+| Mesaj gönder (Teams, Slack…) (0.9.30+) | Microsoft Teams (İş Akışları webhook'u), Slack, Google Chat veya Discord kanalına mesaj gönderir. Hata olursa yeniden gönderilmez. | `${message_result.sent}` |
 | Web sayfası aç (0.9.20+) | Bilgisayardaki Edge veya Chrome ile sayfayı açar (Otomatik: Windows'ta Edge, Mac'te Chrome); ayrıca tarayıcı indirilmez. Girişler RpaOrkestrAI'nin ayrı tarayıcı profilinde hatırlanır; tarayıcı çalışma bitince kapanır. | `${web_url}` |
 | Web'de bekle, tuşa bas, geri/ileri/yenile, sekmeye geç, tablosunu oku, dosya indir/yükle, sayfa görüntüsü, JavaScript çalıştır (0.9.21+) | Ayrıntılar ve örnekler: [Web otomasyonu](web-otomasyonu.md). Hedef alanı olan adımlarda **Tarayıcıda seç** ile öğeye tıklayarak hedef belirlenir. | — |
 | Web öğesine tıkla / Web alanını doldur / Web'den metin oku / Web listesinden seç (0.9.20+) | Hedef **görünen metin**, **alan etiketi**, **alandaki silik yazı**, **düğme veya bağlantı adı** ya da CSS seçiciyle bulunur. Kapalı **Tam eşleşme** ile yazdığınızın içinde geçmesi yeterlidir. Hedef birden fazla öğeyle eşleşirse işlem yapılmaz; tıklama tekrarlanmaz. Çerçeve (iframe) içindeki öğeler için **Çerçeve** alanına çerçevenin CSS seçicisini yazın (0.9.21+) veya Tarayıcıda seç kullanın. Türkçe büyük **İ** içeren metinlerde hedefi sayfadaki gibi yazın. | `${web_text}`, `${web_option}` |

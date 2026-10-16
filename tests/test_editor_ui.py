@@ -684,7 +684,9 @@ def test_database_query_command_modes_and_loop_start_in_the_editor(tmp_path):
             # Database connections are always offered now that the library has a database step.
             page.get_by_role("button", name="Bağlantılar", exact=True).click()
             manager = page.locator("dialog.connection-manager")
-            playwright.expect(manager.locator(".connection-group h3")).to_have_text(["Google Sheets", "Veritabanı", "E-posta (SMTP)"])
+            playwright.expect(manager.locator(".connection-group h3")).to_have_text([
+                "Google Sheets", "Veritabanı", "E-posta (SMTP)", "Gelen e-posta (IMAP)", "Web servisi (API)",
+                "FTP / FTPS", "Mesajlaşma (Teams, Slack…)"])
             manager.get_by_role("button", name="Kapat").click()
 
             # Veritabanı sorgusu: a SQLite connection made from the step's own form.

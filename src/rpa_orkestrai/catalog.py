@@ -73,6 +73,16 @@ MAIL_CONNECTION = field("connection", "E-posta (SMTP) bağlantısı", "connectio
                         help="Gönderen hesap ve sunucu. Şifre yalnız bu bilgisayarda saklanır.")
 DATABASE_CONNECTION = field("connection", "Veritabanı bağlantısı", "connection", "", connection_type="database",
                             help="Boş bırakılırsa varsayılan veritabanı bağlantısı kullanılır.")
+API_CONNECTION = field("connection", "API bağlantısı", "connection", "", connection_type="api", optional=True,
+                       omit_default=True,
+                       help="Seçilirse adres bağlantının ana adresine göre bir yol olur (ör. /v1/siparisler) ve kimlik "
+                            "bilgileri otomatik eklenir. Boş: tam adres yazın, kimlik bilgisi eklenmez.")
+IMAP_CONNECTION = field("connection", "Gelen e-posta (IMAP) bağlantısı", "connection", "", connection_type="imap",
+                        help="Okunacak posta kutusu. Şifre yalnız bu bilgisayarda saklanır.")
+FTP_CONNECTION = field("connection", "FTP bağlantısı", "connection", "", connection_type="ftp",
+                       help="Sunucu, kullanıcı ve başlangıç klasörü bağlantıda tanımlanır.")
+WEBHOOK_CONNECTION = field("connection", "Mesajlaşma bağlantısı", "connection", "", connection_type="webhook",
+                           help="Teams, Slack, Google Chat veya Discord kanalının webhook adresi bağlantıda saklanır.")
 SHEET_ID = field("spreadsheet_id", "Google Sheets adresi veya kimliği", required=True,
                  help="Tablonun tam bağlantısını yapıştırabilirsiniz. Servis hesabıyla paylaşılmış olmalıdır.")
 
@@ -804,6 +814,16 @@ LIBRARY = [
                   raw=True),
             field("max_rows", "En fazla satır", "number", 1000, min=1, max=100000, required=True),
             output("rows")]),
+    action("database.execute", "Veritabanında değişiklik yap", "Veritabanı",
+           "Kayıt ekler, günceller, siler veya saklı yordam çalıştırır (INSERT, UPDATE, DELETE, MERGE, EXEC). Yalnız "
+           "bağlantıda yazma izni verilen tablolarda çalışır; sınırdan fazla satır değişirse işlem geri alınır.",
+           [DATABASE_CONNECTION,
+            field("query", "SQL komutu", "code", "UPDATE dbo.siparisler SET durum = ${yeni_durum} WHERE no = ${row.no}",
+                  required=True, raw=True),
+            field("max_rows", "En fazla değişecek satır", "number", 1, min=1, max=100000, required=True),
+            field("on_zero", "Hiç satır değişmezse", "select", "error", options=[
+                {"value": "error", "label": "Akışı durdur"}, {"value": "continue", "label": "Devam et"}]),
+            output("db_result")]),
     # ----- Akış ------------------------------------------------------------------------
     action("control.repeat", "Tekrarla (N kez)", "Akış",
            "İç adımları belirtilen sayıda çalıştırır; ${loop_index} 0'dan başlar.",
@@ -962,9 +982,42 @@ LIBRARY = [
             field("attachments", "Ek dosyalar", "code", "",
                   help="Her satıra bir dosya yolu. Toplam en fazla 25 MB. Bulunamayan ek varsa gönderilmez."),
             output("mail_result", "Gönderilen adresler: ${mail_result.to}.")]),
+    action("mail.read", "E-postaları oku", "Web, e-posta ve API",
+           "Gelen kutusundaki (IMAP) e-postaları liste olarak okur: gönderen, konu, metin ve ekler. Okumak iletiyi "
+           "okundu yapmaz; istenirse okundu işaretler ve ekleri bir klasöre kaydeder.",
+           [IMAP_CONNECTION,
+            field("folder", "Klasör", default="", omit_default=True,
+                  help="Boş: bağlantıdaki klasör (genellikle INBOX). Ör. INBOX/Faturalar."),
+            field("unread_only", "Yalnız okunmamışlar", "boolean", True),
+            field("from_contains", "Gönderen içeriyorsa", default="", omit_default=True),
+            field("subject_contains", "Konu içeriyorsa", default="", omit_default=True),
+            field("since_days", "Son kaç gün (0: hepsi)", "number", 0, min=0, max=3650, omit_default=True),
+            field("max_messages", "En fazla e-posta", "number", 20, min=1, max=200, required=True),
+            field("mark_read", "Okunanları okundu olarak işaretle", "boolean", False, omit_default=True),
+            field("attachment_folder", "Ekleri bu klasöre kaydet", default="", omit_default=True,
+                  help="Boş bırakılırsa ekler kaydedilmez; yalnız adları ve boyutları listelenir."),
+            output("emails", "E-posta listesi: Her satır için ile ${email.subject}, ${email.from}, ${email.text}.")]),
+    action("ftp.transfer", "FTP dosya aktarımı", "Web, e-posta ve API",
+           "FTP veya FTPS sunucusuna dosya yükler, sunucudan dosya indirir ya da klasördeki dosyaları listeler.",
+           [FTP_CONNECTION,
+            field("operation", "İşlem", "select", "download", options=[
+                {"value": "download", "label": "Dosya indir"}, {"value": "upload", "label": "Dosya yükle"},
+                {"value": "list", "label": "Klasörü listele"}]),
+            field("remote_path", "Uzak yol", default="", help="Başlangıç klasörüne göre: gelen/fatura.xml veya gelen"),
+            field("local_path", "Yerel dosya", default="", visible_when={"operation": ["download", "upload"]}),
+            field("overwrite", "Varsa üzerine yaz", "boolean", False, visible_when={"operation": ["download", "upload"]}),
+            output("ftp_result")]),
+    action("notify.send", "Mesaj gönder (Teams, Slack…)", "Web, e-posta ve API",
+           "Microsoft Teams, Slack, Google Chat veya Discord kanalına mesaj gönderir: hata bildirimi, günlük özet "
+           "veya onay bekleyen iş haberi için.",
+           [WEBHOOK_CONNECTION,
+            field("title", "Başlık", default="", omit_default=True),
+            field("text", "Mesaj", "code", "", required=True, help="Değişken kullanılabilir: ${row.no} numaralı fatura işlendi."),
+            output("message_result")]),
     action("http.request", "HTTP isteği gönder (API)", "Web, e-posta ve API",
            "Bir web servisine istek gönderir; JSON yanıt ${response.body} içinde gelir.",
-           [field("method", "Yöntem", "select", "GET", options=[{"value": m, "label": m} for m in
+           [API_CONNECTION,
+            field("method", "Yöntem", "select", "GET", options=[{"value": m, "label": m} for m in
                                                                ["GET", "POST", "PUT", "PATCH", "DELETE"]]),
             field("url", "Adres", default="https://", required=True), field("headers", "Başlıklar", "json", {}),
             field("body", "Gövde", "json", None, help="JSON nesnesi veya metin; GET'te gönderilmez."),
@@ -1015,7 +1068,7 @@ for _entry in CATALOG:
     _entry["number"] = STEP_NUMBERS[_entry["type"]]  # a new library step needs its number in step_numbers.py
 # Preview runs skip these (they touch the screen, files, network or other programs).
 EXTERNAL_PREFIXES = ("database.", "desktop.", "browser.", "sheets.", "input.", "window.", "screen.", "system.",
-                     "clipboard.", "file.", "ui.", "http.", "mail.", "web.", "ai.")
+                     "clipboard.", "file.", "ui.", "http.", "mail.", "web.", "ai.", "ftp.", "notify.")
 CONTAINERS = {"control.for_each": ("children",), "control.while": ("children",), "control.repeat": ("children",),
               "control.if": ("children", "otherwise"), "control.try": ("children", "otherwise")}
 LOOPS = {"control.for_each", "control.while", "control.repeat"}

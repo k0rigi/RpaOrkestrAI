@@ -5,9 +5,9 @@ let serial = 0;
 const states = { idle: "Boşta", queued: "Sırada", running: "Çalışıyor", waiting_user: "Yanıt bekliyor",
   waiting_approval: "Onay bekliyor", succeeded: "Tamamlandı", failed: "Hata", cancelled: "Durduruldu", unknown: "Durum paylaşılmıyor" };
 const activityNames = { thinking: "Düşünüyor", workflow: "Akış çalıştırıyor", asking_manager: "Yöneticiye soru soruyor",
-  reviewing: "Departman sorusunu yanıtlıyor" };
+  reviewing: "Departman sorusunu yanıtlıyor", researching: "İnternette araştırıyor" };
 function stateName(person) { return activityNames[person.activity] || states[person.status] || "Bilinmiyor"; }
-function symbol(person) { return ({ thinking: "…", workflow: "↻", waiting_approval: "!", waiting_user: "?", asking_manager: "?", reviewing: "✎",
+function symbol(person) { return ({ thinking: "…", workflow: "↻", waiting_approval: "!", waiting_user: "?", asking_manager: "?", reviewing: "✎", researching: "⌕",
   failed: "!", succeeded: "✓", queued: "◷", running: "…", unknown: "—" })[person.activity || person.status] || "·"; }
 function node(tag, text, className) {
   const result = document.createElement(tag);
@@ -77,7 +77,7 @@ export function mountOffice(container, options) {
   const frame = node("div", undefined, "office-frame"), view = node("div", undefined, "office-view");
   view.append(node("p", "Ofis hazırlanıyor…", "office-loading"));
   const preview = node("span", "CANLI OFİS", "office-preview");
-  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı · Balonlar: Görev, Soru, Yanıt, Sonuç", "office-legend");
+  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı · Balonlar: Görev, Soru, Yanıt, Sonuç, Araştırıyor", "office-legend");
   frame.append(view, preview, legend);
   const panel = node("aside", undefined, "office-detail"); panel.hidden = true; panel.setAttribute("aria-label", "Çalışan ayrıntısı");
   const layout = node("div", undefined, "office-layout"); layout.append(frame, panel);
@@ -362,6 +362,14 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
   plant(12.8, -7.65); plant(-12.8, length - 9.8);
   box(3.7, .48, 1.1, chairMat, 0, .53, 6.8); box(3.7, .58, .18, chairMat, 0, 1.04, 7.27);
   box(2.3, .12, .8, deskMat, 0, .7, 5.4); box(.12, .6, .12, metalMat, -.8, .35, 5.4); box(.12, .6, .12, metalMat, .8, .35, 5.4);
+  // Araştırma köşesi: agents that read the web walk here (bookshelf and globe beside the lounge).
+  box(1.5, 2.3, .45, deskMat, -3.15, 1.15, 5.5);
+  for (const height of [.55, 1.15, 1.75]) box(1.3, .08, .4, metalMat, -3.15, height, 5.5);
+  for (const [offset, height, token] of [[-.35, .82, trimMat], [.1, .82, plantMat], [-.2, 1.42, humanMat], [.3, 1.42, trimMat]])
+    box(.18, .42, .3, token, -3.15 + offset, height, 5.5);
+  box(.12, 1.0, .12, metalMat, 3.15, .5, 5.5);
+  mesh(new THREE.SphereGeometry(.45, 18, 12), plantMat, 3.15, 1.35, 5.5);
+  label("Araştırma köşesi", -3.15, 2.75, 5.5);
 
   function character(seat) {
     const { person, x, z } = seat, root = new THREE.Group(); scene.add(root); root.position.set(x, .05, z + .95);
@@ -406,11 +414,8 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     else if (event.kind === "delegated") say(source, "Görev", 3000, stamp);
     else if (event.kind === "completed" && person.status === "succeeded") say(source, "Sonuç", 4500, stamp);
     if (reduced.matches) return;
-    if (event.kind === "completed" && person.status === "succeeded") source.delivery = { stamp, target: destination.origin.clone() };
-    else if (event.kind === "delegated") {
-      const card = box(.65, .45, .06, paperMat, source.origin.x, 2.7, source.origin.z);
-      flights.push({ mesh: card, stamp, from: source.origin.clone(), to: destination.origin.clone() });
-    }
+    if (event.kind === "completed" && person.status === "succeeded") source.delivery = { stamp, path: route(source, 0) };
+    else if (event.kind === "delegated") source.delivery = { stamp, path: handOver(source, destination) };
   }
   function update(next) {
     const stamp = performance.now();
@@ -429,10 +434,21 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     request();
   }
   const TRIP = 3500;
-  function route(item, endX) {
+  function route(item, endX, endZ = 1.9) {
     const side = item.origin.x < 0 ? -4 : 4;
     return [item.origin, new THREE.Vector3(side, .05, item.origin.z), new THREE.Vector3(side, .05, 3.3),
-      new THREE.Vector3(endX, .05, 3.3), new THREE.Vector3(endX, .05, 1.9)];
+      new THREE.Vector3(endX, .05, 3.3), new THREE.Vector3(endX, .05, endZ)];
+  }
+  // The manager leaves the glass room and hands the task card over at the department's desk.
+  function handOver(manager, department) {
+    const side = department.origin.x < 0 ? -4 : 4, front = department.origin.z + 1.2;
+    return [manager.origin, new THREE.Vector3(manager.origin.x, .05, 3.3), new THREE.Vector3(side, .05, 3.3),
+      new THREE.Vector3(side, .05, front), new THREE.Vector3(department.origin.x, .05, front)];
+  }
+  function researchSlot(item) {
+    const reading = [...characters.values()].filter((other) => (other.person.activity || other.person.status) === "researching");
+    const index = Math.max(0, reading.indexOf(item));
+    return (index % 2 ? 1 : -1) * (1.3 + Math.floor(index / 2) * 1.1);
   }
   function askingSlot(item) {
     // Several departments can wait in front of the manager at once; give each a fixed place.
@@ -441,6 +457,8 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     return (index % 2 ? 1 : -1) * (1.2 + Math.floor(index / 2) * 1.2);
   }
   function walk(item, path, phase, back, stamp, stepping) {
+    // A frame's timestamp can precede the moment an event was recorded; never step outside the path.
+    phase = Math.max(0, Math.min(1, phase));
     const piece = Math.min(3, Math.floor(phase * 4)), fraction = phase * 4 - piece;
     item.root.position.lerpVectors(path[piece], path[piece + 1], fraction);
     const direction = path[piece + 1].clone().sub(path[piece]);
@@ -462,13 +480,16 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
         item.arms.forEach((arm, index) => { arm.rotation.x = -.55 + (moving && state === "workflow" ? Math.sin(stamp / 180 + index) * .08 : 0); });
         item.body.position.y = moving ? Math.sin(stamp / 850) * .025 : 0; active ||= moving;
       }
-      const asking = state === "asking_manager";
-      const speech = asking ? "Soru" : item.said && item.said.until > stamp ? item.said.text : "";
+      const asking = state === "asking_manager", researching = state === "researching";
+      const wanted = asking ? "ask" : researching ? "research" : null;
+      const speech = asking ? "Soru" : researching ? "Araştırıyor" : item.said && item.said.until > stamp ? item.said.text : "";
       if (item.said && item.said.until <= stamp) item.said = null;
       item.speech.textContent = speech; item.speech.hidden = !speech; active ||= Boolean(item.said);
-      if (asking && moving && !item.trip) {
-        item.trip = { out: true, stamp, route: route(item, askingSlot(item)) }; item.delivery = null;
-      } else if (item.trip?.out && (!asking || !moving)) {
+      if (wanted && moving && !item.trip) {
+        item.trip = { out: true, stamp, kind: wanted,
+          route: wanted === "ask" ? route(item, askingSlot(item)) : route(item, researchSlot(item), 4.4) };
+        item.delivery = null;
+      } else if (item.trip?.out && (item.trip.kind !== wanted || !moving)) {
         const reached = Math.min(1, (stamp - item.trip.stamp) / TRIP);
         item.trip = { ...item.trip, out: false, stamp: stamp - (1 - reached) * TRIP };
       }
@@ -477,7 +498,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
         if ((!item.trip.out && phase <= 0) || !moving) item.trip = null;
         else {
           walk(item, item.trip.route, phase, !item.trip.out, stamp, phase < 1);
-          if (phase >= 1) item.root.rotation.y = 0;
+          if (phase >= 1) item.root.rotation.y = item.trip.kind === "research" ? Math.PI : 0;
           active ||= phase < 1;
         }
       }
@@ -487,7 +508,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
         else {
           // Walk to the open front of the manager room, then return to the same desk.
           const phase = progress < .5 ? progress * 2 : (1 - progress) * 2;
-          walk(item, route(item, 0), phase, progress >= .5, stamp, true); active = true;
+          walk(item, item.delivery.path, phase, progress >= .5, stamp, true); active = true;
         }
       }
       item.labelItem.point.copy(item.root.position).add(new THREE.Vector3(0, 2.85, 0));

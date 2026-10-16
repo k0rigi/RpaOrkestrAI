@@ -94,4 +94,8 @@ STEP_NUMBERS = {
     "web.script": 86,
     "mail.send": 87,
     "http.request": 88,
+    "database.execute": 89,
+    "mail.read": 90,
+    "ftp.transfer": 91,
+    "notify.send": 92,
 }

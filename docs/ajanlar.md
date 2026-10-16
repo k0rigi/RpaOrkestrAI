@@ -38,7 +38,10 @@ Yönetici ajan akış çalıştıramaz; bu yetki yalnız departman ajanlarına v
 
 Katalogdaki her adım risk tablosunda sınıflandırılır. Masaüstünden tablo okumak bile
 tıklama ve seçim değiştiriyorsa onay gerektirir. Akışın riski tüm alt akışları kapsar.
-Bilinmeyen bir adım okuma sayılmaz. Genel kabuk/komut/script, sınırsız ağ ve genel
+Bilinmeyen bir adım okuma sayılmaz. API bağlantısı kullanan HTTP isteği, veritabanı
+okuma/yazma, e-posta okuma, FTP ve mesaj adımları 0.9.30'dan itibaren ajan akışlarında
+kullanılabilir ([kurallar](kurumsal-entegrasyon.md#ajanlar-ve-entegrasyon-adımları)).
+Genel kabuk/komut/script, bağlantısız HTTP isteği ve genel
 masaüstü girişleri ilk sürümün ajan araçlarına açılmaz; manuel akış davranışı korunur.
 Pencere üzerinden çalışan adımlar aynı çalışmada bulunmuş, doğrulanmış pencereyi
 kullanır. Dosya işlemleri yalnız kullanıcının akış izninde belirttiği köklerde yapılır;
@@ -187,17 +190,28 @@ bilgisi veya izni başka bir departmana kendiliğinden geçmez. Sizin doğrudan
 başlattığınız departman görevinde yönetici yoktur; ajan takılınca size sorar.
 Soru ve yanıtlar iki tarafın çalışma kaydında da görünür.
 
-### Otomasyonlar (0.9.29)
+### Otomasyonlar (0.9.29, 0.9.30)
 
-**Ajanlar → Otomasyonlar** sekmesi, ajana kendiliğinden görev verir. Her otomasyonda
-bir ad, görevi alacak ajan, ajana her seferinde verilecek görev metni ve isteğe bağlı
-girdi değişkenleri bulunur. Tetikleyici üç türdür:
+**Ajanlar → Otomasyonlar** sekmesi işi kendiliğinden başlatır. Her otomasyonun bir
+adı, bir **hedefi** ve bir **tetikleyicisi** vardır. Hedef iki türdür (0.9.30+):
 
-| Tetikleyici | Ayarlar | Ajanın ek olarak aldığı girdiler |
+- **Ajana görev ver:** karar gerektiren işler için. Görev metni ve isteğe bağlı girdi
+  değişkenleri yazılır.
+- **Akışı doğrudan çalıştır:** her seferinde aynı adımlarla yapılan işler için. Gelen
+  iş akışa girdi değişkeni olarak verilir; yapay zekâ kullanılmaz, maliyet doğmaz.
+  Akış elle başlatılan çalışmayla aynı kurallarla, masaüstü boşalınca (en çok 30 dakika
+  beklenir) çalışır ve Çalışma geçmişi'nde görünür.
+
+| Tetikleyici | Ayarlar | Ek olarak gelen girdiler |
 | --- | --- | --- |
 | Belirli zamanlarda | Bir kez, her gün, belirli günler veya her N dakikada bir (en az 5 dk); saat, günler, bitiş saati | `tetikleme_zamani` |
-| Bir akış bittiğinde | Akış; bittiğinde, başarıyla bittiğinde veya hata verdiğinde | `tetikleyen_akis`, `akis_durumu`, `akis_hatasi`, `akis_calisma_id` |
+| Tabloya yeni kayıt geldiğinde (0.9.30+) | Google Sheets sayfası, veritabanı `SELECT` sorgusu veya Excel / CSV dosyası; kaydı ayıran sütun; isteğe bağlı süzgeç; denetim aralığı | `kayit`, `kayit_anahtari` |
+| Yeni e-posta geldiğinde (0.9.30+) | Gelen e-posta (IMAP) bağlantısı, klasör, gönderen / konu süzgeci, eklerin kaydedileceği klasör, denetim aralığı | `eposta` |
 | Klasöre yeni dosya geldiğinde | Klasörün tam yolu, dosya deseni (ör. `*.pdf`) | `dosya_adi`, `dosya_yolu` |
+| Bir akış bittiğinde | Akış; bittiğinde, başarıyla bittiğinde veya hata verdiğinde | `tetikleyen_akis`, `akis_durumu`, `akis_hatasi`, `akis_calisma_id` |
+
+Tablo ve e-posta tetikleyicilerinin ayrıntıları ve örnek kurgular:
+[Kurumsal entegrasyon](kurumsal-entegrasyon.md#otomasyonlar-işi-kendiliğinden-başlatmak).
 
 Kurallar:
 
@@ -208,20 +222,54 @@ Kurallar:
 - Otomasyonlar yalnız Studio açık, lisans ve oturum geçerliyken çalışır. Zamanı 60
   dakikadan fazla geçmiş bir çalışma (Studio kapalıydı) başlatılmaz, **Kaçırıldı**
   olarak yazılır. **Bir kez** otomasyonu çalıştıktan sonra kapanır.
-- Aynı otomasyonun önceki görevi bitmeden yenisi başlamaz (**Atlandı**). Bir
-  otomasyon bir saatte en fazla 30 görev başlatır.
+- **Sıra (0.9.30+):** Gelen her iş (dosya, kayıt, e-posta, akış bitişi) sıraya girer
+  ve önceki iş bitince sıradaki başlar; önceki iş sürerken gelen iş kaybolmaz. Sırada
+  en fazla 200 iş bekler; kart sıradaki iş sayısını gösterir. Zamanlı otomasyonda
+  önceki iş sürerken gelen zaman **Atlandı** olarak yazılır. Bir otomasyon bir saatte
+  en fazla 30 ajan görevi veya 120 akış başlatır.
 - Akış tetikleyicisi yalnız sizin veya akış zamanlayıcısının başlattığı çalışmaları
-  sayar. Ajanların çalıştırdığı akışlar, önizleme ve adım testleri tetiklemez; böylece
-  bir otomasyon kendini döngüye sokamaz.
+  sayar. Ajanların veya otomasyonların çalıştırdığı akışlar, önizleme ve adım testleri
+  tetiklemez; bir akış kendi bitişiyle yeniden başlatılamaz. Böylece otomasyonlar
+  döngüye giremez.
 - Klasör tetikleyicisi yalnız klasöre doğrudan gelen ve iki denetim arasında boyutu
   değişmeyen (kopyalanması bitmiş) dosyaları sayar. Otomasyon kaydedildiğinde
   klasörde olan dosyalar işlenmez. Gizli, geçici (`.tmp`, `.part`, `.crdownload`)
-  ve Office kilit (`~$`) dosyaları sayılmaz. Denetimde en fazla 5 dosya işlenir,
-  kalanlar sonraki denetime kalır. Ajan dosyanın yolunu alır; dosyayı okuması için
-  o klasöre izinli bir akışı olmalıdır.
+  ve Office kilit (`~$`) dosyaları sayılmaz. Denetimde en fazla 5 dosya sıraya girer,
+  kalanlar sonraki denetime kalır. Dosyayı okumak için ajanın veya akışın o klasöre
+  erişimi olmalıdır.
 - Otomasyonu yalnız ajanları yönetme yetkisi olan kişi oluşturur, düzenler, kapatır,
   siler veya **Şimdi çalıştır** ile dener. Diğer kullanıcılar listeyi görür. En fazla
   50 otomasyon tanımlanır. Kayıtlar `data/agent_automations.json` dosyasındadır.
+
+### İnternet araştırması (0.9.30)
+
+Ajan formundaki **İnternet erişimi** üç seçeneklidir: **Kapalı** (varsayılan),
+**Yalnız izinli siteler** (her satıra bir site; `*.gib.gov.tr` alt alan adlarını da
+kapsar) ve **Tüm web**. Erişim açık ajan iki araç kullanır: **web_search** (arama;
+başlık, adres, kısa özet) ve **fetch_page** (açık bir sayfayı metin olarak okuma).
+Yönetici ajan da araştırıp sonuca göre işi departmanlara yönlendirebilir.
+
+- Yalnız okur: form gönderemez, oturum açamaz, dosya indiremez. PDF gibi metin
+  olmayan içerik okunmaz.
+- Yalnız açık internet: bu bilgisayara, iç ağa (10.x, 192.168.x …) ve bulut meta
+  veri adreslerine istek gönderilmez; yönlendirmeler her adımda yeniden denetlenir.
+  Bağlantı denetlenen adrese kurulur; sayfalar vekil sunucu (proxy) kullanılmadan okunur.
+- Kayıtlı bir şifre veya anahtar içeren adres ya da arama metni reddedilir. Adresin
+  `?` sonrası 300 karakterle sınırlıdır; ajan adresle iş verisi gönderemez.
+- Bir görevde en fazla 20 web isteği yapılır. Her arama ve okunan sayfa zaman
+  çizelgesine yazılır; ofiste ajan **Araştırma köşesi**'ne yürür.
+- Sayfa içerikleri güvenilmeyen veridir. Bir sayfa ajanı yanıltmaya çalışsa bile
+  izinler değişmez; riskli akışlar onay ister. Mümkünse **Yalnız izinli siteler**
+  kullanın.
+
+Arama hizmeti **Ajanlar → Bağlantılar → Web araması**'ndan seçilir: **Tavily** (ayda
+1.000 ücretsiz arama, kart gerekmez; önerilen), **Vikipedi** (anahtarsız, ücretsiz,
+yalnız ansiklopedik), **Brave Search** (aylık 5 $ kredi, sonrası ücretli; kredi için
+sitede Brave atfı gerekir) veya kendi **SearXNG** sunucunuz. Anahtar sistem şifre
+kasasında saklanır ve günlükte gizlenir. Arama kapalıyken interneti açık ajan yalnız
+adresini bildiği sayfaları okuyabilir. Google Custom Search 1 Ocak 2027'de kapanacağı
+için desteklenmez. İnternet erişimi kullanılmayan ajan dosyaları eski sürümlerle
+uyumlu kalır; erişimi açılmış ajan 0.9.29 ve önceki sürümlerde okunamaz.
 
 ### Görevleri silme (0.9.29)
 

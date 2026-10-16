@@ -131,6 +131,21 @@ class AgentInput(Model):
     model: str = Field(default="", max_length=200)
     workflows: list[WorkflowGrant] = Field(default_factory=list, max_length=500)
     limits: AgentLimits = Field(default_factory=AgentLimits)
+    # Internet research: off, only the listed sites, or the open web. Read-only search and page reading.
+    web_access: Literal["off", "allowlist", "open"] = "off"
+    web_domains: list[Annotated[str, Field(min_length=3, max_length=255)]] = Field(default_factory=list, max_length=50)
+
+    @field_validator("web_domains")
+    @classmethod
+    def clean_domains(cls, value: list[str]) -> list[str]:
+        from .web import normalize_domain
+
+        cleaned = []
+        for item in value:
+            domain = normalize_domain(item)
+            if domain not in cleaned:
+                cleaned.append(domain)
+        return cleaned
 
     @model_validator(mode="after")
     def unique_grants(self) -> AgentInput:
@@ -141,6 +156,8 @@ class AgentInput(Model):
             raise ValueError("Yönetici ajan akış çalıştırma iznine sahip olamaz.")
         if self.role == "manager" and self.manager_id is not None:
             raise ValueError("Yönetici ajan başka bir yöneticiye bağlanamaz.")
+        if self.web_access == "allowlist" and not self.web_domains:
+            raise ValueError("Yalnız izinli siteler seçildiğinde en az bir site yazın (ör. mevzuat.gov.tr).")
         return self
 
 

@@ -113,7 +113,8 @@ def test_agent_editor_keeps_user_text_safe_and_sends_exact_schema(ui):
     saved = [body for method, path, body in calls if method == "PUT" and path == f"/api/agents/{AID}"][0]
     assert saved["model"] == "benim-serbest-modelim" and saved["instructions"] == ATTACK
     assert set(saved) == {"name", "description", "instructions", "department", "role", "manager_id",
-                          "provider_connection_id", "model", "workflows", "limits"}
+                          "provider_connection_id", "model", "workflows", "limits", "web_access", "web_domains"}
+    assert saved["web_access"] == "off" and saved["web_domains"] == []
     assert page.locator("img").count() == 0
 
 
@@ -273,7 +274,7 @@ def test_permission_card_is_built_from_saved_grants_and_previews_edits(ui):
     card = page.locator(".agent-card .agent-permissions")
     assert card.locator('[data-kind="can"]').inner_text().count("«Bilgileri oku» akışını çalıştırabilir") == 1
     assert "Takıldığında size sorar." in card.inner_text()
-    assert "Serbest web araması yapamaz" in card.locator('[data-kind="cannot"]').text_content()
+    assert "İnternete erişemez" in card.locator('[data-kind="cannot"]').text_content()
     assert "30 dk" in page.locator(".agent-card .agent-limit-line").inner_text()
     page.get_by_role("button", name="Düzenle", exact=True).click()
     preview = page.locator(".agent-preview")

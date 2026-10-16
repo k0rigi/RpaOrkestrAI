@@ -55,6 +55,12 @@ class AgentStore:
         # Revalidate mutable records: model_copy(update=...) intentionally skips validation.
         copy = model.model_validate(record.model_dump())
         data = copy.model_dump(mode="json")
+        if kind == "agents":
+            # Unused newer fields stay out of the file, so earlier Studio versions still read the agent.
+            if data.get("web_access") == "off":
+                data.pop("web_access", None)
+            if not data.get("web_domains"):
+                data.pop("web_domains", None)
         if len(json.dumps(data, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")) > MAX_RECORD_BYTES:
             raise ValueError("Ajan kaydı izin verilen boyutu aşıyor.")
         with self._lock:

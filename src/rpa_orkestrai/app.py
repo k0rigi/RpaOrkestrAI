@@ -135,6 +135,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     from .agents.shared_provider import SharedProvider
     from .agents.studio_api import router as agent_studio_router
     from .agents.team_api import router as agent_team_router
+    from .agents.web import SearchSettings
     from .agents.workflow_ai import WorkflowAIService
 
     agent_connections = ProviderConnectionStore(settings.data_dir)
@@ -149,9 +150,11 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             return SharedProvider(agent_central)
         return agent_connections.provider(agent.provider_connection_id, agent.company_id)
 
+    agent_search = SearchSettings(settings.data_dir)
+
     def agent_secrets():
         actor = getattr(licensing, "agent_actor", lambda: None)()
-        return agent_connections.secrets(actor.company_id) if actor is not None else []
+        return [*agent_connections.secrets(actor.company_id), *agent_search.secrets()] if actor is not None else []
 
     manager.ai_service = WorkflowAIService(
         settings, agent_connections,
@@ -168,8 +171,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                           provider_factory=agent_provider,
                           model_resolver=lambda agent: agent_connections.get(
                               agent.provider_connection_id, agent.company_id).model,
-                          secret_source=agent_secrets, approval_backend=agent_approvals)
-    automations = AutomationService(agents, settings.data_dir)
+                          secret_source=agent_secrets, approval_backend=agent_approvals, search_settings=agent_search)
+    automations = AutomationService(agents, settings.data_dir, manager=manager, dispatch=dispatch, connections=connections)
     manager.finished_listeners.append(automations.workflow_finished)
 
     def license_locked(reason):
@@ -951,6 +954,52 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             token = new_token()
         return {"code": script_code(token), "token": token}
 
+    def test_new_connection(kind: str, config: dict, body: dict) -> str:
+        """Connect and log in; only the messaging test posts, and only after the page asked to."""
+        if not connections.ready({"type": kind, "config": config}):
+            raise ValueError("Bağlantının zorunlu alanlarını doldurun.")
+        if kind == "api":
+            from .integrations.api import test
+
+            return test({"id": body.get("id") or "test", "config": config})
+        if kind == "imap":
+            from .integrations.imap import connect, open_folder, search
+            from .integrations.imap import describe as describe_imap
+
+            try:
+                client = connect(config, 20)
+                try:
+                    open_folder(client, config.get("folder") or "INBOX")
+                    count = len(search(client, unread_only=True))
+                finally:
+                    client.logout()
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise ValueError(describe_imap(exc)) from exc
+            return f"Posta kutusuna bağlanıldı: {config.get('folder') or 'INBOX'} klasöründe {count} okunmamış ileti var."
+        if kind == "ftp":
+            from .integrations.ftp import connect, listing
+            from .integrations.ftp import describe as describe_ftp
+
+            try:
+                client = connect(config, 20)
+                try:
+                    count = len(listing(client, "."))
+                finally:
+                    client.close()
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise ValueError(describe_ftp(exc)) from exc
+            return f"FTP sunucusuna bağlanıldı; başlangıç klasöründe {count} öğe var."
+        if body.get("send") is not True:
+            raise ValueError("Mesajlaşma testi kanala gerçek bir deneme mesajı gönderir; onaylayarak yeniden deneyin.")
+        from .actions.transfer import post_message
+
+        post_message(config, "RpaOrkestrAI", "Bağlantı testi: bu kanal RpaOrkestrAI bildirimleri için hazır.", 20)
+        return "Deneme mesajı gönderildi. Kanalda görünüyorsa bağlantı çalışıyor."
+
     @app.post("/api/connections/test")
     def test_connection(body: dict = Body(...)):
         from .integrations.apps_script import AppsScriptSheets
@@ -959,10 +1008,14 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         kind = body.get("type")
         stored = connections.get(body["id"]) if body.get("id") else {"config": {}}
         try:
-            config = connections._clean(kind, body.get("config") or {}, stored["config"]) if kind in {
-                "google_sheets", "database", "smtp"} else None
+            from .connections import TYPES as CONNECTION_TYPES
+
+            config = connections._clean(kind, body.get("config") or {}, stored["config"]) if kind in CONNECTION_TYPES \
+                else None
             if config is None:
                 raise ValueError("Bağlantı türü geçersiz.")
+            if kind in {"imap", "api", "ftp", "webhook"}:
+                return {"ok": True, "message": test_new_connection(kind, config, body)}
             if kind == "smtp":
                 from .actions.mail import connect
                 from .actions.mail import describe as describe_mail

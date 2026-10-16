@@ -245,8 +245,10 @@ STEP_FIELD_HELP = {
     ("ui.input", "default"): "Kutuda hazır gelecek değer.",
     ("ui.input", "on_cancel"): "Kullanıcı İptal'e basarsa ne olacağı.",
     ("http.request", "method"): "Veri almak için GET, göndermek için POST.",
-    ("http.request", "url"): "https:// ile başlayan tam adres.",
-    ("http.request", "headers"): "Gerekiyorsa {\"Authorization\": \"Bearer …\"} gibi başlıklar.",
+    ("http.request", "url"): "API bağlantısı seçiliyse yol (ör. /v1/siparisler/${row.no}); değilse https:// ile "
+                             "başlayan tam adres.",
+    ("http.request", "headers"): "Ek başlıklar (ör. {\"Accept\": \"application/json\"}). Kimlik bilgisini buraya değil, "
+                                 "API bağlantısına yazın; orada korunur ve günlükte gizlenir.",
     ("http.request", "timeout"): "Yanıt bu sürede gelmezse istek durdurulur.",
     ("database.read", "table"): "Bağlantıda izin verilen bir tablo: şema.tablo biçiminde.",
     ("database.query", "query"): "Tek bir SELECT (veya WITH) sorgusu. Değerleri ${row.kod} ile yazın; tırnak "
@@ -256,6 +258,29 @@ STEP_FIELD_HELP = {
                                     "uyarı görünür.",
     ("database.query", "output"): "Satır listesinin adı. Her satır için adımında ${rows} olarak verin; "
                                   "${row.SUTUN_ADI} ile alanlara ulaşın.",
+    ("mail.read", "unread_only"): "Açıkken yalnız henüz okunmamış iletiler gelir; işlediklerinizi okundu işaretleyerek "
+                                  "aynı iletiyi iki kez işlemezsiniz.",
+    ("mail.read", "from_contains"): "Gönderen adresinde veya adında geçen metin (ör. @tedarikci.com). Boş: herkes.",
+    ("mail.read", "subject_contains"): "Konuda geçen metin (ör. Fatura). Büyük/küçük harf fark etmez.",
+    ("mail.read", "since_days"): "Yalnız son bu kadar gündeki iletiler; 0 tarih sınırı koymaz.",
+    ("mail.read", "max_messages"): "Bundan fazla ileti varsa en eskileri önce gelir, kalanlar sonraki çalışmada okunur.",
+    ("mail.read", "mark_read"): "İşaretlenen iletiler Yalnız okunmamışlar açıkken bir daha gelmez.",
+    ("mail.read", "attachment_folder"): "Her ekin kaydedildiği yol ${email.attachments[0].path} gibi listede yer alır. Aynı "
+                                        "adda dosya varsa yeni dosyaya numara eklenir.",
+    ("ftp.transfer", "operation"): "İndir: sunucudan bu bilgisayara; Yükle: bu bilgisayardan sunucuya; Listele: uzak "
+                                   "klasördeki dosyalar.",
+    ("ftp.transfer", "local_path"): "Bu bilgisayardaki dosyanın tam yolu (ör. C:\\Aktarim\\fatura.xml).",
+    ("ftp.transfer", "overwrite"): "Kapalıyken hedefte aynı adlı dosya varsa aktarım yapılmaz ve akış durur.",
+    ("notify.send", "title"): "Mesajın üstünde kalın görünen kısa başlık (isteğe bağlı).",
+    ("database.execute", "query"): "Tek bir komut: INSERT INTO tablo (...) VALUES (...), UPDATE tablo SET ... WHERE ..., "
+                                   "DELETE FROM tablo WHERE ..., MERGE veya EXEC dbo.yordam @p = ${deger}. Değerleri "
+                                   "${row.no} ile yazın; tırnak gerekmez, güvenli parametre olarak gönderilir.",
+    ("database.execute", "max_rows"): "Komut bundan fazla satırı değiştirecekse hiçbir şey kaydedilmez ve akış durur. "
+                                      "Tek kaydı güncelleyen adımda 1 bırakın.",
+    ("database.execute", "on_zero"): "Koşula uyan kayıt yoksa: Akışı durdur, kaydın bulunamadığını gösterir. Devam et "
+                                     "seçilirse ${db_result.affected} 0 olur.",
+    ("database.execute", "output"): "${db_result.affected}: değişen satır sayısı (saklı yordamda bilinmeyebilir), "
+                                    "${db_result.rows}: OUTPUT / RETURNING veya yordamın döndürdüğü satırlar.",
 }
 
 
@@ -629,6 +654,35 @@ GUIDES = {
         ["Bağlantıyı seçin, tablo adresini ve sayfa adını yazın.",
          "Başlangıç hücresini yazın (ör. L${row.row_number}).",
          "Değerleri satır listesi olarak verin: [[\"${baslama}\", \"${bitis}\"]] yan yana iki hücreye yazar."]),
+    "mail.read": guide(
+        ["Ayarlar → Bağlantılar'da Gelen e-posta (IMAP) bağlantısı oluşturun ve test edin.",
+         "Gerekirse gönderen veya konuya göre süzün (ör. Konu içeriyorsa: Fatura).",
+         "Sonucu Her satır için döngüsüne verin; içinde ${email.subject}, ${email.from}, ${email.text} ve "
+         "${email.attachments} kullanın."],
+        "${emails}: e-posta listesi (en eski önce).",
+        "Okumak iletiyi okundu yapmaz. Her çalışmada aynı iletileri işlememek için Okunanları okundu olarak işaretle'yi "
+        "açın veya Otomasyonlar'daki Yeni e-posta geldiğinde tetikleyicisini kullanın. Gmail'de uygulama şifresi gerekir."),
+    "ftp.transfer": guide(
+        ["Ayarlar → Bağlantılar'da FTP bağlantısı oluşturun (FTPS önerilir).",
+         "İşlemi seçin; uzak yolu başlangıç klasörüne göre, yerel dosyayı tam yol olarak yazın."],
+        "${ftp_result}: indirme/yüklemede dosya boyutu, listelemede ${ftp_result.items}.",
+        "SFTP (SSH) farklı bir protokoldür ve bu adımla kullanılamaz. Yarım kalan indirme hedef dosyayı bozmaz."),
+    "notify.send": guide(
+        ["Ayarlar → Bağlantılar'da Mesajlaşma bağlantısı oluşturun: Teams'te kanalın İş Akışları (Workflows) "
+         "webhook'u, Slack'te Incoming Webhook adresi.",
+         "Mesajı yazın; değişken kullanabilirsiniz."],
+        "${message_result.sent}: gönderildi.",
+        "Hata olursa mesaj yeniden gönderilmez (iki kez gitmesin diye). Akış hatalarını bildirmek için Hata olursa "
+        "bloğunun içinde kullanın."),
+    "database.execute": guide(
+        ["Ayarlar → Bağlantılar'da veritabanı bağlantısını açın; Kayıt değiştirmeye izin ver'i işaretleyip "
+         "değiştirilecek tabloları ve saklı yordamları yazın.",
+         "Adımda tek bir komut yazın (ör. UPDATE dbo.siparisler SET durum = ${yeni_durum} WHERE no = ${row.no}).",
+         "En fazla değişecek satır sayısını belirleyin; tek kayıt için 1."],
+        "${db_result.affected}: değişen satır sayısı; ${db_result.rows}: dönen satırlar.",
+        "Komut kendi işleminde çalışır: sınırdan fazla satır değişecekse veya bir hata olursa tamamı geri alınır. "
+        "WHERE'siz UPDATE / DELETE, tablo yapısını değiştiren komutlar ve dinamik SQL çalıştırılmaz. Veritabanı "
+        "kullanıcısına yalnız gereken tablolarda yazma yetkisi verin."),
     "database.query": guide(
         ["Bağlantı alanından veritabanını seçin; yoksa Yeni bağlantı ile sunucu, kullanıcı ve şifreyi girin.",
          "SQL sorgusunu yazın (ör. SELECT FATURANO, TUTAR FROM FATURALAR WHERE DURUM = ${durum}).",
@@ -703,8 +757,13 @@ GUIDES = {
         "Kullanıcının yazdığı değer.",
         "Her çalıştırmada değişen değerler (tarih, dönem) için akışın başına ekleyin."),
     "http.request": guide(
-        ["Yöntemi ve adresi girin.", "Veri gönderilecekse gövdeyi, gerekiyorsa başlıkları yazın."],
-        "${response.status}: durum kodu, ${response.body}: yanıt (JSON ise alanlarıyla)."),
+        ["Firmanızın veya bir hizmetin API'si için API bağlantısı seçin (ana adres ve kimlik doğrulama bir kez "
+         "Ayarlar → Bağlantılar'da girilir); yoksa tam adresi yazın.",
+         "Yöntemi ve yolu girin (ör. GET /v1/siparisler/${row.no}).",
+         "Veri gönderilecekse gövdeyi JSON olarak yazın; değişken kullanabilirsiniz: {\"no\": \"${row.no}\"}."],
+        "${response.status}: durum kodu, ${response.body}: yanıt (JSON ise alanlarıyla).",
+        "Ekranda yapılan bir işin API'si varsa ekran otomasyonu yerine bu adımı tercih edin: daha hızlıdır ve "
+        "pencere değişikliğinden etkilenmez. Kimlik bilgileri yalnız bağlantının kendi sunucusuna gönderilir."),
 }
 
 # How a flow is built; shown in the inspector while no step is selected.

@@ -21,7 +21,7 @@ WORKFLOW_ID = re.compile(r"^[a-f0-9]{32}$")
 UNSUPPORTED = frozenset({
     "ai.ask",
     "system.command", "system.run_file", "system.open", "system.close_app", "web.script",
-    "http.request", "database.query", "file.zip", "screen.screenshot", "desktop.ocr",
+    "file.zip", "screen.screenshot", "desktop.ocr",
     "desktop.click", "desktop.write", "desktop.hotkey", "desktop.press", "desktop.click_template",
     "desktop.scan_dropdown", "clipboard.get", "clipboard.set", "input.mouse_click", "input.mouse_move",
     "input.drag", "input.scroll", "input.type", "input.hotkey", "input.press", "input.key_state",
@@ -30,7 +30,19 @@ FILE_FIELDS = {
     "file.read_text": ("path",), "file.write_text": ("path",), "file.read_table": ("path",),
     "file.write_table": ("path",), "file.read_pdf": ("path",), "file.exists": ("path",),
     "file.list": ("folder",), "file.wait": ("path",), "file.operation": ("source", "destination"),
+    "mail.read": ("attachment_folder",), "ftp.transfer": ("local_path",),
 }
+# Steps whose server is fixed by a named connection; the connection itself must not come from a variable.
+CONNECTION_STEPS = {"http.request", "database.query", "database.execute", "mail.read", "ftp.transfer", "notify.send",
+                    "mail.send"}
+
+
+def _file_field_used(action, raw) -> bool:
+    if action == "mail.read":
+        return bool(str(raw.get("attachment_folder") or "").strip())
+    if action == "ftp.transfer":
+        return raw.get("operation", "download") != "list"
+    return True
 UNSAFE_APPLICATIONS = frozenset({"terminal", "iterm", "iterm2", "cmd", "powershell", "pwsh",
                                  "windowsterminal", "wt", "conhost", "bash", "zsh", "sh",
                                  "safari", "google chrome", "chrome", "chromium", "msedge",
@@ -140,8 +152,16 @@ def _supported(workflow, grant, *, require_resource_grants=True):
                 raise WorkflowError("Ajanın Pencereyi tanı adımında uygulama adı sabit ve dolu olmalıdır.")
             if _unsafe_application(application):
                 raise WorkflowError("Ajan kabuk, tarayıcı, dosya yöneticisi veya Studio penceresini yönetemez.")
-        if step.action in FILE_FIELDS and require_resource_grants and not grant.allowed_roots:
+        if step.action in FILE_FIELDS and _file_field_used(step.action, raw) and require_resource_grants \
+                and not grant.allowed_roots:
             raise WorkflowError("Dosya adımları için ajanın akış izninde izin verilen klasörleri belirtin.")
+        if step.action in CONNECTION_STEPS and "${" in str(raw.get("connection") or ""):
+            raise WorkflowError("Ajan akışlarında bağlantı sabit seçilmelidir; değişkenden gelemez.")
+        if step.action == "http.request":
+            url = str(raw.get("url") or "")
+            if not raw.get("connection") or "://" in url:
+                raise WorkflowError("Ajanın HTTP isteği bir API bağlantısı kullanmalı ve adres bağlantıya göre bir yol "
+                                    "olmalıdır (ör. /v1/siparisler/${no}); kimlik bilgileri böylece yalnız o sunucuya gider.")
         if step.action in {"screen.read_text", "screen.wait_text", "screen.find_image", "screen.click_image"}:
             if raw.get("relative_to") != "window":
                 raise WorkflowError("Ajanın ekran adımı yalnız tanıtılmış bir pencere içinde çalışabilir.")
@@ -296,6 +316,8 @@ class AgentExecutionPolicy:
             value = resolved_params.get(field)
             if field == "destination" and resolved_params.get("operation") in {"delete", "create_folder"}:
                 continue
+            if not _file_field_used(step.action, resolved_params):
+                continue
             path = self._path(value, grants)
             if step.action == "file.operation" and field == "source" and path.is_dir() \
                     and resolved_params.get("operation") != "create_folder":
@@ -309,6 +331,8 @@ class AgentExecutionPolicy:
         if step.action == "desktop.find_window":
             if any("rpaorkestrai" in str(resolved_params.get(key, "")).casefold() for key in ("application", "title")):
                 _stop("Ajan Studio penceresini hedefleyemez.")
+        if step.action == "http.request" and "://" in str(resolved_params.get("url") or ""):
+            _stop("Ajanın HTTP isteği yalnız API bağlantısının sunucusuna gidebilir.")
         if step.action == "mail.send":
             attachments = resolved_params.get("attachments")
             if attachments:

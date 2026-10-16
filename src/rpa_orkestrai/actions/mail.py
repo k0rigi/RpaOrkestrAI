@@ -132,3 +132,33 @@ def send(ctx, p):
     if refused:
         ctx.log("Sunucu bazı alıcıları reddetti: " + ", ".join(refused), level="warning")
     return {"sent": True, "to": delivered, "refused": sorted(refused or {}), "subject": str(message["Subject"])}
+
+
+@handler("mail.read")
+def read(ctx, p):
+    """E-postaları oku: IMAP messages as a list; reading never marks them unless the step asks to."""
+    from ..integrations.imap import describe as describe_imap
+    from ..integrations.imap import read as read_messages
+
+    profile = ctx.connections.resolve(p.get("connection"), "imap")
+    folder = text(p.get("folder"), "Klasör", required=False, limit=200).strip()
+    count = int(number(p.get("max_messages", 20), "En fazla e-posta", 1, 200))
+    days = int(number(p.get("since_days", 0) or 0, "Son kaç gün", 0, 3650))
+    target = None
+    if str(p.get("attachment_folder") or "").strip():
+        target = path(p["attachment_folder"], "Eklerin kaydedileceği klasör")
+        target.mkdir(parents=True, exist_ok=True)
+    try:
+        messages, _ = read_messages(
+            profile["config"], folder=folder, unread_only=p.get("unread_only", True) is True,
+            from_contains=text(p.get("from_contains"), "Gönderen", required=False, limit=320),
+            subject_contains=text(p.get("subject_contains"), "Konu", required=False, limit=500),
+            since_days=days, max_messages=count, mark_read=p.get("mark_read") is True, attachment_folder=target,
+            timeout=number(p.get("timeout", 60), "Zaman aşımı", 5, 300))
+    except WorkflowError:
+        raise
+    except Exception as exc:
+        raise WorkflowError(describe_imap(exc)) from exc
+    ctx.log(f"{len(messages)} e-posta okundu" + (" ve okundu olarak işaretlendi." if p.get("mark_read") is True and messages
+                                                 else "."))
+    return messages

@@ -1,7 +1,7 @@
 """Ajan otomasyonları: zaman, akış ve klasör tetikleyicileri elle verilen görevle aynı sınırlarla çalışır."""
 
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -177,3 +177,135 @@ def test_routes_precede_agent_routes(tmp_path):
         identity = created.json()["id"]
         assert client.delete(f"/api/agents/automations/{identity}").status_code == 204
         assert app.state.automations.workflow_finished in app.state.manager.finished_listeners
+
+
+def rows_body(agent, path, **trigger):
+    return AutomationInput(name="Gelen siparişler", agent_id=agent.id, task="Yeni siparişi işle",
+                           trigger=AutomationTrigger(kind="rows", source="file", file_path=str(path), key_column="No",
+                                                     check_minutes=1, **trigger))
+
+
+def test_new_table_rows_are_queued_one_by_one_and_existing_rows_are_left_alone(auto, tmp_path):
+    gate = threading.Event()
+    auto.runtime.state["provider"] = ScriptedProvider([], callback=lambda request: (gate.wait(AGENT_TEST_SECONDS), response(finish()))[1])
+    table = tmp_path / "siparisler.csv"
+    table.write_text("No;Müşteri;Durum\nS-1;Ege;Bekliyor\n", encoding="utf-8")
+    agent = auto.runtime.agent()
+    created = auto.service.create(rows_body(agent, table, filter_column="Durum", filter_value="bekliyor"))
+    assert "anahtar: No" in created["summary"]
+    auto.service.tick()
+    assert runs(auto.runtime) == []  # S-1 was there when the automation was saved.
+    table.write_text("No;Müşteri;Durum\nS-1;Ege;Bekliyor\nS-2;Kuzey;Bekliyor\nS-3;Güney;Bekliyor\nS-4;Batı;Tamam\n",
+                     encoding="utf-8")
+    auto.clock[0] += timedelta(minutes=1)
+    auto.service.tick()
+    started = runs(auto.runtime)
+    assert len(started) == 1 and started[0].inputs["kayit_anahtari"] == "S-2"
+    assert started[0].inputs["kayit"]["Musteri"] == "Kuzey"  # «Müşteri» is written ${kayit.Musteri} in a flow.
+    assert auto.service.automations()[0]["queue_count"] == 1  # S-3 waits; S-4 does not match the filter.
+    gate.set()
+    settle(auto.runtime)
+    auto.clock[0] += timedelta(seconds=20)
+    auto.service.tick()
+    finished = settle(auto.runtime)
+    assert [run.inputs["kayit_anahtari"] for run in finished] == ["S-2", "S-3"]
+    assert auto.service.automations()[0]["queue_count"] == 0
+
+
+def test_rows_from_a_database_query_and_a_missing_key_column_is_explained(auto, tmp_path):
+    import sqlite3
+
+    from rpa_orkestrai.connections import Connections
+
+    database = tmp_path / "erp.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript("CREATE TABLE siparis (id INTEGER, durum TEXT); INSERT INTO siparis VALUES (1, 'yeni');")
+    connection.close()
+    created = Connections(auto.runtime.settings.data_dir).create(
+        {"name": "ERP", "type": "database", "config": {"engine": "sqlite", "path": str(database)}})
+    agent = auto.runtime.agent()
+    trigger = dict(kind="rows", source="database", connection_id=created["id"], query="SELECT id, durum FROM siparis",
+                   check_minutes=1)
+    with pytest.raises(AgentServiceError, match="“No” sütunu bulunamadı. Tablodaki sütunlar: id, durum"):
+        auto.service.create(AutomationInput(name="DB", agent_id=agent.id, task="İşle",
+                                            trigger=AutomationTrigger(key_column="No", **trigger)))
+    with pytest.raises(ValueError, match="değişken"):
+        AutomationTrigger(kind="rows", source="database", key_column="id", query="SELECT * FROM t WHERE a = ${x}")
+    with pytest.raises(ValueError, match="okuma"):
+        AutomationTrigger(kind="rows", source="database", key_column="id", query="DELETE FROM siparis WHERE id = 1")
+    auto.service.create(AutomationInput(name="DB", agent_id=agent.id, task="İşle",
+                                        trigger=AutomationTrigger(key_column="ID", process_existing=True, **trigger)))
+    auto.service.tick()
+    started = settle(auto.runtime)
+    assert started[0].inputs == {"kayit": {"id": 1, "durum": "yeni"}, "kayit_anahtari": "1"}
+
+
+def test_new_mail_after_saving_reaches_the_agent_with_its_attachment(auto, tmp_path, monkeypatch):
+    from email.message import EmailMessage
+
+    from test_integrations_enterprise import FakeIMAP
+
+    from rpa_orkestrai.connections import Connections
+    from rpa_orkestrai.integrations import imap
+
+    def mail(subject):
+        message = EmailMessage()
+        message["From"], message["Subject"] = "fatura@tedarikci.com", subject
+        message.set_content("Fatura ekte.")
+        message.add_attachment(b"%PDF", maintype="application", subtype="pdf", filename=f"{subject}.pdf")
+        return message
+
+    fake = FakeIMAP({5: mail("Eski")})
+    monkeypatch.setattr(imap, "connect", lambda config, timeout: fake)
+    box = Connections(auto.runtime.settings.data_dir).create(
+        {"name": "Faturalar", "type": "imap", "config": {"host": "imap.x.com", "user": "fatura@firma.com",
+                                                         "password": "uygulama-sifresi-9"}})
+    agent = auto.runtime.agent()
+    attachments = tmp_path / "ekler"
+    created = auto.service.create(AutomationInput(name="Fatura postası", agent_id=agent.id, task="Faturayı işle",
+                                                  trigger=AutomationTrigger(kind="email", connection_id=box["id"],
+                                                                            subject_contains="fatura",
+                                                                            attachment_folder=str(attachments))))
+    assert "Faturalar (INBOX) yeni e-posta geldiğinde" in created["summary"]
+    fake.messages[6] = mail("Fatura F-9")
+    fake.messages[7] = mail("Toplantı")
+    auto.service.tick()
+    assert runs(auto.runtime) == []  # The mailbox is checked every 5 minutes by default.
+    auto.clock[0] += timedelta(minutes=5)
+    auto.service.tick()
+    started = settle(auto.runtime)
+    assert len(started) == 1
+    message = started[0].inputs["eposta"]
+    assert message["subject"] == "Fatura F-9" and message["attachments"][0]["path"] == str(attachments / "Fatura F-9.pdf")
+    assert (attachments / "Fatura F-9.pdf").read_bytes() == b"%PDF" and fake.stored == []
+
+
+def test_an_automation_can_run_a_flow_directly_and_that_flow_never_triggers_another_automation(auto, tmp_path):
+    out = tmp_path / "isler"
+    out.mkdir()
+    flow = auto.runtime.workflow(Step(action="file.write_text", params={
+        "path": str(out / "${kayit_anahtari}.txt"), "text": "${kayit.Musteri}"}))
+    service = AutomationService(auto.runtime.service, auto.runtime.settings.data_dir, clock=lambda: auto.clock[0],
+                                manager=auto.runtime.manager, dispatch=auto.runtime.service.dispatch)
+    auto.runtime.manager.finished_listeners.append(service.workflow_finished)
+    agent = auto.runtime.agent()
+    table = tmp_path / "siparisler.csv"
+    table.write_text("No,Müşteri\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="kendi bitişiyle"):
+        AutomationInput(name="Döngü", target="workflow", target_workflow_id=flow.id,
+                        trigger=AutomationTrigger(kind="workflow", workflow_id=flow.id))
+    service.create(AutomationInput(name="Sipariş akışı", target="workflow", target_workflow_id=flow.id,
+                                   trigger=AutomationTrigger(kind="rows", source="file", file_path=str(table),
+                                                             key_column="No", check_minutes=1)))
+    # A second automation listens for the flow; the automation's own run must not reach it.
+    service.create(AutomationInput(name="İzleyici", agent_id=agent.id, task="Bildir",
+                                   trigger=AutomationTrigger(kind="workflow", workflow_id=flow.id)))
+    table.write_text("No,Müşteri\nS-7,Ege Üretim\n", encoding="utf-8")
+    auto.clock[0] += timedelta(minutes=1)
+    service.tick()
+    wait_for(lambda: (out / "S-7.txt").exists() and service.automations()[0]["last_status"], lambda value: value == "started")
+    assert (out / "S-7.txt").read_text(encoding="utf-8") == "Ege Üretim"
+    run_id = service.automations()[0]["last_run_id"]
+    wait_for(lambda: auto.runtime.store.run(run_id).finished_at, lambda value: value is not None)
+    service.tick()
+    assert list(service._events) == [] and runs(auto.runtime) == []

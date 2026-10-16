@@ -6696,6 +6696,10 @@
     google_sheets: { label: "Google Sheets", glyph: "sheet", example: "Ör. Satış tablosu" },
     database: { label: "Veritabanı", glyph: "database", example: "Ör. uygulama canlı veritabanı" },
     smtp: { label: "E-posta (SMTP)", glyph: "message", example: "Ör. RPA bildirim hesabı" },
+    imap: { label: "Gelen e-posta (IMAP)", glyph: "download", example: "Ör. Fatura posta kutusu" },
+    api: { label: "Web servisi (API)", glyph: "globe", example: "Ör. ERP API" },
+    ftp: { label: "FTP / FTPS", glyph: "upload", example: "Ör. Banka FTP" },
+    webhook: { label: "Mesajlaşma (Teams, Slack…)", glyph: "spark", example: "Ör. Muhasebe kanalı" },
   };
   async function refreshConnections() {
     state.connections = await api("/api/connections");
@@ -6713,6 +6717,10 @@
   function connectionSummary(profile) {
     if (profile.type === "google_sheets") return profile.method_label;
     if (profile.type === "smtp") return [profile.sender, profile.host].filter(Boolean).join(" · ");
+    if (profile.type === "imap") return [profile.user, profile.host, profile.folder].filter(Boolean).join(" · ");
+    if (profile.type === "api") return [profile.base_url, profile.auth_label].filter(Boolean).join(" · ");
+    if (profile.type === "ftp") return [profile.user, profile.host, profile.security_label].filter(Boolean).join(" · ");
+    if (profile.type === "webhook") return profile.service_label;
     const place = profile.engine === "sqlite" ? profile.path.split(/[\\/]/).pop()
       : profile.engine === "url" ? profile.url_kind : [profile.host, profile.database].filter(Boolean).join(" / ");
     return [profile.engine_label, place].filter(Boolean).join(" · ");
@@ -6808,12 +6816,13 @@
       el.value = value;
       select.append(el);
     };
-    option("", fallback ? `Varsayılan bağlantı (${fallback.name})` : "Bağlantı yok");
+    if (f.optional) option("", "Bağlantı kullanma · tam adres");
+    else option("", fallback ? `Varsayılan bağlantı (${fallback.name})` : "Bağlantı yok");
     profiles.forEach((item) => option(item.id, `${item.name}${item.ready ? "" : " · ayarları eksik"}`));
     if (missing) option(chosen, "Bu bilgisayarda bulunmayan bağlantı");
     option("__new__", `+ Yeni ${info.label} bağlantısı…`);
     select.value = chosen;
-    const current = profiles.find((item) => item.id === (chosen || fallback?.id));
+    const current = profiles.find((item) => item.id === (chosen || (f.optional ? "" : fallback?.id)));
     const done = (result) => {
       if (result?.created) {
         step.params[f.name] = result.profile.id;
@@ -6834,7 +6843,10 @@
       meta.append(note("Bu adımda seçili bağlantı bu bilgisayarda yok; akış başka bir bilgisayardan aktarılmış olabilir. Listeden bir bağlantı seçin veya yeni oluşturun.", "warning"));
     else if (current)
       meta.append(icon(info.glyph), node("span", "", connectionSummary(current)), connectionStatus(current));
-    else {
+    else if (f.optional) {
+      const create = button(`${info.label} bağlantısı oluştur`, "plus", () => openConnectionDialog(kind, null, done), "small");
+      meta.append(note("Bağlantı seçilmedi: tam adres yazın, kimlik bilgisi eklenmez.", "info"), create);
+    } else {
       const create = button(`${info.label} bağlantısı oluştur`, "plus", () => openConnectionDialog(kind, null, done), "small");
       meta.append(note(`Bu adımın çalışması için bir ${info.label} bağlantısı gerekir.`, "info"), create);
     }
@@ -6877,6 +6889,10 @@
       body.append(field("Bağlantı adı", inputs.name, "Adımlarda bu adla seçilir.", true));
       if (kind === "google_sheets") sheetsForm(body);
       else if (kind === "smtp") smtpForm(body);
+      else if (kind === "imap") imapForm(body);
+      else if (kind === "api") apiForm(body);
+      else if (kind === "ftp") ftpForm(body);
+      else if (kind === "webhook") webhookForm(body);
       else databaseForm(body);
       const makeDefault = node("input");
       makeDefault.type = "checkbox";
@@ -7043,8 +7059,26 @@
       inputs.engine.addEventListener("change", paint);
       body.append(field("Veritabanı türü", inputs.engine, "", true), server, sqlite, address);
       if (legacyTables) body.append(tables);
-      body.append(note("Bağlantı yalnız okuma için açılır. SQL Server'da salt okunur oturum olmadığından, kayıt "
-        + "değiştiremeyen bir veritabanı kullanıcısı kullanın.", "", "shield"), testArea());
+      inputs.allow_write = node("input");
+      inputs.allow_write.type = "checkbox";
+      inputs.allow_write.checked = Boolean(profile?.allow_write);
+      inputs.allow_write.id = `field-${uid()}`;
+      const writeLabel = node("label", "checkbox-label");
+      writeLabel.htmlFor = inputs.allow_write.id;
+      writeLabel.append(inputs.allow_write, node("span", "", "Kayıt değiştirmeye izin ver (Veritabanında değişiklik yap adımı)"));
+      inputs.write_targets = textInput((profile?.write_targets || []).join(", "), "dbo.siparisler, dbo.sp_fatura_kapat");
+      inputs.write_targets.spellcheck = false;
+      const targets = field("Değiştirilebilecek tablolar ve saklı yordamlar", inputs.write_targets,
+        "Virgülle ayırın. Adım yalnız bu adlara INSERT / UPDATE / DELETE / MERGE veya EXEC çalıştırabilir.", true);
+      const readNote = note("Okuma adımları salt okunur oturum kullanır. SQL Server'da salt okunur oturum olmadığından okuma "
+        + "için kayıt değiştiremeyen bir kullanıcı önerilir.", "", "shield");
+      const writeNote = note("Yazma her komutu kendi işleminde çalıştırır; WHERE'siz UPDATE / DELETE, tablo yapısı "
+        + "değişiklikleri ve listede olmayan tablolar reddedilir. Veritabanı kullanıcısına yalnız bu tablolarda yazma "
+        + "yetkisi verin.", "warning", "shield");
+      const paintWrite = () => { targets.hidden = writeNote.hidden = !inputs.allow_write.checked; };
+      inputs.allow_write.addEventListener("change", paintWrite);
+      body.append(writeLabel, targets, readNote, writeNote, testArea());
+      paintWrite();
       paint();
     }
     function smtpForm(body) {
@@ -7086,18 +7120,145 @@
       );
       paint();
     }
+    function plainInput(value, placeholder) {
+      const input = textInput(value || "", placeholder);
+      input.spellcheck = false;
+      input.autocomplete = "off";
+      return input;
+    }
+    function secretInput(has, placeholder = "") {
+      const input = textInput("", has ? "Kayıtlı değer kullanılıyor · değiştirmek için yazın" : placeholder, "password");
+      input.autocomplete = "new-password";
+      return input;
+    }
+    function choices(list, value) {
+      const select = node("select");
+      for (const [key, label] of list) {
+        const option = node("option", "", label);
+        option.value = key;
+        select.append(option);
+      }
+      select.value = value;
+      return select;
+    }
+    function imapForm(body) {
+      inputs.security = choices([["ssl", "SSL/TLS (genellikle 993)"], ["starttls", "STARTTLS (genellikle 143)"],
+        ["none", "Şifrelemesiz (yalnız iç ağ)"]], profile?.security || "ssl");
+      inputs.host = plainInput(profile?.host, "Ör. imap.gmail.com veya mail.firma.com");
+      inputs.port = plainInput(profile?.port, "");
+      inputs.user = plainInput(profile?.user, "Ör. fatura@firma.com");
+      inputs.password = secretInput(profile?.has_password);
+      inputs.folder = plainInput(profile?.folder || "INBOX", "INBOX");
+      const ports = { ssl: 993, starttls: 143, none: 143 };
+      const paint = () => { inputs.port.placeholder = `Varsayılan: ${ports[inputs.security.value]}`; };
+      inputs.security.addEventListener("change", paint);
+      body.append(
+        field("IMAP sunucusu", inputs.host, "E-posta sağlayıcınızın gelen posta (IMAP) sunucusu.", true),
+        field("Şifreleme", inputs.security, "", true),
+        field("Port", inputs.port, "Boş bırakılırsa şifrelemeye göre varsayılan kullanılır."),
+        field("Kullanıcı", inputs.user, "Çoğunlukla e-posta adresinin kendisi.", true),
+        field("Şifre", inputs.password, "Gmail'de uygulama şifresi gerekir. Microsoft 365'te IMAP erişimini yöneticiniz açmalıdır. Yalnız bu bilgisayarda saklanır.", true),
+        field("Klasör", inputs.folder, "Okunacak klasör. Gelen kutusu: INBOX; alt klasör: INBOX/Faturalar."),
+        note("Test yalnız bağlanır ve okunmamış iletileri sayar; hiçbir iletiyi okundu yapmaz.", "", "shield"),
+        testArea(),
+      );
+      paint();
+    }
+    function apiForm(body) {
+      inputs.base_url = plainInput(profile?.base_url, "https://erp.firma.com/api");
+      inputs.auth = choices([["none", "Kimlik doğrulama yok"], ["bearer", "Bearer token"], ["basic", "Kullanıcı adı ve şifre (Basic)"],
+        ["api_key", "API anahtarı"], ["oauth2", "OAuth 2.0 istemci bilgileri"]], profile?.auth || "bearer");
+      inputs.token = secretInput(profile?.has_token, "Erişim belirteci");
+      inputs.user = plainInput(profile?.user, "");
+      inputs.password = secretInput(profile?.has_password);
+      inputs.api_key = secretInput(profile?.has_api_key, "API anahtarı");
+      inputs.key_name = plainInput(profile?.key_name || "X-API-Key", "X-API-Key");
+      inputs.key_in = choices([["header", "Başlıkta"], ["query", "Adres parametresinde (?anahtar=…)"]], profile?.key_in || "header");
+      inputs.token_url = plainInput(profile?.token_url, "https://kimlik.firma.com/oauth/token");
+      inputs.client_id = plainInput(profile?.client_id, "");
+      inputs.client_secret = secretInput(profile?.has_client_secret, "İstemci sırrı");
+      inputs.scope = plainInput(profile?.scope, "İsteğe bağlı");
+      inputs.headers = node("textarea", "field-input mono");
+      inputs.headers.rows = 3;
+      inputs.headers.spellcheck = false;
+      inputs.headers.value = profile?.headers && Object.keys(profile.headers).length ? JSON.stringify(profile.headers, null, 2) : "";
+      inputs.headers.placeholder = '{"Accept": "application/json"}';
+      inputs.test_path = plainInput(profile?.test_path, "Ör. /v1/durum");
+      const groups = {
+        bearer: [field("Token", inputs.token, "Authorization: Bearer … başlığı olarak gönderilir.", true)],
+        basic: [field("Kullanıcı", inputs.user, "", true), field("Şifre", inputs.password, "", true)],
+        api_key: [field("API anahtarı", inputs.api_key, "", true), field("Anahtarın adı", inputs.key_name, "Servisin belgesindeki ad (ör. X-API-Key, apikey)."),
+          field("Nerede gönderilsin?", inputs.key_in)],
+        oauth2: [field("Token adresi", inputs.token_url, "", true), field("İstemci kimliği (client id)", inputs.client_id, "", true),
+          field("İstemci sırrı (client secret)", inputs.client_secret, "", true), field("Kapsam (scope)", inputs.scope)],
+      };
+      const authBox = node("div");
+      const paint = () => authBox.replaceChildren(...(groups[inputs.auth.value] || []));
+      inputs.auth.addEventListener("change", paint);
+      body.append(
+        field("Ana adres", inputs.base_url, "Adımlarda bu adrese göre yol yazılır (ör. /v1/siparisler). Kimlik bilgileri yalnız bu sunucuya gönderilir.", true),
+        field("Kimlik doğrulama", inputs.auth, "", true), authBox,
+        field("Varsayılan başlıklar (JSON)", inputs.headers, "Her istekte gönderilir. Kimlik bilgisini buraya değil, yukarıdaki alanlara yazın."),
+        field("Test adresi", inputs.test_path, "Bağlantıyı test et bu yola GET isteği gönderir; boş: ana adres."),
+        note("Token, şifre ve anahtarlar yalnız bu bilgisayarda saklanır, çalışma günlüğünde gizlenir ve dışa aktarılan akışlara eklenmez.", "", "shield"),
+        testArea(),
+      );
+      paint();
+    }
+    function ftpForm(body) {
+      inputs.host = plainInput(profile?.host, "Ör. ftp.banka.com.tr");
+      inputs.security = choices([["ftps", "FTPS · açık TLS (önerilen)"], ["none", "Şifrelemesiz FTP (yalnız iç ağ)"]],
+        profile?.security || "ftps");
+      inputs.port = plainInput(profile?.port, "Varsayılan: 21");
+      inputs.user = plainInput(profile?.user, "");
+      inputs.password = secretInput(profile?.has_password);
+      inputs.base_dir = plainInput(profile?.base_dir || "/", "/");
+      inputs.passive = node("input");
+      inputs.passive.type = "checkbox";
+      inputs.passive.checked = profile ? Boolean(profile.passive) : true;
+      inputs.passive.id = `field-${uid()}`;
+      const passive = node("label", "checkbox-label");
+      passive.htmlFor = inputs.passive.id;
+      passive.append(inputs.passive, node("span", "", "Pasif mod (güvenlik duvarı arkasında genellikle gerekir)"));
+      body.append(
+        field("FTP sunucusu", inputs.host, "", true), field("Güvenlik", inputs.security, "", true),
+        field("Port", inputs.port), field("Kullanıcı", inputs.user, "Boş: anonim giriş."), field("Şifre", inputs.password),
+        field("Başlangıç klasörü", inputs.base_dir, "Adımlardaki uzak yollar bu klasöre göredir; adımlar bu klasörün dışına çıkamaz."),
+        passive, note("SFTP (SSH) farklı bir protokoldür ve bu bağlantıyla kullanılamaz.", "", "info"), testArea(),
+      );
+    }
+    function webhookForm(body) {
+      inputs.service = choices([["teams", "Microsoft Teams (İş Akışları)"], ["slack", "Slack"], ["google_chat", "Google Chat"],
+        ["discord", "Discord"], ["generic", "Diğer (JSON gövde)"]], profile?.service || "teams");
+      inputs.url = secretInput(profile?.has_url, "https://…");
+      const help = node("p", "help");
+      const hints = {
+        teams: "Teams kanalında … → İş Akışları → «Webhook isteği alındığında kanala gönder» şablonunu ekleyin ve verilen adresi yapıştırın.",
+        slack: "Slack'te bir uygulamaya Incoming Webhooks ekleyip kanal için oluşan adresi yapıştırın.",
+        google_chat: "Google Chat alanında Uygulamalar ve entegrasyonlar → Webhook'lar bölümünden adres oluşturun.",
+        discord: "Discord kanal ayarları → Entegrasyonlar → Webhook'lar bölümünden adres oluşturun.",
+        generic: "Adrese {\"title\": …, \"text\": …} gövdesiyle POST isteği gönderilir.",
+      };
+      const paint = () => { help.textContent = hints[inputs.service.value]; };
+      inputs.service.addEventListener("change", paint);
+      body.append(field("Servis", inputs.service, "", true), field("Webhook adresi", inputs.url, "Adres bir parola gibi saklanır; dışa aktarılan akışlara eklenmez.", true),
+        help, testArea());
+      paint();
+    }
     function testArea() {
       const wrap = node("div", "connection-test");
       const result = node("div", "connection-test-result");
       result.setAttribute("role", "status");
-      const test = button("Bağlantıyı test et", "check", () => attempt(async () => {
+      const test = button(kind === "webhook" ? "Deneme mesajı gönder" : "Bağlantıyı test et", "check", () => attempt(async () => {
+        if (kind === "webhook" && !(await confirmDialog("Deneme mesajı gönderilsin mi?",
+          "Kanala «Bağlantı testi» başlıklı kısa bir mesaj gönderilir.", "Gönder"))) return;
         test.disabled = true;
         result.replaceChildren(node("p", "help", "Deneniyor…"));
         try {
           const outcome = await api("/api/connections/test", {
             method: "POST",
             body: JSON.stringify({
-              type: kind, id: profile?.id, config: config(),
+              type: kind, id: profile?.id, config: config(), send: kind === "webhook",
               spreadsheet: inputs.spreadsheet?.value.trim() || "",
             }),
           });
@@ -7123,7 +7284,30 @@
           script_url: inputs.script_url.value.trim(),
           credentials_path: inputs.credentials_path.value.trim(),
         };
-      const values = { engine: inputs.engine.value, allowed_tables: inputs.allowed_tables.value };
+      if (kind === "imap") {
+        const values = { security: inputs.security.value };
+        for (const key of ["host", "port", "user", "password", "folder"]) values[key] = inputs[key].value.trim();
+        return values;
+      }
+      if (kind === "ftp") {
+        const values = { security: inputs.security.value, passive: inputs.passive.checked };
+        for (const key of ["host", "port", "user", "password", "base_dir"]) values[key] = inputs[key].value.trim();
+        return values;
+      }
+      if (kind === "webhook") return { service: inputs.service.value, url: inputs.url.value.trim() };
+      if (kind === "api") {
+        let headers = {};
+        const raw = inputs.headers.value.trim();
+        if (raw) {
+          try { headers = JSON.parse(raw); } catch { throw new Error("Varsayılan başlıklar geçerli JSON olmalıdır: {\"Accept\": \"application/json\"}"); }
+        }
+        const values = { auth: inputs.auth.value, key_in: inputs.key_in.value, headers };
+        for (const key of ["base_url", "token", "user", "password", "api_key", "key_name", "token_url", "client_id",
+          "client_secret", "scope", "test_path"]) values[key] = inputs[key].value.trim();
+        return values;
+      }
+      const values = { engine: inputs.engine.value, allowed_tables: inputs.allowed_tables.value,
+        allow_write: inputs.allow_write.checked, write_targets: inputs.write_targets.value };
       for (const key of ["host", "port", "database", "user", "path", "password", "url"])
         values[key] = inputs[key].value.trim();
       return values;

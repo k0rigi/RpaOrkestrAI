@@ -109,10 +109,42 @@ def test_manager_has_no_workflow_tool_and_unknown_descendant_risk_is_high():
     assert workflow_risk(root) == WRITE
 
 
-@pytest.mark.parametrize("action", ["system.command", "system.open", "web.script", "http.request", "input.hotkey"])
+@pytest.mark.parametrize("action", ["system.command", "system.open", "web.script", "input.hotkey"])
 def test_opaque_unsafe_capabilities_cannot_be_enabled_by_approval(action):
     with pytest.raises(WorkflowError, match="güvenle doğrulanamıyor"):
         setup_policy(Workflow(steps=[Step(action=action)]))
+
+
+def test_agent_api_requests_stay_on_the_connection_server():
+    from rpa_orkestrai.agents.policy import AgentExecutionPolicy
+    from rpa_orkestrai.errors import AgentPolicyStop
+
+    for params in ({"url": "https://ornek.com/v1"}, {"connection": "a" * 32, "url": "https://baska.com/v1"},
+                   {"connection": "${baglanti}", "url": "/v1"}):
+        with pytest.raises(WorkflowError, match="API bağlantısı|sabit seçilmelidir"):
+            setup_policy(Workflow(steps=[Step(action="http.request", params=params)]))
+    step = Step(action="http.request", params={"connection": "a" * 32, "url": "/v1/siparis/${no}"})
+    _, _, prepared = setup_policy(Workflow(steps=[step]))
+    assert prepared.risk == WRITE and prepared.approval_required
+    policy = AgentExecutionPolicy(prepared)
+    policy.before_step(step, {"connection": "a" * 32, "url": "/v1/siparis/42"}, {})
+    with pytest.raises(AgentPolicyStop):
+        policy.before_step(step, {"connection": "a" * 32, "url": "https://baska.com/x"}, {})
+
+
+def test_reading_mail_is_a_read_until_it_marks_messages_or_saves_attachments(tmp_path):
+    assert step_risk("mail.read", {}) == READ
+    assert step_risk("mail.read", {"mark_read": True}) == WRITE
+    assert step_risk("mail.read", {"attachment_folder": str(tmp_path)}) == WRITE
+    assert step_risk("ftp.transfer", {"operation": "list"}) == READ
+    assert step_risk("ftp.transfer", {"operation": "upload"}) == WRITE
+    reading = Workflow(steps=[Step(action="mail.read", params={"connection": "b" * 32})])
+    _, _, prepared = setup_policy(reading)
+    assert prepared.risk == READ and not prepared.approval_required
+    saving = Workflow(steps=[Step(action="mail.read", params={"connection": "b" * 32, "attachment_folder": str(tmp_path)})])
+    with pytest.raises(WorkflowError, match="izin verilen klasörleri"):
+        setup_policy(saving)
+    assert setup_policy(saving, grants=[WorkflowGrant(workflow_id=saving.id, allowed_roots=[str(tmp_path)])])[2].risk == WRITE
 
 
 def test_file_scope_and_protected_directories(tmp_path):

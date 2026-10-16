@@ -175,7 +175,7 @@ def test_connections_api(tmp_path, monkeypatch):
         service = api.post("/api/connections/test", json={"type": "google_sheets", "config": {
             "method": "service_account", "credentials_path": str(key)}}).json()
         assert "rpa@proje.iam.gserviceaccount.com" in service["message"]
-        assert api.post("/api/connections", json={"type": "ftp", "name": "x"}).status_code == 422
+        assert api.post("/api/connections", json={"type": "telnet", "name": "x"}).status_code == 422
         workflow = api.post("/api/workflows", json={"name": "A", "steps": [
             {"action": "sheets.write_cell", "params": {"connection": profile["id"], "spreadsheet_id": SHEET,
                                                         "worksheet": "S", "cell": "A1", "value": "x"}}]}).json()

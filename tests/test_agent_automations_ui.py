@@ -3,7 +3,15 @@
 import json
 from urllib.parse import urlsplit
 
-from test_agents_ui import AID, ATTACK, RID, STATIC, assert_unique_interactive_ids, pytestmark  # noqa: F401
+from test_agents_ui import (  # noqa: F401
+    AID,
+    ATTACK,
+    RID,
+    STATIC,
+    WID,
+    assert_unique_interactive_ids,
+    pytestmark,
+)
 from test_agents_ui import ui as ui  # noqa: F401
 
 
@@ -81,3 +89,31 @@ def test_invalid_input_name_is_explained_before_sending(ui):
     page.get_by_role("button", name="Görevi başlat").click()
     page.wait_for_function("window.toasts.some(text => text.includes('Girdi adı geçersiz'))")
     assert not [call for call in calls if call[0] == "POST" and call[1] == f"/api/agents/{AID}/runs"]
+
+
+def test_a_new_table_row_can_run_a_flow_directly(ui):
+    page, calls, _, _, _ = ui
+    automation_routes(page, calls)
+    page.get_by_role("button", name="Otomasyon ekle", exact=True).click()
+    page.get_by_label("Otomasyon adı", exact=True).fill("Yeni sipariş")
+    page.get_by_label("Ne yapılsın?", exact=True).select_option("workflow")
+    assert page.get_by_label("Görev", exact=True).is_hidden()
+    page.get_by_label("Çalıştırılacak akış", exact=True).select_option(WID)
+    page.get_by_label("Ne zaman çalışsın?", exact=True).select_option("rows")
+    page.get_by_label("Kaynak", exact=True).select_option("file")
+    page.get_by_label("Dosyanın tam yolu", exact=True).fill("/Users/ortak/siparisler.xlsx")
+    page.get_by_label("Her kaydı ayıran sütun", exact=True).fill("Sipariş No")
+    page.get_by_label("Yalnız şu sütun… (isteğe bağlı)", exact=True).fill("Durum")
+    page.get_by_label("…şu değere eşitse", exact=True).fill("Bekliyor")
+    page.get_by_label("Kaç dakikada bir denetlensin?", exact=True).fill("2")
+    notice = page.locator(".agent-automation-form .agent-notice").inner_text()
+    assert "Akış, işle birlikte" in notice and "kayit_anahtari" in notice and "Musteri_Adi" in notice
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Otomasyonu kaydet", exact=True).click()
+    page.wait_for_function("document.querySelector('.agent-automation-form').hidden")
+    body = [body for method, path, body in calls if method == "POST" and path == "/api/agents/automations"][0]
+    assert body["target"] == "workflow" and body["target_workflow_id"] == WID and body["agent_id"] is None
+    trigger = body["trigger"]
+    assert (trigger["kind"], trigger["source"], trigger["file_path"], trigger["key_column"]) == (
+        "rows", "file", "/Users/ortak/siparisler.xlsx", "Sipariş No")
+    assert (trigger["filter_column"], trigger["filter_value"], trigger["check_minutes"]) == ("Durum", "Bekliyor", 2)

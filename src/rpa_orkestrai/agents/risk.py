@@ -119,11 +119,24 @@ STEP_RISKS: dict[str, Risk] = {
     "web.script": WRITE,
     "mail.send": WRITE,
     "http.request": WRITE,
+    "database.execute": WRITE,
+    # Reading mail or listing a folder only reads; the options below turn the same step into a change.
+    "mail.read": READ,
+    "ftp.transfer": READ,
+    "notify.send": WRITE,
+}
+# Step options that turn an otherwise reading step into a change: mark mail read, save files, transfer files.
+PARAM_WRITES = {
+    "mail.read": lambda params: params.get("mark_read") is True or bool(str(params.get("attachment_folder") or "").strip()),
+    "ftp.transfer": lambda params: params.get("operation", "download") != "list",
 }
 
 
-def step_risk(action: str) -> Risk:
-    return STEP_RISKS.get(action, WRITE)
+def step_risk(action: str, params: dict | None = None) -> Risk:
+    risk = STEP_RISKS.get(action, WRITE)
+    if risk == READ and action in PARAM_WRITES and PARAM_WRITES[action](params or {}):
+        return WRITE
+    return risk
 
 
 def workflow_risk(workflow: Workflow, workflows: dict[str, Workflow] | None = None,
@@ -133,7 +146,7 @@ def workflow_risk(workflow: Workflow, workflows: dict[str, Workflow] | None = No
         return WRITE
     seen = _seen | {workflow.id}
     for step in walk_steps(workflow.steps):
-        if step_risk(step.action) == WRITE:
+        if step_risk(step.action, step.params) == WRITE:
             return WRITE
         if step.action == "control.run_workflow":
             child = (workflows or {}).get(step.params.get("workflow", ""))

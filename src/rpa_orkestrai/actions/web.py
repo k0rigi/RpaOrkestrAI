@@ -19,9 +19,13 @@ def request(ctx, p):
     import certifi
 
     method = choice(p.get("method", "GET"), "Yöntem", {"GET", "POST", "PUT", "PATCH", "DELETE"})
-    url = text(p.get("url"), "Adres", limit=4096).strip()
-    if not url.lower().startswith(("https://", "http://")):
-        raise WorkflowError("Adres http:// veya https:// ile başlamalıdır.")
+    profile = ctx.connections.resolve(p["connection"], "api") if p.get("connection") else None
+    url = text(p.get("url"), "Adres", required=profile is None, limit=4096).strip()
+    if profile is not None and url.lower() in {"https://", "http://"}:
+        url = ""  # The untouched default means the connection's base address.
+    if profile is None and not url.lower().startswith(("https://", "http://")):
+        raise WorkflowError("Adres http:// veya https:// ile başlamalıdır. API bağlantısı seçerseniz yalnız yolu "
+                            "yazabilirsiniz (ör. /v1/siparisler).")
     headers = p.get("headers") or {}
     if not isinstance(headers, dict) or not all(isinstance(k, str) for k in headers):
         raise WorkflowError("Başlıklar {\"Ad\": \"değer\"} biçiminde bir nesne olmalıdır.")
@@ -36,10 +40,19 @@ def request(ctx, p):
             headers.setdefault("Content-Type", "text/plain; charset=utf-8")
     headers.setdefault("User-Agent", "RpaOrkestrAI")
     timeout = number(p.get("timeout", 30), "Zaman aşımı", 1, 300)
-    opener = build_opener(HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())))
+    if profile is not None:
+        from ..integrations import api
+
+        # Credentials are added last and only for the connection's own server; redirects must stay there.
+        url, headers = api.authorize(profile, url, headers, timeout)
+        opener = api.opener()
+    else:
+        opener = build_opener(HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())))
     try:
         response = opener.open(Request(url, data=data, method=method, headers=headers), timeout=timeout)
         status = response.status
+    except WorkflowError:
+        raise
     except HTTPError as exc:
         response, status = exc, exc.code
     except (URLError, OSError, ValueError) as exc:

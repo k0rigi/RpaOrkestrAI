@@ -1,4 +1,4 @@
-"""Veritabanı sorgusu: one read-only SELECT on SQL Server, PostgreSQL, MySQL/MariaDB, Oracle or SQLite.
+"""Veritabanı sorgusu (read-only SELECT) and Veritabanında değişiklik yap (one guarded write statement).
 
 Flow values never become SQL text. ``${name}`` outside quotes is sent as a bound parameter
 (a list becomes one parameter per item, for ``IN (${codes})``); inside quotes (``LIKE '%${name}%'``)
@@ -44,7 +44,26 @@ TOKENS = re.compile(r"--[^\n]*|/\*.*?(?:\*/|$)|'(?:[^']|'')*(?:'|$)|\"[^\"]*(?:\
 QUERY_LIMIT = 100_000
 ROW_LIMIT = 100_000
 READ_ONLY = ("Veritabanı sorgusu yalnız okuma yapar: SELECT veya WITH ile başlayan tek bir sorgu yazın. Kayıt "
-             "eklemek, değiştirmek veya silmek için bu adım kullanılamaz.")
+             "eklemek, değiştirmek veya silmek için Veritabanında değişiklik yap adımını kullanın.")
+# Writes: one INSERT/UPDATE/DELETE/MERGE or stored procedure call; schema changes, dynamic SQL and server
+# commands are never run. The target must be on the connection's own list of tables and procedures.
+NEVER_WORDS = ("DROP", "ALTER", "CREATE", "TRUNCATE", "GRANT", "REVOKE", "DENY", "OPENROWSET", "OPENDATASOURCE",
+               "OPENQUERY", "SHUTDOWN", "BACKUP", "RESTORE", "DBCC", "RECONFIGURE", "SP_EXECUTESQL", "SP_CONFIGURE",
+               "LOAD_FILE", "OUTFILE", "DUMPFILE", "KILL", "ATTACH", "DETACH", "PRAGMA", "VACUUM")
+NEVER_PATTERN = re.compile(r"\b(" + "|".join(NEVER_WORDS) + r")\b|\bxp_\w+", re.IGNORECASE)
+IDENTIFIER = r'(?:\[[^\]]+\]|"[^"]+"|`[^`]+`|[A-Za-z_][\w$#@]*)'
+QUALIFIED = rf"{IDENTIFIER}(?:\s*\.\s*{IDENTIFIER}){{0,3}}"
+WRITE_FORMS = {
+    "INSERT": re.compile(rf"INSERT\s+(?:INTO\s+)?({QUALIFIED})", re.IGNORECASE),
+    "UPDATE": re.compile(rf"UPDATE\s+(?:TOP\s*\(\s*\d+\s*\)\s+)?({QUALIFIED})\s+SET\b", re.IGNORECASE),
+    "DELETE": re.compile(rf"DELETE\s+(?:TOP\s*\(\s*\d+\s*\)\s+)?(?:FROM\s+)?({QUALIFIED})\s+WHERE\b",
+                         re.IGNORECASE),
+    "MERGE": re.compile(rf"MERGE\s+(?:INTO\s+)?({QUALIFIED})", re.IGNORECASE),
+    "EXEC": re.compile(rf"EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?({QUALIFIED})(?![\s]*\()", re.IGNORECASE),
+    "CALL": re.compile(rf"CALL\s+({QUALIFIED})\s*\(", re.IGNORECASE),
+}
+WRITE_HELP = ("Veritabanında değişiklik yap adımı tek bir INSERT, UPDATE ... SET ... WHERE, DELETE FROM ... WHERE, "
+              "MERGE veya saklı yordam (EXEC / CALL) komutu çalıştırır.")
 
 
 def engine_label(config: dict) -> str:
@@ -65,9 +84,60 @@ def check_read_only(sql: str) -> None:
         raise WorkflowError(f"{READ_ONLY} Sorguda “{found.group(0).upper()}” var.")
 
 
-def bind(sql: str, lookup: Callable[[str], Any], backslash_escapes: bool = False) -> tuple[str, dict[str, Any]]:
+def object_name(text: str) -> str:
+    """dbo.[Fatura Satır] → dbo.fatura satır: quotes removed, case folded, for comparison only."""
+    parts = re.findall(IDENTIFIER, text)
+    return ".".join(part.strip('[]"`').strip().casefold() for part in parts)
+
+
+def target_allowed(name: str, targets: list[str]) -> bool:
+    """Exact match, or the same last part when one side omits the schema (dbo.Fatura ~ Fatura)."""
+    wanted = name.split(".")
+    for item in targets:
+        allowed = object_name(item).split(".")
+        if allowed == wanted or (allowed[-1] == wanted[-1] and (len(allowed) == 1 or len(wanted) == 1)):
+            return True
+    return False
+
+
+def check_write(sql: str, targets: list[str]) -> tuple[str, str]:
+    """The statement kind and target of one allowed write; anything else is refused before running."""
+    # Comments go, string literals become a placeholder; quoted names stay for the target check.
+    bare = TOKENS.sub(lambda m: " " if m.group(0)[:2] in ("--", "/*") else (" q " if m.group(0)[0] == "'" else m.group(0)),
+                      sql).strip()
+    while bare.endswith(";"):
+        bare = bare[:-1].rstrip()
+    if ";" in bare:
+        raise WorkflowError("Tek bir komut yazın; noktalı virgülle ayrılmış birden fazla komut çalıştırılamaz.")
+    found = NEVER_PATTERN.search(bare)
+    if found:
+        raise WorkflowError(f"“{found.group(0).upper()}” içeren komutlar çalıştırılmaz. {WRITE_HELP}")
+    keyword = re.match(r"\(*\s*(\w+)", bare)
+    kind = (keyword.group(1).upper() if keyword else "")
+    kind = "EXEC" if kind == "EXECUTE" else kind
+    form = WRITE_FORMS.get(kind)
+    match = form.match(bare) if form else None
+    if match is None:
+        if kind in {"UPDATE", "DELETE"}:
+            raise WorkflowError("UPDATE ve DELETE komutlarında tablo adından sonra SET / WHERE gelmelidir; WHERE'siz "
+                                "komut tüm tabloyu değiştireceği için çalıştırılmaz.")
+        if kind == "EXEC":
+            raise WorkflowError("Saklı yordamı adıyla çağırın (EXEC dbo.yordam @p = ${deger}); dinamik SQL "
+                                "çalıştırılmaz.")
+        raise WorkflowError(WRITE_HELP)
+    if kind in {"UPDATE", "DELETE"} and not re.search(r"\bWHERE\b", bare, re.IGNORECASE):
+        raise WorkflowError("WHERE koşulu olmayan UPDATE veya DELETE çalıştırılmaz.")
+    target = object_name(match.group(1))
+    if not target_allowed(target, targets):
+        raise WorkflowError(f"“{target}” bu bağlantıda değiştirilebilecek tablo veya yordamlar arasında değil. "
+                            "Ayarlar → Bağlantılar'dan veritabanı bağlantısının listesine ekleyin.")
+    return kind, target
+
+
+def bind(sql: str, lookup: Callable[[str], Any], backslash_escapes: bool = False, *,
+         guard: Callable[[str], Any] = check_read_only) -> tuple[str, dict[str, Any]]:
     """Replace ${name} with bound parameters (or escaped text inside quotes); the guard runs first."""
-    check_read_only(REFERENCE.sub("0", sql))
+    guard(REFERENCE.sub("0", sql))
     values: dict[str, Any] = {}
     pieces: list[str] = []
     position = 0
@@ -149,10 +219,12 @@ def records(columns: list[str], rows: Iterator[tuple]) -> list[dict[str, Any]]:
 class QueryDatabase:
     """A lazily created SQLAlchemy engine for one connection profile."""
 
-    def __init__(self, config: dict, timeout_seconds: float = 30):
+    def __init__(self, config: dict, timeout_seconds: float = 30, *, read_only: bool = True):
         self.config = config
         self.kind = config.get("engine") or "url"
         self.timeout = max(1, math.ceil(timeout_seconds))
+        # A write engine is separate: the read engine's sessions stay read-only where the database allows it.
+        self.read_only = read_only
         self._engine: Any = None
 
     # ----- connection -------------------------------------------------------------
@@ -219,7 +291,7 @@ class QueryDatabase:
                 raise WorkflowError(f"SQLite dosyası bulunamadı: {target}")
             import sqlite3
 
-            uri = target.resolve().as_uri() + "?mode=ro"
+            uri = target.resolve().as_uri() + ("?mode=ro" if self.read_only else "?mode=rw")
             return sa.create_engine("sqlite://", creator=lambda: sqlite3.connect(uri, uri=True, timeout=self.timeout,
                                                                                  check_same_thread=False))
         if backend == "postgresql":
@@ -240,7 +312,7 @@ class QueryDatabase:
                 dbapi_connection.timeout = self.timeout  # per query
             elif backend == "oracle":
                 dbapi_connection.call_timeout = self.timeout * 1000
-            elif backend == "mysql":
+            elif backend == "mysql" and self.read_only:
                 with dbapi_connection.cursor() as cursor:
                     cursor.execute("SET SESSION TRANSACTION READ ONLY")
 
@@ -254,7 +326,7 @@ class QueryDatabase:
 
     def _read_only(self, connection: Any) -> None:
         name = connection.dialect.name
-        if name in {"postgresql", "oracle"}:
+        if self.read_only and name in {"postgresql", "oracle"}:
             connection.exec_driver_sql("SET TRANSACTION READ ONLY")
 
     # ----- use --------------------------------------------------------------------
@@ -292,6 +364,41 @@ class QueryDatabase:
             finally:
                 # Nothing a query does is ever kept.
                 transaction.rollback()
+
+    def execute(self, sql: str, lookup: Callable[[str], Any], max_rows: int, *, on_zero: str = "error") -> dict:
+        """One allowed write in its own transaction; too many or no changed rows roll it back."""
+        import sqlalchemy as sa
+
+        if self.read_only:
+            raise WorkflowError("Bu veritabanı bağlantısı yalnız okuma için açıldı.")
+        if not self.config.get("allow_write"):
+            raise WorkflowError("Bu bağlantıda kayıt değiştirme izni kapalı. Ayarlar → Bağlantılar'da veritabanı "
+                                "bağlantısını açıp Kayıt değiştirmeye izin ver seçeneğini ve tabloları belirleyin.")
+        if not isinstance(sql, str) or not sql.strip():
+            raise WorkflowError("SQL komutunu yazın.")
+        if len(sql) > QUERY_LIMIT:
+            raise WorkflowError("SQL komutu çok uzun.")
+        targets = list(self.config.get("write_targets") or [])
+        kind, target = check_write(REFERENCE.sub("0", sql), targets)
+        engine = self.engine()
+        statement, values = bind(sql, lookup, backslash_escapes=engine.dialect.name == "mysql",
+                                 guard=lambda text: check_write(text, targets))
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                result = connection.execute(sa.text(statement), values)
+                affected = result.rowcount if isinstance(result.rowcount, int) and result.rowcount >= 0 else None
+                rows = records(list(result.keys()), iter(result.fetchmany(1001))) if result.returns_rows else []
+                if affected is not None and affected > max_rows:
+                    raise WorkflowError(f"Komut {affected} satırı değiştirecekti; sınır {max_rows}. Değişiklik geri "
+                                        "alındı, hiçbir kayıt değişmedi.")
+                if affected == 0 and on_zero == "error":
+                    raise WorkflowError("Hiçbir satır değişmedi (koşula uyan kayıt yok). Akış durduruldu.")
+                transaction.commit()
+            except BaseException:
+                transaction.rollback()
+                raise
+        return {"statement": kind, "target": target, "affected": affected, "rows": rows[:1000]}
 
     def close(self) -> None:
         if self._engine is not None:

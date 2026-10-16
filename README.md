@@ -8,14 +8,16 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.29-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.29-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.30-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.30-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemelerin paketleri **Actions → Build desktop apps → Artifacts** bölümünde bir gün durur; yayınlanan güncel sürüm orkestrai.net/rpa adresindedir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
 **0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. Güncelleme indirilemezse mevcut sürüm kullanılmaya devam eder; akışlar ve bağlantı ayarları korunur. Studio'nun açılması için lisans doğrulaması nedeniyle internet bağlantısı gerekir. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+
+**0.9.30:** **Kurumsal entegrasyon:** API'si olan uygulamalarda ekran yerine doğrudan servis veya veritabanı kullanılabilir. Yeni bağlantı türleri: **Web servisi (API)** (Bearer, kullanıcı/şifre, API anahtarı, OAuth 2.0; kimlik bilgileri yalnız o sunucuya gider), **Gelen e-posta (IMAP)**, **FTP / FTPS** ve **Mesajlaşma** (Teams, Slack, Google Chat, Discord). Yeni adımlar: **Veritabanında değişiklik yap** (yalnız bağlantıda izin verilen tablo ve yordamlarda tek komut; WHERE'siz UPDATE/DELETE çalışmaz, değişen satır sınırı aşılırsa geri alınır), **E-postaları oku** (ekleriyle), **FTP dosya aktarımı** ve **Mesaj gönder**; **HTTP isteği gönder** API bağlantısıyla yalnız yol yazılarak kullanılır. **Otomasyonlar:** «Tabloya yeni kayıt geldiğinde» (Google Sheets, veritabanı sorgusu, Excel / CSV) ve «Yeni e-posta geldiğinde» tetikleyicileri; hedef bir ajan veya doğrudan bir akış olabilir (yapay zekâ maliyeti olmadan). Gelen işler sıraya girer, önceki iş sürerken gelen iş kaybolmaz. **Ajanlar internette araştırabilir:** ajan başına Kapalı / Yalnız izinli siteler / Tüm web; arama hizmeti Tavily, Vikipedi, Brave veya SearXNG. Ajan yalnız açık internetteki sayfaları okur, iç ağa ve bu bilgisayara erişemez, görevde en fazla 20 istek yapar. Ajanlar API ve veritabanı adımı içeren izinli akışları da çalıştırabilir. **Canlı ofis:** yönetici görevi departmana yürüyerek götürür, araştıran ajan araştırma köşesine gider. Yeni adımları veya bağlantı alanını kullanan akışlar 0.9.29 ve önceki sürümlerde açılmaz. [Kurumsal entegrasyon rehberi](docs/kurumsal-entegrasyon.md) · [Ajan rehberi](docs/ajanlar.md).
 
 **0.9.29:** **Ajan otomasyonları:** Ajanlar → **Otomasyonlar** sekmesinden ajana belirli zamanlarda (bir kez, her gün, belirli günler, her N dakikada bir), bir akış bittiğinde (başarılı, hatalı veya her sonuçta) ya da bir klasöre yeni dosya geldiğinde kendiliğinden görev verilir. Görev elle verilen görevle aynı izin, onay ve sınırlarla çalışır; önceki görev sürerken yenisi başlamaz, ajanın kendi çalıştırdığı akışlar tetiklemez. **Görev silme:** bitmiş ajan görevleri (alt görevleriyle) ve insan görevleri yetkili tarafından silinebilir; akış kayıtları ve sunucudaki denetim kaydı korunur. **Girdi değişkenleri** artık JSON yerine ad–değer satırlarıyla girilir; ajanın akışlarının beklediği girdiler öneri olarak gösterilir. Model hataları nedeniyle birlikte yazılır (ör. model bulunamadı, API anahtarı geçersiz, kota doldu); ajan bir aracı yanlış alanla çağırırsa hangi alanı düzelteceği kendisine söylenir. Ajan, akış gerektirmeyen genel bilgi sorularını kendi bilgisiyle yanıtlayabilir. [Ajan rehberi](docs/ajanlar.md).
 
@@ -113,7 +115,7 @@ Arayüz varsayılan olarak **http://127.0.0.1:8765** adresinde açılır. Başka
 
 **Görünüm.** Arayüz teknik çizim görünümündedir: kareli kâğıt zemin, mürekkep çizgili kutular ve tek bir vurgu rengi. Sağ üstteki ay/güneş düğmesi **açık** (çizim kâğıdı) ve **koyu** (blueprint) tema arasında geçer; **Ayarlar → Görünüm** altında bilgisayarın ayarını izleyen **Sistem** seçeneği de vardır. Diyagramda kutuları sürükleyerek istediğiniz yere taşıyabilirsiniz; bir **+** üzerine bırakılan kutu akışta o noktaya geçer.
 
-**Bağlantılar adımın içindedir.** Google Sheets ve veritabanı adımlarının ilk alanı **Bağlantı**'dır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
+**Bağlantılar adımın içindedir.** Google Sheets, veritabanı, e-posta, FTP ve mesaj adımlarının ilk alanı **Bağlantı**'dır; **HTTP isteği gönder** isteğe bağlı olarak bir API bağlantısı kullanır. Bağlantı orada oluşturulur, seçilir ve düzenlenir; aynı türde birden fazla adlandırılmış bağlantı olabilir (ör. "Satış tablosu", "İade tablosu"). Bağlantı seçilmeyen adım, o türün varsayılan bağlantısını kullanır. Editördeki **Bağlantılar** düğmesi tüm bağlantıları listeler. Şifre, anahtar ve dosya yolları yalnız o bilgisayarda saklanır; dışa aktarılan akışta yalnız bağlantının kimliği bulunur. 0.6'daki genel Sheets ve veritabanı ayarları ilk açılışta otomatik olarak varsayılan bağlantılara dönüştürülür.
 
 **Adlar.** Bir adımın sonucuna verdiğiniz ad alanına yalnız ad yazılır (ör. `erp_window`); `${erp_window}` yazılırsa uygulama düzeltir. Pencere adımlarında pencere, önceki **Pencereyi tanı** adımlarında verilen adlardan oluşan listeden seçilir. Geçersiz bir ad, hangi adımda ve hangi alanda olduğu belirtilerek bildirilir.
 
@@ -149,7 +151,7 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Akış yönetimi | Kaydetme, açma, JSON içe/dışa aktarma ve departman bilgisi |
 | Çalıştırma | Arka planda çalışma, adım günlükleri, geçmiş ve iptal isteği |
 | Raporlar | Akış verisinden CSV üretme ve indirme |
-| Veritabanı | **Veritabanı sorgusu** ile SQL Server, PostgreSQL, MySQL / MariaDB, Oracle veya SQLite'ta tek bir `SELECT` sorgusu çalıştırma; `${değişken}` değerleri parametre olarak gönderilir, sonuç **Her satır için** döngüsüne verilir. Yalnız okuma yapılır; değiştiren sorgular reddedilir. Bağlantı sunucu, kullanıcı ve şifreyle formdan kurulur. [Adım rehberi](docs/adimlar.md#veritabanı) |
+| Veritabanı | **Veritabanı sorgusu** ile SQL Server, PostgreSQL, MySQL / MariaDB, Oracle veya SQLite'ta tek bir `SELECT` sorgusu çalıştırma; `${değişken}` değerleri parametre olarak gönderilir, sonuç **Her satır için** döngüsüne verilir; bu adım yalnız okur. **Veritabanında değişiklik yap** (0.9.30+) bağlantıda izin verilen tablo veya yordamlarda tek bir `INSERT`, `UPDATE ... WHERE`, `DELETE ... WHERE`, `MERGE` ya da saklı yordam çağrısı çalıştırır; değişen satır sınırı aşılırsa değişiklik geri alınır. Bağlantı sunucu, kullanıcı ve şifreyle formdan kurulur. [Adım rehberi](docs/adimlar.md#veritabanı) |
 | Kayıtlı şifreler | ERP girişi gibi işler için şifreyi işletim sisteminin kasasında (Windows Kimlik Bilgisi Yöneticisi, macOS Anahtar Zinciri) tutma; adımda `${sifre.ad}` ile kullanma, günlükte gizleme |
 | Script ve programlar | **Uygulama, dosya veya adres aç** programı, belgeyi veya klasörü çift tıklar gibi açar. Windows'ta programları başlatmak için masaüstü kısayolunu (`.lnk`) seçin; kısayolun parametreleri ve çalışma klasörü korunur. **Komut / script çalıştır** terminal (cmd / Terminal) veya PowerShell komutunu ya da seçilen `.py`, `.ps1`, `.bat`, `.vbs`, `.sh` script'ini çalıştırır, bitmesini bekler ve çıktısını akışta kullanır |
 | Masaüstü | Geri sayımla fare konumu alma, alanı uygulama yapısındaki kimliğiyle bulma, fareyle görsel alanı seçme; hedefe tıklama, alan doldurma ve platforma uygun kısayollar |
@@ -158,7 +160,9 @@ Tam kurulum, işletim sistemi izinleri ve bağlantılar için [kurulum rehberini
 | Uygulama tabloları | **Tablodan değer oku** ile uygulama tablosundaki hücreyi sütun adıyla okuma ve satır sayma; **Tabloya değer yaz** ile erişilebilir tablo hücresini satır/sütun veya benzersiz kayıt değeriyle bulup yazma ve doğrulama (0.9.6+) |
 | Görsel algılama | OpenCV şablon eşleştirme, OCR metni ve koşullu kararlar |
 | Google Sheets | Adlandırılmış sütunlarla satır okuma, boş durumları koruma; hücre okuma/yazma ve servis katmanında satır ekleme |
-| Web | **HTTP isteği gönder** ile web servisleri (API); eski akışlardaki tarayıcı (Playwright) adımları çalışmaya devam eder |
+| Web | **HTTP isteği gönder** ile web servisleri (API); API bağlantısıyla kimlik bilgisi adımda yazılmaz, adres yalnız yol olarak girilir (0.9.30+). Eski akışlardaki tarayıcı (Playwright) adımları çalışmaya devam eder |
+| E-posta, FTP, mesaj (0.9.30) | **E-postaları oku** (IMAP; gönderen/konu süzgeci, ekleri klasöre kaydetme), **FTP dosya aktarımı** (FTP / FTPS indirme, yükleme, listeleme), **Mesaj gönder** (Teams, Slack, Google Chat, Discord) |
+| Otomasyonlar | Ajanlar → **Otomasyonlar**: belirli zamanlarda, bir akış bittiğinde, klasöre dosya, tabloya kayıt (Sheets, veritabanı, Excel / CSV) veya posta kutusuna e-posta geldiğinde bir ajana görev verme ya da akışı doğrudan çalıştırma. [Kurumsal entegrasyon](docs/kurumsal-entegrasyon.md) |
 
 Bu sürüm her bilgisayarda orkestrai.net hesabıyla açılır; akışlar ve ayarlar o bilgisayarın çalışma alanında kalır. Departman alanı raporları ve akışları sınıflandırır; akış bazında erişim yetkisi oluşturmaz. Zamanlayıcı bu bilgisayarda, Studio açıkken çalışır; Studio isterseniz bilgisayar açılınca simge durumunda başlar ([zamanlayıcı rehberi](docs/zamanlayici.md)). Merkezi çok kullanıcılı sunucu ve uzak robot yönetimi bu sürümün kapsamı dışındadır.
 
@@ -246,10 +250,11 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.29. Ortak
+  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.30. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
-- [Adım rehberi: 88 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
+- [Kurumsal entegrasyon: ekran mı, API mi, veritabanı mı; bağlantılar ve otomasyonlar](docs/kurumsal-entegrasyon.md)
+- [Adım rehberi: 92 adım, test etme, sürükle-bırak, AutoHotkey karşılıkları](docs/adimlar.md)
 - [Google Sheets bağlantısı: Apps Script veya servis hesabı](docs/google-sheets.md)
 - [Kullanıcı girişi, lisans, tek bilgisayar kuralı ve internet gereksinimi](docs/lisans.md)
 - [Terminalsiz masaüstü uygulaması ve kurulum paketi](docs/masaustu-dagitim.md)
@@ -259,6 +264,6 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 - [Sheets satırları, boş/Bekliyor koşulu ve iç içe döngüler](docs/sheets-satir-dongusu.md)
 - [Akış oluşturma, değişkenler ve raporlar](docs/akislar.md)
 - [Zamanlayıcı: akışı belirli zamanlarda çalıştırma, bilgisayar açılınca başlatma](docs/zamanlayici.md)
-- [Salt okunur veritabanı hesabı](docs/veritabani.md)
+- [Veritabanı hesabı: salt okunur ve kayıt değiştirme yetkisi](docs/veritabani.md)
 - [Mimari ve genişletme](docs/mimari.md)
 - [GitHub remote ve push](docs/github.md)

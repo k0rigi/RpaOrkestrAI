@@ -88,7 +88,8 @@ def snapshot(service) -> dict:
             parent = service._contexts.get(context.run.parent_run_id) if context.run.parent_run_id else None
             reviewing = any(child.run.parent_run_id == context.run.id and _open_question(child)
                             for child in service._contexts.values())
-            activity = ("asking_manager" if asking else "reviewing" if reviewing else
+            researching = getattr(context, "current_tool", None) in {"web_search", "fetch_page"}
+            activity = ("asking_manager" if asking else "reviewing" if reviewing else "researching" if researching else
                         "workflow" if getattr(context, "active_workflow_id", None) else
                         "queued" if recent_event == "queue" else "thinking") if state == "running" else state
             if asking and parent is not None:

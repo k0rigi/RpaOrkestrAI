@@ -124,7 +124,11 @@
 .agent-input-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto; gap: 8px; align-items: end; }
 .agent-input-row .agent-field { margin: 0; }
 .agent-automation-form { margin: 0 0 18px; display: grid; gap: 12px; }
+.agent-span { grid-column: 1 / -1; }
+.agent-span[hidden] { display: none; }
+.agent-form-grid[hidden], .agent-field[hidden] { display: none; }
 .agent-automation-form[hidden] { display: none; }
+.agent-search { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
 .agent-automation-days { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
 .agent-days-caption { font-weight: 600; font-size: .9rem; }
 .agent-automation-card[data-enabled="false"] { opacity: .72; }

@@ -25,6 +25,14 @@ class ApprovalRequest(Model):
     approved: bool = Field(strict=True)
 
 
+class SearchInput(Model):
+    provider: str = Field(max_length=20)
+    searxng_url: str = Field(default="", max_length=2000)
+    language: str = Field(default="tr", max_length=3)
+    key: str | None = Field(default=None, max_length=500)
+    remove_key: bool = False
+
+
 def router(service: AgentService) -> APIRouter:
     result = APIRouter(prefix="/api/agents", tags=["Ajanlar"])
 
@@ -72,6 +80,29 @@ def router(service: AgentService) -> APIRouter:
     @result.get("/notes")
     def notes():
         return call(service.notes)
+
+    @result.get("/search")
+    def search_settings():
+        actor = call(service._authorize)
+        return service.search_settings.get(actor.company_id)
+
+    @result.put("/search")
+    def save_search(body: SearchInput):
+        actor = call(service._authorize, "agents.manage")
+        return call(service.search_settings.save, actor.company_id, body.model_dump(exclude_none=True))
+
+    @result.post("/search/test")
+    def test_search():
+        from ..errors import WorkflowError
+        from .web import search
+
+        actor = call(service._authorize, "agents.manage")
+        settings = service.search_settings
+        try:
+            results = search(settings.get(actor.company_id), settings.key(actor.company_id), "RpaOrkestrAI", 3)
+        except WorkflowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return {"ok": True, "message": f"Arama çalışıyor: {len(results)} sonuç geldi.", "results": results}
 
     @result.get("/runs/{run_id}")
     def get_run(run_id: str):

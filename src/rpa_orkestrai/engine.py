@@ -1154,6 +1154,31 @@ class Executor:
                                                                    if more else "."),
                      level="warning" if more else "info")
             return rows
+        elif action == "database.execute":
+            from .database.query import QueryDatabase, describe
+
+            profile = self.connections.resolve(p.get("connection"), "database")
+            key = f"write:{profile['id']}"
+            if key not in self._databases:
+                self._databases[key] = self.resources.enter_context(QueryDatabase(
+                    profile["config"], timeout_seconds=max(30, self.settings.action_timeout), read_only=False))
+            limit = int(p.get("max_rows") or 1)
+            if not 1 <= limit <= 100_000:
+                raise WorkflowError("En fazla değişecek satır 1 ile 100.000 arasında olmalıdır.")
+            on_zero = p.get("on_zero") or "error"
+            if on_zero not in {"error", "continue"}:
+                raise WorkflowError("Hiç satır değişmezse seçeneği geçersiz.")
+            try:
+                outcome = self._databases[key].execute(
+                    p.get("query"), lambda name: resolve("${" + name + "}", self.variables), limit, on_zero=on_zero)
+            except WorkflowError:
+                raise
+            except Exception as exc:
+                raise WorkflowError(describe(exc)) from exc
+            changed = "bilinmiyor" if outcome["affected"] is None else outcome["affected"]
+            self.log(f"Veritabanı: {outcome['statement']} · {outcome['target']} · değişen satır: {changed}.",
+                     level="warning" if outcome["affected"] == 0 else "info")
+            return outcome
         elif action == "desktop.find_window":
             return self.windows().find(p["application"], p["title"], p["match"], p["timeout"], p["on_missing"])
         elif action == "desktop.window_click":
