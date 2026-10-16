@@ -33,6 +33,10 @@ class TaskAssignment(Model):
     expected_version: int = Field(ge=1, strict=True)
 
 
+class TaskDeletion(Model):
+    expected_version: int = Field(ge=1, strict=True)
+
+
 class Decision(Model):
     approved: bool = Field(strict=True)
 
@@ -95,6 +99,11 @@ def router(service, client, approval_backend):
     @result.post("/tasks/{task_id}/assign")
     def assign_task(task_id: str, body: TaskAssignment):
         return call(lambda: request("POST", "/gorevler/" + record_id(task_id) + "/ata", body.model_dump(),
+                                    permission="agents.manage"))
+
+    @result.post("/tasks/{task_id}/delete")
+    def delete_task(task_id: str, body: TaskDeletion):
+        return call(lambda: request("POST", "/gorevler/" + record_id(task_id) + "/sil", body.model_dump(),
                                     permission="agents.manage"))
 
     @result.get("/approvals")

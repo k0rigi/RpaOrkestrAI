@@ -161,17 +161,76 @@
     card.append(element("h3", title), element("p", description, "muted"));
     return card;
   }
-  function objectInput(input) {
-    let value;
-    try { value = JSON.parse(input.value.trim() || "{}"); }
-    catch { throw new Error("Girdileri geçerli JSON biçiminde yazın. Örnek: {\"dosya\": \"rapor.csv\"}"); }
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Girdiler bir JSON nesnesi olmalıdır.");
-    if (Object.keys(value).length > 100 || new TextEncoder().encode(JSON.stringify(value)).length > 65536) {
-      throw new Error("En fazla 100 girdi ve toplam 64 KB kullanılabilir.");
-    }
-    return value;
-  }
 
+
+  // Workflow inputs the agent's granted flows read; a manager passes inputs on to its departments.
+  function expectedInputs(view, agent) {
+    const agents = agent.role === "manager" ? view.agents.filter((item) => item.manager_id === agent.id) : [agent];
+    const result = new Map();
+    for (const member of agents) {
+      for (const grant of member.workflows || []) {
+        const flow = view.workflows.find((item) => item.id === (typeof grant === "string" ? grant : grant.workflow_id));
+        for (const input of flow?.inputs || []) {
+          const known = result.get(input.name);
+          result.set(input.name, { name: input.name, required: Boolean(input.required || known?.required),
+            flows: [...new Set([...(known?.flows || []), flow.name])] });
+        }
+      }
+    }
+    return [...result.values()].sort((a, b) => Number(b.required) - Number(a.required) || a.name.localeCompare(b.name, "tr"));
+  }
+  function inputValue(text) {
+    const value = String(text).trim();
+    if (/^-?\d+(\.\d+)?$/.test(value) && value.length < 16) return Number(value);
+    if (value === "true" || value === "false") return value === "true";
+    return String(text);
+  }
+  function inputsEditor(initial = {}, suggestions = []) {
+    const wrapper = element("section", null, "agent-inputs");
+    wrapper.append(element("p", "Girdi değişkenleri, göreve eklediğiniz adlandırılmış bilgilerdir (ör. donem = 2026-09). "
+      + "Ajan bunları görür ve akış çalıştırırken aynı adlı akış değişkenine verir; akışta ${donem} olarak kullanılır. "
+      + "Gerekmiyorsa boş bırakın; ajan eksik bilgiyi size sorar.", "agent-help"));
+    const rows = element("div", null, "agent-input-rows");
+    const add = (name = "", value = "") => {
+      const row = element("div", null, "agent-input-row");
+      const key = field("Girdi adı", name); key.input.maxLength = 64; key.input.placeholder = "donem";
+      const content = field("Değer", typeof value === "string" ? value : JSON.stringify(value)); content.input.placeholder = "2026-09";
+      row.append(key.wrapper, content.wrapper, action("Kaldır", () => row.remove()));
+      row.read = () => [key.input.value.trim(), content.input.value];
+      rows.append(row);
+      return key.input;
+    };
+    for (const [name, value] of Object.entries(initial || {})) add(name, value);
+    wrapper.append(rows, action("Girdi ekle", () => add().focus()));
+    if (suggestions.length) {
+      const chips = element("div", null, "agent-chips");
+      for (const item of suggestions) {
+        const chip = identify(element("button", `${item.name}${item.required ? " *" : ""}`, "agent-chip"), "input-chip");
+        chip.type = "button"; chip.title = `Kullanan akış: ${item.flows.join(", ")}${item.required ? " · akış bu girdiyi bekliyor" : ""}`;
+        chip.addEventListener("click", () => {
+          const existing = [...rows.children].find((row) => row.read()[0] === item.name);
+          if (existing) existing.querySelectorAll("input")[1].focus(); else add(item.name).closest(".agent-input-row").querySelectorAll("input")[1].focus();
+        });
+        chips.append(chip);
+      }
+      wrapper.append(element("p", "Ajanın akışlarının kullandığı girdiler (* akışın beklediği):", "agent-help"), chips);
+    }
+    const read = () => {
+      const result = {};
+      for (const row of rows.children) {
+        const [name, value] = row.read();
+        if (!name && !String(value).trim()) continue;
+        if (!/^[A-Za-zÇĞİÖŞÜçğıöşü_][A-Za-z0-9ÇĞİÖŞÜçğıöşü_]*$/.test(name)) {
+          throw new Error(`Girdi adı geçersiz: «${name || "(boş)"}». Ad harfle başlamalı; yalnız harf, rakam ve alt çizgi kullanın.`);
+        }
+        if (Object.hasOwn(result, name)) throw new Error(`«${name}» girdisi iki kez yazılmış.`);
+        result[name] = inputValue(value);
+      }
+      if (Object.keys(result).length > 100) throw new Error("En fazla 100 girdi kullanılabilir.");
+      return result;
+    };
+    return { wrapper, read };
+  }
   function noteText(value) { return String(value || "").split(/\s+/).filter(Boolean).join(" "); }
   async function reloadNotes(view) {
     const notes = await view.request("/api/agents/notes");
@@ -729,12 +788,12 @@
     form.append(element("h2", `${agent.name} için görev`));
     const task = field("Hedefiniz", "", "textarea", "Beklediğiniz sonucu yazın. Ajan yalnız izin verdiğiniz akışları kullanır.");
     task.input.required = true; task.input.maxLength = 16000; task.input.rows = 6;
-    const inputs = field("Başlangıç girdileri (JSON)", "{}", "textarea", "Gerekmiyorsa boş bırakın. Örnek: {\"donem\": \"2026-09\", \"dosya\": \"rapor.csv\"}");
+    const inputs = inputsEditor({}, expectedInputs(view, agent));
     const start = action("Görevi başlat", () => form.requestSubmit(), "primary");
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       view.busy(start, async () => {
-        const run = await view.request(`/api/agents/${agent.id}/runs`, "POST", { task: task.input.value, inputs: objectInput(inputs.input) });
+        const run = await view.request(`/api/agents/${agent.id}/runs`, "POST", { task: task.input.value, inputs: inputs.read() });
         view.runs = [run, ...view.runs.filter((item) => item.id !== run.id)];
         if (view.alive) openRun(view, run.id);
       });
@@ -792,7 +851,14 @@
         await view.request(`/api/agents/runs/${run.id}/cancel`, "POST");
         if (view.alive) await openRun(view, run.id);
       }), "danger");
-      const statusBox = element("div", null, "agent-actions"); header.append(title, statusBox, stop);
+      const remove = action("Çalışmayı sil", () => view.busy(remove, async () => {
+        if (!await view.confirm("Çalışma silinsin mi?", "Görev kaydı ve varsa departman alt görevleri silinir. Akış kayıtları Çalışma geçmişinde kalır.", "Sil", true)) return;
+        await view.request(`/api/agents/runs/${run.id}`, "DELETE");
+        view.runs = view.runs.filter((item) => item.id !== run.id && item.root_run_id !== run.id);
+        view.selectedRun = null; view.runView = null;
+        if (view.alive && view.tab === "runs") { view.options.toast("Çalışma silindi."); renderRuns(view); }
+      }), "danger");
+      const statusBox = element("div", null, "agent-actions"); header.append(title, statusBox, stop, remove);
       const owner = element("p", "", "agent-eyebrow");
       const task = element("p", run.task, "agent-task-text");
       const stats = element("p", "", "agent-help");
@@ -810,7 +876,7 @@
       timelineHead.append(element("h3", "Zaman çizelgesi"), technical.wrapper);
       const result = element("section", null, "agent-run-result");
       view.runPane.replaceChildren(header, owner, task, stats, usage, team, waiting, pending, result, timelineHead, timeline);
-      view.runView = { id: run.id, title, owner, task, stop, statusBox, stats, usage, team, teamKey: null, waiting, pending, pendingKey: null,
+      view.runView = { id: run.id, title, owner, task, stop, remove, statusBox, stats, usage, team, teamKey: null, waiting, pending, pendingKey: null,
         questionId: null, answerInput: null, timeline, events: new Map(), result, resultKey: null };
     }
     const ui = view.runView;
@@ -818,6 +884,7 @@
     ui.task.textContent = run.task || "";
     ui.statusBox.replaceChildren(status(run.status));
     ui.stop.hidden = terminal.has(run.status);
+    ui.remove.hidden = !terminal.has(run.status) || !view.session.can_manage;
     const runner = view.agents.find((item) => item.id === run.agent_id);
     ui.owner.textContent = runner ? `${runner.name} · ${runner.role === "manager" ? "Yönetici ajan" : runner.department}` : "Kaldırılmış ajan";
     ui.stats.textContent = `Başlangıç: ${timeLabel(run.started_at)}${run.finished_at ? ` · Bitiş: ${timeLabel(run.finished_at)}` : ""}`;
@@ -1155,5 +1222,7 @@
       extensions.set(definition.id, definition);
     },
     openRun(identity) { if (active) return openRun(active, identity); },
+    // Shared with the automation tab so both forms explain inputs the same way.
+    inputsEditor, expectedInputs(agent) { return active ? expectedInputs(active, agent) : []; },
   });
 })();

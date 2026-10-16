@@ -775,3 +775,27 @@ def test_other_company_cannot_read_edit_or_cancel(runtime):
         with pytest.raises(AgentServiceError) as denied:
             operation()
         assert denied.value.status_code == 404
+
+
+def test_wrong_tool_fields_are_named_so_a_small_model_can_correct_itself(runtime):
+    # A small local model once called finish with "answer"; the generic error made it loop on ask_user.
+    item = runtime.agent()
+    wrong = ToolCall(uid(), "finish", {"answer": "gizli-olmayan-yanıt"})
+    run = runtime.start(item, response(wrong), response(finish("Düzeltildi")))
+    saved = runtime.done(run)
+    assert saved.status == "succeeded" and saved.summary == "Düzeltildi"
+    error = next(event.data["untrusted_data"]["error"] for event in saved.events if event.kind == "tool_result")
+    assert "eksik alan: summary" in error and "tanınmayan alan: answer" in error
+    assert "summary (zorunlu)" in error and "gizli-olmayan-yanıt" not in error
+
+
+def test_provider_status_becomes_a_fixed_actionable_message():
+    from rpa_orkestrai.agents.provider_adapters import status_reason
+    from rpa_orkestrai.agents.providers import ProviderError
+
+    assert "Model bulunamadı" in str(ProviderError(reason=status_reason(404)))
+    assert "API anahtarı" in str(ProviderError(reason=status_reason(401)))
+    assert "kotası" in str(ProviderError(reason=status_reason(429, True)))
+    # Provider-originated text is never shown unless the code itself marks a literal as trusted.
+    assert str(ProviderError("sunucudan gelen metin")) == "Yapay zekâ sağlayıcısı isteği tamamlayamadı."
+    assert str(ProviderError("Ajan için bir model bağlantısı seçin.", trusted=True)) == "Ajan için bir model bağlantısı seçin."

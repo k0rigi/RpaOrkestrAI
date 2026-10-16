@@ -125,6 +125,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         item.enabled and item.next_run_at and datetime.fromisoformat(item.next_run_at) <= datetime.now()
         for item in book.schedules())
     from .agents.api import router as agent_router
+    from .agents.automation_api import router as automation_router
+    from .agents.automations import AutomationService
     from .agents.central import CentralApprovalBackend, CentralClient
     from .agents.connections import ProviderConnectionStore
     from .agents.metrics_api import router as agent_metrics_router
@@ -141,7 +143,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     def agent_provider(agent):
         if not agent.provider_connection_id:
-            raise ProviderError("Ajan için bir model bağlantısı seçin.")
+            raise ProviderError("Ajan için bir model bağlantısı seçin.", trusted=True)
         connection = agent_connections.get(agent.provider_connection_id, agent.company_id)
         if connection.provider == "shared":
             return SharedProvider(agent_central)
@@ -167,6 +169,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                           model_resolver=lambda agent: agent_connections.get(
                               agent.provider_connection_id, agent.company_id).model,
                           secret_source=agent_secrets, approval_backend=agent_approvals)
+    automations = AutomationService(agents, settings.data_dir)
+    manager.finished_listeners.append(automations.workflow_finished)
 
     def license_locked(reason):
         message = LICENSE_STOPS.get(reason, "Lisans geçerliliğini yitirdiği için akış durduruldu.")
@@ -182,9 +186,11 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             agents.agent_store.recover_runs()
             licensing.start()
             scheduler.start()
+            automations.start()
             try:
                 yield
             finally:
+                automations.stop()
                 scheduler.stop()
                 agents.close()
                 dispatch.close()
@@ -200,11 +206,14 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     app.state.picks, app.state.licensing, app.state.records = picks, licensing, records
     app.state.scheduler = scheduler
     app.state.agents, app.state.dispatch = agents, dispatch
+    app.state.automations = automations
     app.state.agent_connections = agent_connections
     app.state.agent_central = agent_central
     app.include_router(agent_studio_router(agents, agent_connections, shared_client=agent_central))
     app.include_router(agent_team_router(agents, agent_central, agent_approvals))
     app.include_router(agent_metrics_router(agents, agent_connections))
+    # Static automation paths precede the dynamic /api/agents/{agent_id} routes.
+    app.include_router(automation_router(automations))
     app.include_router(agent_router(agents))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 

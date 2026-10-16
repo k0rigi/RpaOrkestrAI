@@ -19,7 +19,7 @@ from .policy import canonical
 
 BASE_URL = "https://orkestrai.net/api/studio/ekip"
 IDENTIFIER = re.compile(r"^[a-f0-9]{32}$")
-PATH = re.compile(r"^/(?:ben|uyeler|ofis|gorevler(?:/[a-f0-9]{32}(?:/(?:durum|ata))?)?|"
+PATH = re.compile(r"^/(?:ben|uyeler|ofis|gorevler(?:/[a-f0-9]{32}(?:/(?:durum|ata|sil))?)?|"
                   r"onaylar(?:/[a-f0-9]{32}(?:/(?:karar|tuket|iptal))?)?|"
                   r"llm/(?:models|jobs(?:/[a-f0-9]{32})?))$")
 RESPONSE_LIMIT = 512 * 1024

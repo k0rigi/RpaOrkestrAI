@@ -389,3 +389,35 @@ def test_manager_waits_for_any_task_to_hand_results_to_next_department(runtime):
     assert saved.status == "succeeded" and len(saved.delegated_task_ids) == 2
     handed = runtime.service.get_task(saved.delegated_task_ids[1])
     assert handed.assigned_agent_id == second.id and runtime.service.get_run(handed.run_id).inputs == {"toplam": 42}
+
+
+def test_finished_manager_task_is_deleted_with_its_subtasks_but_flow_history_stays(runtime):
+    flow = runtime.workflow(Step(action="core.set", params={"name": "result", "value": "Özet"}))
+    manager, child = make_team(runtime, grants=[WorkflowGrant(workflow_id=flow.id)])
+    providers(runtime, {manager.id: ScriptedProvider([response(delegate(child)), response(finish()), response(finish())]),
+                        child.id: ScriptedProvider([response(run_call(flow)), response(finish())])})
+    saved = runtime.done(runtime.service.start(manager.id, AgentRunRequest(task="Ekibi çalıştır")))
+    child_task = runtime.service.get_task(saved.delegated_task_ids[0])
+    flow_run = child_task.workflow_run_ids[0]
+    runtime.state["actor"] = runtime.owner.model_copy(update={"user_id": 7, "permissions": ("agents.use",)})
+    with pytest.raises(AgentServiceError) as error:
+        runtime.service.delete_task(saved.task_id)
+    assert error.value.status_code == 403
+    runtime.state["actor"] = runtime.owner
+    assert runtime.service.delete_run(saved.id) == 2
+    assert runtime.service.tasks() == [] and runtime.service.runs() == []
+    assert runtime.store.run(flow_run).status == "succeeded"
+
+
+def test_running_task_cannot_be_deleted(runtime):
+    gate = threading.Event()
+    item = runtime.agent()
+    provider = ScriptedProvider([response(finish())], callback=lambda request: gate.wait(AGENT_TEST_SECONDS) and None)
+    runtime.service._provider_factory = lambda agent: provider
+    run = runtime.service.start(item.id, AgentRunRequest(task="Bekle"))
+    with pytest.raises(AgentServiceError) as error:
+        runtime.service.delete_run(run.id)
+    assert error.value.status_code == 409
+    gate.set()
+    runtime.done(run)
+    assert runtime.service.delete_task(run.task_id) == 1

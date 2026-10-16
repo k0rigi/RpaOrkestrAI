@@ -57,6 +57,10 @@ def router(service: AgentService) -> APIRouter:
     def get_task(task_id: str):
         return call(service.get_task, task_id)
 
+    @result.delete("/tasks/{task_id}")
+    def delete_task(task_id: str):
+        return {"deleted": call(service.delete_task, task_id)}
+
     @result.get("/team")
     def team():
         return call(service.team)
@@ -72,6 +76,10 @@ def router(service: AgentService) -> APIRouter:
     @result.get("/runs/{run_id}")
     def get_run(run_id: str):
         return call(service.get_run, run_id)
+
+    @result.delete("/runs/{run_id}")
+    def delete_run(run_id: str):
+        return {"deleted": call(service.delete_run, run_id)}
 
     @result.post("/runs/{run_id}/cancel", status_code=202)
     def cancel_run(run_id: str):

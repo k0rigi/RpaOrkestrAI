@@ -10,13 +10,32 @@ from typing import Any, Callable, Protocol
 
 from .models import ProviderConnection, validate_json_value
 
+REASONS = {
+    "default": "Yapay zekâ sağlayıcısı isteği tamamlayamadı.",
+    "bad_request": "Sağlayıcı isteği reddetti (400). Seçilen model bu ayarları veya araç kullanımını desteklemiyor "
+                   "olabilir; ajan formundan başka bir model deneyin.",
+    "unauthorized": "API anahtarı geçersiz veya bu modele erişim izni yok (401/403). Bağlantılar bölümünden "
+                    "anahtarı yenileyin.",
+    "not_found": "Model bulunamadı (404). Model adı yanlış ya da sağlayıcı bu modeli kapatmış olabilir; "
+                 "Bağlantılar veya ajan formundan güncel bir model seçin.",
+    "quota": "Sağlayıcı kotası veya ödeme limiti doldu (429). Sağlayıcı hesabınızı kontrol edin.",
+    "rate_limited": "Sağlayıcının istek sınırı aşıldı (429). Biraz sonra yeniden deneyin.",
+    "server": "Sağlayıcı hizmetinde geçici bir hata oluştu (5xx). Biraz sonra yeniden deneyin.",
+    "unreachable": "Sağlayıcıya bağlanılamadı. İnternet bağlantısını; yerel modelde Ollama'nın açık olduğunu "
+                   "kontrol edin.",
+}
+
 
 class ProviderError(RuntimeError):
-    """Provider responses and exception details must not enter public error messages."""
+    """Provider responses and exception details must not enter public error messages.
 
-    def __init__(self, message: str = "Yapay zekâ sağlayıcısı isteği tamamlayamadı."):
+    Only fixed reasons and literal texts written in this code base (``trusted=True``) are shown.
+    """
+
+    def __init__(self, message: str = REASONS["default"], *, reason: str = "default", trusted: bool = False):
         # Do not accept provider-originated error text, even when a caller passes it accidentally.
-        super().__init__("Yapay zekâ sağlayıcısı isteği tamamlayamadı.")
+        self.reason = reason if reason in REASONS else "default"
+        super().__init__(message if trusted and isinstance(message, str) and message else REASONS[self.reason])
 
 
 class ProviderUnavailable(ProviderError):

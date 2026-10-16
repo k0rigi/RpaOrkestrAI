@@ -43,6 +43,11 @@
     return item;
   }
   function state(status) { return el("span", labels[status] || "Bilinmiyor", "agent-status"); }
+  const finished = new Set(["succeeded", "failed", "cancelled"]);
+  async function confirmed(options, title, message) {
+    if (options.confirmDialog) return options.confirmDialog(title, message, "Sil", true);
+    return window.confirm(`${title}\n\n${message}`);
+  }
   function time(value) { return value ? new Date(value).toLocaleString("tr-TR") : "—"; }
   function setup(container, options) {
     const view = { alive: true, busy: false, timer: null, container, options, current: null };
@@ -187,13 +192,31 @@
             : options.agents.find((a) => a.id === task.assigned_agent_id)?.name;
           card.append(el("span", who || (kind === "human" ? "İnsan çalışan" : "Ajan"), "agent-eyebrow"),
             el("h3", task.title), state(task.status), el("p", time(task.created_at), "agent-help"));
-          if (kind === "human") card.append(button("Görevi aç", () => view.act(() => showHuman(task.id))));
-          else if (task.run_id) card.append(button("Çalışmayı aç", () => options.openAgentRun(task.run_id)));
+          const actions = el("div", undefined, "agent-actions");
+          if (kind === "human") actions.append(button("Görevi aç", () => view.act(() => showHuman(task.id))));
+          else if (task.run_id) actions.append(button("Çalışmayı aç", () => options.openAgentRun(task.run_id)));
+          if (options.session.can_manage && finished.has(task.status)) {
+            actions.append(button("Sil", () => view.act(() => removeTask(kind, task)), "danger"));
+          }
+          card.append(actions);
           if (task.parent_task_id) card.append(el("p", "Bir yönetici görevinin alt görevi", "agent-help"));
           cards.push(card);
         }
       }
       list.replaceChildren(...(cards.length ? cards : [el("p", "Henüz görev yok.", "muted")]));
+    }
+    async function removeTask(kind, task) {
+      const message = kind === "human"
+        ? "Görev listelerden ve performans hesabından kalkar; kayıt denetim için kurum sunucusunda saklanır."
+        : task.parent_task_id ? "Bu ajan görevi ve çalışma kaydı silinir. Çalıştırdığı akışların kaydı Çalışma geçmişinde kalır."
+          : "Bu görev, varsa departmanlara verilen alt görevleriyle birlikte silinir. Akış kayıtları Çalışma geçmişinde kalır.";
+      if (!await confirmed(options, "Görev silinsin mi?", message)) return;
+      if (kind === "human") {
+        await view.request(`/api/agents/central/tasks/${encodeURIComponent(task.id)}/delete`, "POST", { expected_version: task.version });
+      } else await view.request(`/api/agents/tasks/${encodeURIComponent(task.id)}`, "DELETE");
+      if (view.current === task.id) { view.current = null; detail.hidden = true; detail.replaceChildren(); }
+      options.toast("Görev silindi.");
+      await view.refresh();
     }
     async function showHuman(identity) {
       const data = await view.request(`/api/agents/central/tasks/${encodeURIComponent(identity)}`);
@@ -233,6 +256,10 @@
           });
           await showHuman(identity); await view.refresh();
         })));
+      }
+      if (options.session.can_manage) {
+        if (finished.has(task.status)) detail.append(button("Görevi sil", () => view.act(() => removeTask("human", task)), "danger"));
+        else detail.append(el("p", "Görevi silmek için önce iptal edin.", "agent-help"));
       }
       detail.append(button("Ayrıntıyı kapat", () => { view.current = null; detail.hidden = true; detail.replaceChildren(); }));
       detail.scrollIntoView({ block: "nearest" });

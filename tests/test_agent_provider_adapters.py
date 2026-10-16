@@ -325,3 +325,22 @@ def test_deadline_size_and_redirect_are_checked_before_returning_data():
         with pytest.raises(ProviderError):
             JsonTransport(opener=lambda request, **kwargs: reply(request)).post(
                 "https://api.openai.com/v1/responses", {}, {}, cancel=threading.Event(), deadline=time.monotonic() + 2)
+
+
+@pytest.mark.parametrize("code,expected", [(404, "Model bulunamadı"), (401, "API anahtarı"), (400, "isteği reddetti")])
+def test_transport_maps_http_status_without_provider_text(code, expected):
+    import io
+    import threading
+    import time
+    from urllib.error import HTTPError
+
+    from rpa_orkestrai.agents.provider_adapters import JsonTransport
+    from rpa_orkestrai.agents.providers import ProviderError
+
+    def opener(request, timeout, context):
+        raise HTTPError(request.full_url, code, "gizli sunucu metni", {}, io.BytesIO(b'{"error": {"message": "sunucu ayrintisi"}}'))
+
+    with pytest.raises(ProviderError) as error:
+        JsonTransport(opener=opener, retries=0).post("https://example.test/v1", {}, {}, cancel=threading.Event(),
+                                                     deadline=time.monotonic() + 5)
+    assert expected in str(error.value) and "sunucu" not in str(error.value)

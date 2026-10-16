@@ -119,5 +119,18 @@
 .agent-note-list .agent-actions { margin-top: 4px; }
 .agent-note-form { display: grid; gap: 8px; margin-top: 8px; }
 .agent-event[data-kind="note_suggested"] { border-left-color: var(--accent); }
+.agent-inputs { display: grid; gap: 8px; }
+.agent-input-rows { display: grid; gap: 8px; }
+.agent-input-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto; gap: 8px; align-items: end; }
+.agent-input-row .agent-field { margin: 0; }
+.agent-automation-form { margin: 0 0 18px; display: grid; gap: 12px; }
+.agent-automation-form[hidden] { display: none; }
+.agent-automation-days { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.agent-days-caption { font-weight: 600; font-size: .9rem; }
+.agent-automation-card[data-enabled="false"] { opacity: .72; }
+.agent-automation-when { font-weight: 600; color: var(--accent-text); margin: 0 0 6px; overflow-wrap: anywhere; }
+.agent-automation-facts { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; font-size: .82rem; }
+.agent-automation-facts li { padding: 3px 9px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); }
+@media (max-width: 640px) { .agent-input-row { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .agent-root { padding: 18px; } .agent-run-layout { grid-template-columns: 1fr; } .agent-run-list > div { max-height: 260px; overflow: auto; } }
 @media (max-width: 640px) { .agent-form-grid { grid-template-columns: 1fr; } .agent-cards { grid-template-columns: 1fr; } .agent-card, .agent-form, .agent-run-pane { padding: 16px; } }

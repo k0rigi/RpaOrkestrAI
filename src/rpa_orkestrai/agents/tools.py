@@ -151,6 +151,27 @@ def tool_definitions(role="department", *, delegated=False) -> list[dict]:
              "parameters": _compact(model.model_json_schema())} for name, (model, description) in TOOLS.items() if name in allowed]
 
 
+def argument_error(name: str, model, error: ValidationError) -> str:
+    """Tell the model which field to fix; only field names, never the submitted values, are repeated."""
+    missing, unknown, invalid = [], [], []
+    for item in error.errors():
+        field = ".".join(str(part) for part in item.get("loc", ())) or "girdi"
+        kind = item.get("type", "")
+        (missing if kind == "missing" else unknown if kind == "extra_forbidden" else invalid).append(field)
+    parts = []
+    if missing:
+        parts.append("eksik alan: " + ", ".join(sorted(set(missing))[:10]))
+    if unknown:
+        parts.append("tanınmayan alan: " + ", ".join(sorted(set(unknown))[:10]))
+    if invalid:
+        parts.append("türü veya uzunluğu hatalı alan: " + ", ".join(sorted(set(invalid))[:10]))
+    schema = model.model_json_schema()
+    required = set(schema.get("required", []))
+    expected = ", ".join(f"{field}{' (zorunlu)' if field in required else ''}" for field in schema.get("properties", {}))
+    return (f"{name} aracının girdileri geçersiz ({'; '.join(parts) or 'biçim hatalı'}). "
+            f"Beklenen alanlar: {expected or 'yok'}. Aracı bu alanlarla yeniden çağır.")
+
+
 class AgentTools:
     def __init__(self, service, context):
         self.service, self.context = service, context
@@ -160,10 +181,13 @@ class AgentTools:
         allowed = MANAGER_TOOLS if self.context.agent.role == "manager" else DEPARTMENT_TOOLS
         if call.name not in allowed:
             raise WorkflowError("Ajan bu aracı kullanamaz.")
+        model = TOOLS[call.name][0]
         try:
-            arguments = TOOLS[call.name][0].model_validate(call.arguments)
-        except (ValidationError, ValueError):
-            raise WorkflowError("Araç girdileri geçersiz veya izin verilen sınırların dışında.") from None
+            arguments = model.model_validate(call.arguments)
+        except ValidationError as exc:
+            raise WorkflowError(argument_error(call.name, model, exc)) from None
+        except ValueError:
+            raise WorkflowError(f"{call.name} aracının girdileri geçersiz veya izin verilen sınırların dışında.") from None
         return getattr(self, call.name)(arguments)
 
     def _prepared(self, workflow_id, inputs=None):

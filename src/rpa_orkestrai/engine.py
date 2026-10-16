@@ -1514,6 +1514,8 @@ class RunManager:
         self.gate: Callable[[], bool] | None = None
         self._stop_reason: str | None = None
         self._debugger: Debugger | None = None
+        # Told about finished person/scheduler runs (never agent, test or preview runs) after they are saved.
+        self.finished_listeners: list[Callable[[Run], None]] = []
 
     def reserve_desktop(self, cancel: threading.Event | None = None) -> threading.Event:
         with self._lock:
@@ -1694,6 +1696,12 @@ class RunManager:
             with self._lock:
                 self._active, self._stop_reason, self._debugger = None, None, None
             self.store.save_run(run)
+            if agent_context is None and not run.dry_run and not run.test_step_id:
+                for listener in list(self.finished_listeners):
+                    try:
+                        listener(run.model_copy(deep=True))
+                    except Exception:
+                        pass  # A listener never changes the finished run or blocks the worker.
 
     def debug(self, run_id: str, action: str) -> Run:
         """Sonraki adım / Devam et / Sonuna kadar for the run waiting at a pause."""

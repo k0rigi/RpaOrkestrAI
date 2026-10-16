@@ -161,19 +161,19 @@ class SharedProvider:
                     job_id = None
                     return result
                 if job.get("status") in {"failed", "cancelled"}:
-                    raise ProviderError("Kurum modeli yanıtı tamamlayamadı; çalışma durduruldu.")
+                    raise ProviderError("Kurum modeli yanıtı tamamlayamadı; çalışma durduruldu.", trusted=True)
                 if job.get("status") not in {"queued", "running"}:
-                    raise ProviderError("Kurum modeli geçersiz bir çalışma durumu döndürdü.")
+                    raise ProviderError("Kurum modeli geçersiz bir çalışma durumu döndürdü.", trusted=True)
                 cancel.wait(min(1, max(0, deadline - time.monotonic())))
                 check()
                 job = self._model_request("GET", "/llm/jobs/" + job_id, actor=actor,
                                            cancel=cancel, deadline=deadline).get("job", {})
                 if job.get("id") != job_id:
-                    raise ProviderError("Kurum modeli yanıtının çalışma kimliği doğrulanamadı.")
+                    raise ProviderError("Kurum modeli yanıtının çalışma kimliği doğrulanamadı.", trusted=True)
         except CentralError as exc:
             raise ProviderError(str(exc)) from None
         except (TypeError, ValueError, KeyError):
-            raise ProviderError("Kurum modeli yanıtı veya isteği geçersiz.") from None
+            raise ProviderError("Kurum modeli yanıtı veya isteği geçersiz.", trusted=True) from None
         finally:
             if job_id is not None:
                 try:

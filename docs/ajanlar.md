@@ -187,6 +187,78 @@ bilgisi veya izni başka bir departmana kendiliğinden geçmez. Sizin doğrudan
 başlattığınız departman görevinde yönetici yoktur; ajan takılınca size sorar.
 Soru ve yanıtlar iki tarafın çalışma kaydında da görünür.
 
+### Otomasyonlar (0.9.29)
+
+**Ajanlar → Otomasyonlar** sekmesi, ajana kendiliğinden görev verir. Her otomasyonda
+bir ad, görevi alacak ajan, ajana her seferinde verilecek görev metni ve isteğe bağlı
+girdi değişkenleri bulunur. Tetikleyici üç türdür:
+
+| Tetikleyici | Ayarlar | Ajanın ek olarak aldığı girdiler |
+| --- | --- | --- |
+| Belirli zamanlarda | Bir kez, her gün, belirli günler veya her N dakikada bir (en az 5 dk); saat, günler, bitiş saati | `tetikleme_zamani` |
+| Bir akış bittiğinde | Akış; bittiğinde, başarıyla bittiğinde veya hata verdiğinde | `tetikleyen_akis`, `akis_durumu`, `akis_hatasi`, `akis_calisma_id` |
+| Klasöre yeni dosya geldiğinde | Klasörün tam yolu, dosya deseni (ör. `*.pdf`) | `dosya_adi`, `dosya_yolu` |
+
+Kurallar:
+
+- Otomasyonla başlayan görev, elle verilen görevle aynı izin, onay ve sınırlarla
+  çalışır. Ajan takılırsa sorar; soru ve onaylar **Sizi bekleyen işler** uyarısında
+  görünür. Görevin başlığı «Otomatik: ad» olur ve zaman çizelgesinde hangi otomasyonun
+  başlattığı yazar.
+- Otomasyonlar yalnız Studio açık, lisans ve oturum geçerliyken çalışır. Zamanı 60
+  dakikadan fazla geçmiş bir çalışma (Studio kapalıydı) başlatılmaz, **Kaçırıldı**
+  olarak yazılır. **Bir kez** otomasyonu çalıştıktan sonra kapanır.
+- Aynı otomasyonun önceki görevi bitmeden yenisi başlamaz (**Atlandı**). Bir
+  otomasyon bir saatte en fazla 30 görev başlatır.
+- Akış tetikleyicisi yalnız sizin veya akış zamanlayıcısının başlattığı çalışmaları
+  sayar. Ajanların çalıştırdığı akışlar, önizleme ve adım testleri tetiklemez; böylece
+  bir otomasyon kendini döngüye sokamaz.
+- Klasör tetikleyicisi yalnız klasöre doğrudan gelen ve iki denetim arasında boyutu
+  değişmeyen (kopyalanması bitmiş) dosyaları sayar. Otomasyon kaydedildiğinde
+  klasörde olan dosyalar işlenmez. Gizli, geçici (`.tmp`, `.part`, `.crdownload`)
+  ve Office kilit (`~$`) dosyaları sayılmaz. Denetimde en fazla 5 dosya işlenir,
+  kalanlar sonraki denetime kalır. Ajan dosyanın yolunu alır; dosyayı okuması için
+  o klasöre izinli bir akışı olmalıdır.
+- Otomasyonu yalnız ajanları yönetme yetkisi olan kişi oluşturur, düzenler, kapatır,
+  siler veya **Şimdi çalıştır** ile dener. Diğer kullanıcılar listeyi görür. En fazla
+  50 otomasyon tanımlanır. Kayıtlar `data/agent_automations.json` dosyasındadır.
+
+### Görevleri silme (0.9.29)
+
+Ajanları yönetme yetkisi olan kişi bitmiş görevleri silebilir:
+
+- **Ajan görevleri** (Görevler kartı veya Çalışmalar → **Çalışmayı sil**): görev ve
+  çalışma kaydı bu bilgisayardan silinir. Bir yönetici görevi silinirse departmanlara
+  verdiği alt görevler de silinir. Ajanın çalıştırdığı akışların kaydı **Çalışma
+  geçmişi**'nde kalır. Çalışan veya sıradaki görev önce durdurulmalıdır.
+- **İnsan görevleri**: tamamlanan, hata veren veya iptal edilen görev silinir; devam
+  eden görev önce iptal edilir. Görev listelerden, ofisten ve performans hesabından
+  çıkar; kayıt ve olayları denetim için kurum sunucusunda saklanır.
+
+### Girdi değişkenleri
+
+Girdi değişkenleri, göreve eklediğiniz adlandırılmış bilgilerdir (ör. `donem` =
+`2026-09`). Görev formunda **Girdi değişkenleri** bölümünden **Girdi ekle** ile ad ve
+değer satırları eklenir; JSON yazmak gerekmez. Ajan girdileri görür ve akış
+çalıştırırken aynı adlı akış değişkenine verir; akışta `${donem}` olarak kullanılır.
+Bölümün altında ajanın izinli akışlarının okuduğu girdi adları öneri olarak
+listelenir (`*` akışın beklediği girdidir); öneriye tıklamak satırı ekler. Sayı gibi
+yazılan değer sayı, `true`/`false` mantıksal değer, diğerleri metin olarak gönderilir.
+Ad harfle başlamalı ve yalnız harf, rakam, alt çizgi içermelidir. Girdi gerekmiyorsa
+boş bırakın; ajan eksik bilgiyi sorar.
+
+### Hata mesajları
+
+Model isteği başarısız olursa çalışma kaydında nedeni yazar: model bulunamadı (404,
+model adı yanlış veya sağlayıcı kapatmış), API anahtarı geçersiz (401/403), kota veya
+ödeme limiti doldu ya da istek sınırı aşıldı (429), sağlayıcıda geçici hata (5xx),
+sağlayıcıya bağlanılamadı (internet veya Ollama kapalı), istek reddedildi (400).
+Sağlayıcının kendi hata metni güvenlik nedeniyle gösterilmez. Ajan bir aracı eksik
+veya tanınmayan alanla çağırırsa, hangi alanı düzeltmesi gerektiği ve beklenen alanlar
+kendisine söylenir; gönderdiği değerler mesajda tekrarlanmaz. Ajan, akış gerektirmeyen
+genel bilgi sorularını kendi bilgisiyle yanıtlayabilir ve bunun genel bilgi olduğunu
+belirtir; şirkete özgü veriyi uydurmaz.
+
 ### Ajan notları: onaylı öğrenme (0.9.28)
 
 Ajan, verdiğiniz yanıtları kendiliğinden kalıcı bilgiye dönüştürmez. Bir yanıt

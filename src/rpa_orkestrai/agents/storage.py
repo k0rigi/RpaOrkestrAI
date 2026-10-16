@@ -122,6 +122,18 @@ class AgentStore:
     def runs(self) -> list[AgentRun]:
         return self._list("agent_runs", AgentRun, "created_at")
 
+    def _delete(self, kind: str, key: str) -> None:
+        with self._lock:
+            path = self.path(kind, key)
+            if path.is_file():
+                path.unlink()
+
+    def delete_run(self, key: str) -> None:
+        self._delete("agent_runs", key)
+
+    def delete_task(self, key: str) -> None:
+        self._delete("agent_tasks", key)
+
     def save_task(self, task: AgentTask) -> AgentTask:
         return self._save("agent_tasks", task, AgentTask)
 

@@ -99,6 +99,23 @@ def _check(cancel, deadline):
         raise ProviderTimeout()
 
 
+def status_reason(code: int, quota: bool = False) -> str:
+    """Map only the HTTP status (never the provider's text) to a fixed, actionable explanation."""
+    if quota:
+        return "quota"
+    if code == 400:
+        return "bad_request"
+    if code in {401, 403}:
+        return "unauthorized"
+    if code == 404:
+        return "not_found"
+    if code == 429:
+        return "rate_limited"
+    if 500 <= code < 600:
+        return "server"
+    return "default"
+
+
 class JsonTransport:
     def __init__(self, *, opener=None, retries=2):
         self.opener = opener
@@ -170,10 +187,10 @@ class JsonTransport:
                         pass
                 exc.close()
                 if quota or code != 429 and not 500 <= code < 600 or attempt == self.retries:
-                    raise ProviderError() from None
+                    raise ProviderError(reason=status_reason(code, quota)) from None
             except (URLError, TimeoutError, OSError):
                 if attempt == self.retries:
-                    raise ProviderError() from None
+                    raise ProviderError(reason="unreachable") from None
             except ProviderError:
                 raise
             except Exception:
