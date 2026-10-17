@@ -54,7 +54,8 @@ def site():
 
 @pytest.fixture
 def ctx(tmp_path):
-    session = WebSession(tmp_path / "profil", timeout_ms=15_000)
+    # A fresh browser profile on a busy Windows build machine can take longer than 15 s to load the first page.
+    session = WebSession(tmp_path / "profil", timeout_ms=30_000)
     logs = []
     yield SimpleNamespace(web=lambda: session, log=logs.append, logs=logs)
     session.close()
@@ -170,7 +171,7 @@ def portal():
 
 @pytest.fixture
 def web(tmp_path):
-    session = WebSession(tmp_path / "profil", timeout_ms=15_000)
+    session = WebSession(tmp_path / "profil", timeout_ms=30_000)
     logs, artifacts = [], []
 
     def save(name, data):
