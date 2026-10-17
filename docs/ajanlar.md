@@ -336,6 +336,67 @@ karakterdir. Kayıtlı bir şifre veya anahtar içeren not reddedilir. Notlar
 ajanın izin revizyonunu değiştirmez ve eski sürümler ajan dosyalarını okumaya
 devam eder. Ajan kaldırılınca notları da silinir.
 
+### Firmanın işleyişini öğretmek: bilgi kaynakları, süreç kartları ve taslak onayı (0.9.31)
+
+Her firmanın dinamiği farklıdır; ajan bunu kendiliğinden bilmez. Ajan formundaki iki bölümle öğretilir.
+Onay ekranındaki düzeltmelerle de gelişir.
+
+**Bilgi kaynakları.** Fiyat listesi, iade politikası, sık sorulan sorular, ürün kataloğu gibi belgelerin
+veya klasörlerin tam yolu yazılır (**Dosya ekle / Klasör ekle**).
+- Okunan türler: metinli PDF, Word (.docx), Excel (.xlsx), metin, CSV, HTML. Klasörlerin alt klasörleri
+  de okunur. Gizli, geçici ve `~$` kilit dosyaları atlanır.
+- Ajan firmaya özgü bir konuda cevap yazmadan önce bu belgelerde arar. Cevabını bulduğu bölüme dayandırır
+  ve kaynak adını belirtir. Bulamazsa uydurmaz.
+- Arama bu bilgisayarda yapılır ve ücretsizdir. Modele yalnız bulunan kısa bölümler gider; belgelerin
+  tamamı gönderilmez.
+- Belge değişince ajan yeni hâlini kullanır.
+- Taranmış (metni olmayan) PDF okunmaz; metin içeren bir kopyası eklenmelidir.
+- Studio'nun veri ve program klasörleri kaynak olamaz.
+- **Kaynakları kontrol et ve dene** kaydedilmiş kaynaklarda kaç dosyanın okunduğunu, okunamayanları
+  gösterir. Modele bir şey göndermeden deneme araması yapar.
+- Bir görevde en fazla 30 arama yapılır. Her arama zaman çizelgesine yazılır; ofiste ajan araştırma
+  köşesine gider.
+
+**Süreç kartları.** Her kart bir konuyu ve firmanın o konudaki işleyişini anlatır:
+
+| Alan | Örnek |
+| --- | --- |
+| Konu | Bilgi talebi |
+| Ne zaman | Müşteri ürün, stok veya teslim süresi sorarsa |
+| Ne yapılır | Bilgi kaynaklarına bak, kısa ve kibar yanıt yaz, kaynakta yoksa insana bırak |
+| Akışlar | Bu kartta kullanılacak akışlar (boşsa izinli tüm akışlar) |
+| Kural | Akış izinlerine göre uygula / Her değişikliği onaya sun (taslak) / Değişiklik yapma, insana bırak |
+
+Kartlar izin vermez, yalnız daraltır:
+- Kartı olan ajan, değişiklik yapan bir akışı ancak işe uyan kartı seçtikten sonra çalıştırabilir.
+- Uyan kart yoksa ajan değişiklik yapmaz. Durumu özetler ve işi **size bırakır**.
+- «Taslak» kuralı, akışa «Onaysız çalışabilir» izni verilmiş olsa bile her değişikliği onaya sunar.
+- «İnsana bırak» kuralı değişikliği tamamen engeller.
+- Kartta akış seçildiyse ajan o konuda başka bir akışla değişiklik yapamaz.
+
+Ajanın size bıraktığı işler üstteki **Sizi bekleyen işler** alanında 14 gün görünür. Çalışmada
+**Ele alındı olarak işaretle** ile kapatılır.
+
+**Taslak onayı ve öğrenme.** Onay ekranında **Düzenleyerek onayla** ile ajanın taslağı
+(ör. e-posta metni) düzeltilir:
+- Akış tam olarak onaylanan hâliyle çalışır.
+- Ajan düzeltmeyi görür. Sonraki işler için genel bir kural çıkıyorsa bunu not olarak önerir; not yalnız
+  yetkili onaylarsa kaydedilir.
+- Yalnız mevcut alanların değeri değişir; alan eklenmez, türü değişmez. Gizli değer içeren alanlar
+  düzenlenemez.
+- Merkezi kurum onayı kullanılıyorsa düzeltilmiş hâl de merkezi kayda geçer. Düzenleme, görevin çalıştığı
+  Studio'dan yapılır.
+
+Ajan kartındaki **Süreç kartları** bölümü her kart için şunları sayar: kaç taslağın değiştirilmeden
+onaylandığı, kaçının düzeltilerek onaylandığı, kaçının reddedildiği ve kaç işin insana bırakıldığı.
+Bir konuda en az 20 karar verilmiş ve taslakların %90'ı değiştirilmeden onaylanmışsa bölüm bir öneri
+gösterir: o konunun akışına «Onaysız çalışabilir» izni verilebilir. İzni yalnız onay yetkilisi verir.
+Akış başka kartlarda da kullanılıyorsa onlar da etkilenir; konuya özel otomatik gönderim için her
+konuya ayrı bir akış önerilir.
+
+Bilgi kaynağı veya süreç kartı tanımlanmamış ajanların dosyası değişmez. Tanımlanmış ajan dosyası
+0.9.30 ve önceki sürümlerde okunamaz.
+
 ### Yetki kartı
 
 Her ajan kartında ve düzenleme formunda **Yapabilir · Onay ister · Yapamaz**

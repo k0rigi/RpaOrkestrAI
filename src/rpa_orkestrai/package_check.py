@@ -157,6 +157,7 @@ def _check_integrations(folder: Path) -> None:
         raise RuntimeError("Paket içindeki mesaj gönderme biçimi doğrulanamadı.")
     if safe_names({"Müşteri Adı": "x"}) != {"Musteri_Adi": "x"}:
         raise RuntimeError("Paket içindeki otomasyon kayıt adları doğrulanamadı.")
+    _check_knowledge(folder)
     for refused in (lambda: ftp.remote("../disari"), lambda: check_url("http://127.0.0.1/", None),
                     lambda: api.resolve_url({"base_url": "https://erp.example.com"}, "https://baska.example.com/x")):
         try:
@@ -164,6 +165,29 @@ def _check_integrations(folder: Path) -> None:
         except WorkflowError:
             continue
         raise RuntimeError("Paket içindeki bağlantı güvenlik kontrolleri çalışmıyor.")
+
+
+def _check_knowledge(folder: Path) -> None:
+    """Ajan bilgi kaynakları: Word, Excel and text are read and searched inside the package (no network)."""
+    import zipfile
+
+    import openpyxl
+
+    from .agents.knowledge import KnowledgeBase
+
+    docs = folder / "bilgi"
+    docs.mkdir()
+    (docs / "iade.txt").write_text("İade süresi 14 gündür.", encoding="utf-8")
+    with zipfile.ZipFile(docs / "sss.docx", "w") as archive:
+        archive.writestr("word/document.xml", "<w:p><w:r><w:t>Kargo 2 iş gününde çıkar.</w:t></w:r></w:p>")
+    book = openpyxl.Workbook()
+    book.active.append(["Ürün", "Fiyat"])
+    book.active.append(["Vida", "12 TL"])
+    book.save(docs / "fiyat.xlsx")
+    base = KnowledgeBase(folder / "bilgi-onbellek")
+    found = {query: base.search([str(docs)], query, 1) for query in ("iade suresi", "kargo", "vida fiyat")}
+    if [items[0]["source"] if items else None for items in found.values()] != ["iade.txt", "sss.docx", "fiyat.xlsx"]:
+        raise RuntimeError("Paket içindeki ajan bilgi kaynağı araması doğrulanamadı.")
 
 
 def _check_documents(folder: Path) -> None:

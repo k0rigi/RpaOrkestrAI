@@ -138,3 +138,14 @@
 @media (max-width: 640px) { .agent-input-row { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .agent-root { padding: 18px; } .agent-run-layout { grid-template-columns: 1fr; } .agent-run-list > div { max-height: 260px; overflow: auto; } }
 @media (max-width: 640px) { .agent-form-grid { grid-template-columns: 1fr; } .agent-cards { grid-template-columns: 1fr; } .agent-card, .agent-form, .agent-run-pane { padding: 16px; } }
+.agent-playbook-rows { display: grid; gap: 14px; margin: 10px 0; }
+.agent-playbook { border: 1px solid var(--line-strong); border-radius: var(--r-l); padding: 14px 16px 6px; margin: 0; min-width: 0; background: var(--surface); }
+.agent-playbook legend { font-weight: 600; padding: 0 6px; }
+.agent-playbook-flows { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; }
+.agent-playbook-flows .agent-help { flex-basis: 100%; margin: 0; }
+.agent-playbook-flows[hidden], .agent-knowledge-check [hidden] { display: none; }
+.agent-knowledge-check { margin-top: 8px; }
+.agent-draft { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--warn-line); }
+.agent-draft textarea { font: inherit; }
+.agent-handoff { margin: 12px 0; display: grid; gap: 6px; justify-items: start; }
+.agent-handoff p { margin: 0; }

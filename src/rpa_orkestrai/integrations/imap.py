@@ -187,7 +187,8 @@ def summary(message, uid: int, *, text_limit: int = 20_000, attachment_folder: P
     return {"uid": uid, "from": address, "from_name": name, "subject": str(message.get("Subject", "")),
             "to": [item[1] for item in getaddresses([str(message.get("To", ""))]) if item[1]],
             "cc": [item[1] for item in getaddresses([str(message.get("Cc", ""))]) if item[1]],
-            "date": sent, "message_id": str(message.get("Message-ID", "")),
+            "date": sent, "message_id": str(message.get("Message-ID", "")).strip(),
+            "references": " ".join(str(message.get("References", "")).split())[:4000],
             "text": content[:text_limit], "truncated": len(content) > text_limit, "attachments": attachments}
 
 

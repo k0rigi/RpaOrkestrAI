@@ -80,4 +80,27 @@ Gelen işler sıraya girer (en fazla 200) ve önceki iş bitince sıradaki başl
 3. **Gece kontrolü:** *Belirli zamanlarda* (her gün 22:00) → hedef: *Kontrol ajanı*. Ajan Veritabanı sorgusu akışıyla açık kalan kayıtları bulur, özeti Mesaj gönder akışıyla kanala iletir.
 4. **Banka dosyası:** *Klasöre yeni dosya geldiğinde* (`*.xml`) → hedef: *Banka aktarım akışı* (doğrudan): FTP dosya aktarımı ile bankaya yükler, sonucu e-postayla bildirir.
 
+## Örnek: gelen e-postaları yanıtlayan ajan (0.9.31+)
+
+1. **Akış «E-postayı yanıtla»:** tek bir **E-posta gönder** adımı içerir.
+   - Kime: `${kime}`
+   - Konu: `${konu}`
+   - İleti: `${metin}`
+   - Yanıtlanan e-posta: `${yanitlanan}`
+
+   Akışın girdileri `kime`, `konu`, `metin`, `yanitlanan` olur. Ajana bu akış için izin verin.
+2. **Ajan:**
+   - **Bilgi kaynakları:** iade politikası, fiyat listesi, sık sorulan sorular.
+   - **Süreç kartları:** ör. «Bilgi talebi» (taslak), «Sipariş durumu» (sipariş sorgu akışı, taslak),
+     «Şikâyet» (insana bırak).
+3. **Otomasyon:** *Yeni e-posta geldiğinde* → hedef bu ajan. Görev metni: «Gelen e-postayı oku, uyan
+   kartı seç ve yanıtla.»
+
+   Ajan `${eposta}` bilgisini görür. Akışı çalıştırırken iletinin kimliğini (`message_id`) `yanitlanan`
+   girdisine verir; yanıt aynı yazışmanın altına düşer.
+4. **İlk haftalar:** yanıtlar taslak olarak onaya gelir. Metni **Düzenleyerek onayla** ile düzeltin; ajan
+   düzeltmelerden not önerir. Bir konuda taslaklar sürekli değiştirilmeden onaylanıyorsa kart istatistiği
+   bunu gösterir. O konuya ayrı bir yanıt akışı verip yalnız ona «Onaysız çalışabilir» izni tanıyabilirsiniz.
+5. **Uyan kart yoksa** (ör. beklenmeyen bir konu) ajan yanıt göndermez. İşi Sizi bekleyen işler'e bırakır.
+
 Bu adımları veya bağlantı alanını kullanan akışlar 0.9.29 ve önceki sürümlerde açılmaz; kullanmayan akışların dosya biçimi değişmez.

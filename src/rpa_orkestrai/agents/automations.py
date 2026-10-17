@@ -752,7 +752,8 @@ class AutomationService:
         self._record(item.id, mail_uid=newest, mail_validity=validity, last_check_at=moment.isoformat(timespec="seconds"))
         current = self._current(item.id) or item
         self._enqueue(current, [{"eposta": {key: message[key] for key in (
-            "from", "from_name", "subject", "date", "text", "attachments", "message_id", "uid")}} for message in messages])
+            "from", "from_name", "subject", "date", "text", "attachments", "message_id", "references", "uid")
+            if key in message}} for message in messages])
 
     @staticmethod
     def _describe(trigger: AutomationTrigger, exc: Exception) -> str:

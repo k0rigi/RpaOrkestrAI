@@ -69,7 +69,8 @@
     ask_user: "Size soru", ask_manager: "Yöneticiye soru", finish: "Görevi bitiriyor", list_team: "Ekip okunuyor",
     delegate_task: "Görev devri", get_task: "Alt görev durumu okunuyor", list_tasks: "Alt görevler okunuyor",
     wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt", suggest_note: "Not önerisi",
-    web_search: "İnternette arama", fetch_page: "Web sayfası okuma" };
+    web_search: "İnternette arama", fetch_page: "Web sayfası okuma", search_knowledge: "Bilgi kaynaklarında arama",
+    use_playbook: "Süreç kartı seçimi" };
   const eventTitles = { created: "Görev alındı", queue: "Masaüstü sırası bekleniyor", workflow_started: "Akış başladı",
     question: "Size soru soruldu", user_answer: "Yanıtınız iletildi", approval_requested: "Onay istendi",
     approval_decision: "Onay kararı verildi", approval_submitted: "Onay kararı gönderildi", approval_consumed: "Onay kullanıldı",
@@ -79,10 +80,13 @@
     context_compacted: "Konuşma kısaltıldı", output_limited: "Yanıt bütçesi daraltıldı", interrupted: "Çalışma yarıda kaldı",
     assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek",
     note_suggested: "Ajan kalıcı not önerdi", web_search: "İnternette arandı", web_fetch: "Web sayfası okundu",
-    automation: "Otomasyonla başladı" };
+    automation: "Otomasyonla başladı", knowledge_search: "Bilgi kaynaklarında arandı", playbook_selected: "Süreç kartı seçildi",
+    handoff: "İş size bırakıldı" };
+  const playbookModes = { act: "Akış izinlerine göre uygula", review: "Her değişikliği onaya sun (taslak)",
+    handoff: "Değişiklik yapma, insana bırak" };
   const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
   const quietTools = new Set(["list_workflows", "describe_workflow", "get_run", "list_recent_runs", "list_team", "get_task",
-    "list_tasks", "wait_tasks", "read_artifact", "suggest_note", "web_search", "fetch_page"]);
+    "list_tasks", "wait_tasks", "read_artifact", "suggest_note", "web_search", "fetch_page", "search_knowledge", "use_playbook"]);
   const extensions = new Map();
   let active = null;
   let sequence = 0;
@@ -392,30 +396,38 @@
     if (!view.alive || !view.attention || document.hidden || view.attentionLoading) return;
     view.attentionLoading = true;
     try {
-      const data = await view.request("/api/agents/office");
-      if (view.alive) renderAttention(view, Array.isArray(data?.agents) ? data.agents : []);
+      // Either source may be unavailable (no office module, older server); the other still shows.
+      const [data, handoffs] = await Promise.all([view.request("/api/agents/office").catch(() => null),
+        view.request("/api/agents/handoffs").catch(() => [])]);
+      if (view.alive) renderAttention(view, Array.isArray(data?.agents) ? data.agents : [], Array.isArray(handoffs) ? handoffs : []);
     } catch {
-      if (view.alive) renderAttention(view, []);
+      if (view.alive) renderAttention(view, [], []);
     } finally {
       view.attentionLoading = false;
       if (view.alive && !document.hidden) view.attentionTimer = setTimeout(() => pollAttention(view), 5000);
     }
   }
-  function renderAttention(view, agents) {
-    const waiting = agents.filter((item) => ["waiting_user", "waiting_approval"].includes(item.status)
-      && typeof item.run_id === "string" && /^[a-f0-9]{32}$/.test(item.run_id)).slice(0, 6);
-    const key = JSON.stringify(waiting.map((item) => [item.run_id, item.status, item.name]));
+  function renderAttention(view, agents, handoffs = []) {
+    const valid = (identity) => typeof identity === "string" && /^[a-f0-9]{32}$/.test(identity);
+    const waiting = agents.filter((item) => ["waiting_user", "waiting_approval"].includes(item.status) && valid(item.run_id)).slice(0, 6);
+    const left = handoffs.filter((item) => valid(item.run_id)).slice(0, 6);
+    const key = JSON.stringify([waiting.map((item) => [item.run_id, item.status, item.name]), left.map((item) => item.run_id)]);
     if (key === view.attentionKey) return;
     view.attentionKey = key;
-    view.attention.hidden = !waiting.length;
-    if (!waiting.length) { view.attention.replaceChildren(); return; }
+    const total = waiting.length + left.length;
+    view.attention.hidden = !total;
+    if (!total) { view.attention.replaceChildren(); return; }
     const list = element("div", null, "agent-actions");
     for (const item of waiting) {
       list.append(action(`${item.name}: ${item.status === "waiting_user" ? "yanıtınızı bekliyor" : "onay bekliyor"}`,
         () => openRun(view, item.run_id)));
     }
-    view.attention.replaceChildren(element("strong", waiting.length === 1 ? "Sizi bekleyen bir iş var" : `Sizi bekleyen ${waiting.length} iş var`),
-      element("p", "Yanıt veya onay gelene kadar ajan bekler; süre dolarsa tahminle devam etmez.", "agent-help"), list);
+    for (const item of left) {
+      list.append(action(`${item.agent_name}: işi size bıraktı · ${item.title || "Ajan görevi"}`, () => openRun(view, item.run_id)));
+    }
+    view.attention.replaceChildren(element("strong", total === 1 ? "Sizi bekleyen bir iş var" : `Sizi bekleyen ${total} iş var`),
+      element("p", waiting.length ? "Yanıt veya onay gelene kadar ajan bekler; süre dolarsa tahminle devam etmez."
+        : "Ajanın size bıraktığı işi ele aldıktan sonra «Ele alındı» olarak işaretleyin.", "agent-help"), list);
   }
 
   function showTab(view, tab) {
@@ -477,6 +489,15 @@
     ];
     const noteCount = (view.notes?.[agent.id] || []).length;
     if (noteCount) can.push(`Onaylanmış ${noteCount} kalıcı notu bilir ve kullanır; notlar izin vermez.`);
+    const sources = agent.knowledge_sources || [], cards = agent.playbooks || [];
+    if (sources.length) can.push(`Firmanın ${sources.length} bilgi kaynağında arar ve cevabını bulduğu bölüme dayandırır.`);
+    if (cards.length) {
+      can.push(`${cards.length} süreç kartına göre çalışır; uyan kart yoksa değişiklik yapmaz, işi size bırakır.`);
+      for (const card of cards) {
+        if (card.mode === "review") approval.push(`«${card.title}» konusunda her değişikliği taslak olarak onaya sunar.`);
+        if (card.mode === "handoff") cannot.push(`«${card.title}» konusunda değişiklik yapmaz; işi insana bırakır.`);
+      }
+    }
     if (access === "open") can.push("İnternette araştırabilir (tüm web, bir görevde en fazla 20 istek).");
     else if (access === "allowlist") can.push(`İnternette yalnız şu sitelerde araştırabilir: ${(agent.web_domains || []).join(", ")}.`);
     if (agent.role === "manager") {
@@ -536,6 +557,58 @@
     return section;
   }
 
+  function cardStats(counts = {}) {
+    const parts = [];
+    for (const [key, label] of [["approved", "değişmeden onaylandı"], ["edited", "düzeltilerek onaylandı"],
+      ["rejected", "reddedildi"], ["expired", "onay süresi doldu"], ["handoffs", "insana bırakıldı"]]) {
+      if (counts[key]) parts.push(`${count(counts[key])} ${label}`);
+    }
+    return parts.length ? parts.join(" · ") : "Henüz karar yok.";
+  }
+  // Card statistics are read only when the section is opened; they come from finished runs on this computer.
+  function playbookSection(view, agent) {
+    const body = element("div", null, "agent-notes");
+    body.append(element("p", "Ajan işe uyan kartı seçer ve adımlarını izler. Kartlar izin vermez, yalnız daraltır.", "agent-help"));
+    const list = element("ul", null, "agent-note-list");
+    const rows = [];
+    for (const card of agent.playbooks || []) {
+      const item = element("li");
+      const stats = element("small", "", "muted");
+      const advice = element("p", "", "agent-help"); advice.hidden = true;
+      const flows = (card.workflow_ids || []).map((identity) => workflowName(view, identity));
+      item.append(element("strong", card.title), element("span", `${playbookModes[card.mode] || ""}${flows.length ? ` · ${flows.join(", ")}` : ""}`, "agent-help"),
+        stats, advice);
+      rows.push({ card, stats, advice });
+      list.append(item);
+    }
+    const other = element("li", null, "agent-help"); other.hidden = true;
+    list.append(other);
+    body.append(list);
+    const details = disclosure(`Süreç kartları (${(agent.playbooks || []).length})`, body);
+    details.addEventListener("toggle", () => {
+      if (!details.open || details.dataset.loaded) return;
+      details.dataset.loaded = "1";
+      view.request(`/api/agents/${agent.id}/playbook-stats`).then((stats) => {
+        if (!view.alive) return;
+        for (const { card, stats: line, advice } of rows) {
+          const counts = stats?.[card.id] || {};
+          line.textContent = cardStats(counts);
+          const decided = (counts.approved || 0) + (counts.edited || 0) + (counts.rejected || 0);
+          if (decided >= 20 && (counts.approved || 0) / decided >= 0.9 && card.mode !== "handoff") {
+            advice.hidden = false;
+            advice.textContent = "Bu konudaki taslaklar çoğunlukla değiştirilmeden onaylanıyor. İsterseniz onay yetkilisi kartın "
+              + "akışına «Onaysız çalışabilir» izni verebilir" + (card.mode === "review" ? " ve kartın kuralını «Akış izinlerine göre uygula» yapabilir" : "")
+              + ". Akış başka kartlarda da kullanılıyorsa onlar da etkilenir.";
+          }
+        }
+        const loose = stats?.kartsiz;
+        other.hidden = !loose;
+        if (loose) other.textContent = `Kart seçilmeden: ${cardStats(loose)}`;
+      }).catch(view.error);
+    });
+    return details;
+  }
+
   function renderAgents(view) {
     const toolbar = element("div", null, "agent-toolbar");
     toolbar.append(element("p", `${view.agents.length} ajan`, "muted"));
@@ -550,6 +623,12 @@
       );
       card.append(permissionCard(permissionSummary(view, agent)), element("p", limitSummary(agent), "agent-help agent-limit-line"));
       card.append(notesSection(view, agent));
+      if ((agent.playbooks || []).length) card.append(playbookSection(view, agent));
+      if ((agent.knowledge_sources || []).length) {
+        const list = element("ul", null, "agent-note-list");
+        for (const source of agent.knowledge_sources) list.append(element("li", source));
+        card.append(disclosure(`Bilgi kaynakları (${agent.knowledge_sources.length})`, list));
+      }
       if (agent.instructions) card.append(disclosure("Talimatlar", element("p", agent.instructions, "agent-help agent-instructions")));
 
       const buttons = element("div", null, "agent-actions");
@@ -751,6 +830,69 @@
     preset.wrapper.append(presetHelp);
     limits.append(preset.wrapper, limitGrid);
     matchPreset();
+    const knowledge = element("section", null, "agent-grants agent-knowledge");
+    const sourcesField = field("Belgeler ve klasörler", (agent.knowledge_sources || []).join("\n"), "textarea",
+      "Her satıra bir dosyanın veya klasörün tam yolu. PDF (metinli), Word (.docx), Excel (.xlsx), metin, CSV ve HTML okunur; "
+      + "klasörlerin alt klasörleri de okunur. Belge değişince ajan yeni hâlini kullanır.");
+    sourcesField.input.rows = 3;
+    const readSources = () => sourcesField.input.value.split("\n").map((line) => line.trim()).filter(Boolean);
+    const pickers = element("div", null, "agent-actions");
+    for (const [label, kind] of [["Dosya ekle", "open"], ["Klasör ekle", "folder"]]) {
+      const button = action(label, () => view.busy(button, async () => {
+        const chosen = await view.request("/api/desktop/choose-path", "POST", { kind });
+        if (chosen?.path) { sourcesField.input.value = [...readSources(), chosen.path].join("\n"); refreshPreview(); }
+      }));
+      pickers.append(button);
+    }
+    knowledge.append(element("h3", "Bilgi kaynakları"), element("p", "Fiyat listesi, iade politikası, sık sorulan sorular, ürün "
+      + "kataloğu gibi belgeler. Ajan cevap yazmadan önce bunlarda arar. Arama bu bilgisayarda yapılır ve ücretsizdir; modele yalnız "
+      + "bulunan kısa bölümler gönderilir.", "agent-help"), sourcesField.wrapper, pickers);
+    if (original) knowledge.append(knowledgeCheck(view, original));
+    const playbooks = element("section", null, "agent-grants agent-playbooks");
+    const cardRows = element("div", null, "agent-playbook-rows");
+    const grantedFlows = () => grantRows.filter((item) => item.allowed.input.checked).map((item) => item.workflow);
+    const addCard = (card = {}) => {
+      const box = element("fieldset", null, "agent-playbook");
+      box.append(element("legend", card.title ? `Kart: ${card.title}` : "Yeni süreç kartı"));
+      const title = field("Konu", card.title || ""); title.input.maxLength = 120; title.input.required = true;
+      title.input.placeholder = "Ör. Bilgi talebi";
+      const when = field("Ne zaman", card.when || "", "textarea", "Bu kartın hangi durumda uygulanacağı.");
+      when.input.rows = 2; when.input.maxLength = 1000;
+      const steps = field("Ne yapılır", card.steps || "", "textarea",
+        "Sırayla yapılacaklar: hangi bilgi kaynağına bakılacağı, hangi akışın kullanılacağı, nelere dikkat edileceği.");
+      steps.input.rows = 3; steps.input.maxLength = 2000; steps.input.required = true;
+      const mode = select("Kural", Object.entries(playbookModes), card.mode || "act",
+        "Taslak: ajan hazırlar, onaylayan kişi düzeltip gönderir. İnsana bırak: ajan özetler, değişiklik yapmaz.");
+      const flows = element("div", null, "agent-playbook-flows");
+      let chosen = new Set(card.workflow_ids || []);
+      box.flowChecks = new Map();
+      box.paintFlows = () => {
+        if (box.flowChecks.size) chosen = new Set([...box.flowChecks].filter(([, item]) => item.input.checked).map(([identity]) => identity));
+        box.flowChecks = new Map();
+        flows.replaceChildren(element("p", "Bu kartta kullanılacak akışlar (hiçbiri seçilmezse izinli tüm akışlar):", "agent-help"));
+        for (const flow of grantedFlows()) {
+          const item = toggle(flow.name, chosen.has(flow.id));
+          box.flowChecks.set(flow.id, item); flows.append(item.wrapper);
+        }
+        flows.hidden = role.input.value === "manager";
+      };
+      box.paintFlows();
+      box.read = () => ({ ...(card.id ? { id: card.id } : {}), title: title.input.value.trim(), when: when.input.value.trim(),
+        steps: steps.input.value.trim(), mode: mode.input.value,
+        workflow_ids: [...box.flowChecks].filter(([, item]) => item.input.checked).map(([identity]) => identity) });
+      box.append(title.wrapper, when.wrapper, steps.wrapper, mode.wrapper, flows,
+        action("Kartı kaldır", () => { box.remove(); refreshPreview(); }, "danger"));
+      cardRows.append(box);
+      return title.input;
+    };
+    for (const card of agent.playbooks || []) addCard(card);
+    const readCards = () => [...cardRows.children].map((box) => box.read()).filter((card) => card.title || card.steps);
+    grants.addEventListener("change", () => { for (const box of cardRows.children) box.paintFlows(); });
+    role.input.addEventListener("change", () => { for (const box of cardRows.children) box.paintFlows(); });
+    playbooks.append(element("h3", "Süreç kartları"), element("p", "Her kart bir konuyu ve firmanızın o konudaki işleyişini "
+      + "anlatır. Ajan işe uyan kartı seçer ve adımlarını izler. Kartlar izin vermez, yalnız daraltır: uyan kart yoksa ajan "
+      + "değişiklik yapmaz, durumu özetleyip işi size bırakır.", "agent-help"), cardRows,
+      action("Kart ekle", () => { addCard().focus(); refreshPreview(); }));
     const buttons = element("div", null, "agent-actions");
     const save = action("Ajanı kaydet", () => form.requestSubmit(), "primary");
     buttons.append(save, action("Vazgeç", () => renderAgents(view)));
@@ -774,7 +916,8 @@
         allowed_roots: item.roots.input.value.split("\n").map((line) => line.trim()).filter(Boolean),
         allowed_hosts: item.grant?.allowed_hosts || [],
       })), limits: readLimits(), web_access: webAccess.input.value,
-      web_domains: webAccess.input.value === "allowlist" ? readDomains() : [] });
+      web_domains: webAccess.input.value === "allowlist" ? readDomains() : [],
+      knowledge_sources: readSources(), playbooks: readCards() });
     const refreshPreview = () => {
       const current = draft();
       previewBody.replaceChildren(permissionCard(permissionSummary(view, current)), element("p", limitSummary(current), "agent-help agent-limit-line"));
@@ -785,12 +928,14 @@
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       view.busy(save, async () => {
-        const { workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains } = draft();
+        const { workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains,
+          knowledge_sources: chosenSources, playbooks: chosenCards } = draft();
         const body = { name: name.input.value.trim(), description: description.input.value, instructions: instructions.input.value,
           department: department.input.value.trim(), role: role.input.value,
           manager_id: role.input.value === "manager" ? null : manager.input.value || null,
           provider_connection_id: connection.input.value || null, model: model.input.value.trim(),
-          workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains };
+          workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains,
+          knowledge_sources: chosenSources, playbooks: chosenCards };
         const saved = await view.request(original ? `/api/agents/${original.id}` : "/api/agents", original ? "PUT" : "POST", body);
         view.agents = [...view.agents.filter((item) => item.id !== saved.id), saved];
         if (view.alive) { view.options.toast("Ajan kaydedildi."); renderAgents(view); }
@@ -798,10 +943,44 @@
     });
     const internet = element("section", null, "agent-grants");
     internet.append(element("h3", "İnternet araştırması"), webAccess.wrapper, webDomains.wrapper, webWarning);
-    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants, internet,
+    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants, knowledge, playbooks, internet,
       disclosure("Çalışma sınırları", limits), preview, buttons);
     view.pane.replaceChildren(form);
     name.input.focus();
+  }
+
+  // Checks the saved sources: what was read, what could not be, and what a search finds (no model, no cost).
+  function knowledgeCheck(view, agent) {
+    const box = element("div", null, "agent-knowledge-check");
+    const report = element("ul", null, "agent-note-list");
+    const query = field("Kaynaklarda dene", "", "text", "Kaydedilmiş kaynaklarda arar; modele bir şey gönderilmez.");
+    query.input.maxLength = 300; query.input.placeholder = "Ör. iade süresi";
+    const results = element("ol", null, "agent-note-list");
+    const check = action("Kaynakları kontrol et", () => view.busy(check, async () => {
+      const items = await view.request(`/api/agents/${agent.id}/knowledge`);
+      if (!view.alive) return;
+      report.replaceChildren(...items.map((item) => {
+        const line = element("li");
+        line.append(element("strong", item.path), element("span", !item.exists ? "Bulunamadı" : `${count(item.files)} dosya · ${count(item.chunks)} bölüm`
+          + (item.skipped ? ` · ${count(item.skipped)} desteklenmeyen dosya atlandı` : ""), "agent-help"));
+        for (const problem of item.errors || []) line.append(element("p", `${problem.name}: ${problem.error}`, "agent-notice"));
+        return line;
+      }));
+    }));
+    const search = action("Ara", () => view.busy(search, async () => {
+      if (!query.input.value.trim()) return;
+      const found = await view.request(`/api/agents/${agent.id}/knowledge/search`, "POST", { query: query.input.value.trim() });
+      if (!view.alive) return;
+      results.replaceChildren(...(found.length ? found.map((item) => {
+        const line = element("li");
+        line.append(element("strong", `${item.source}${item.location ? ` · ${item.location}` : ""}`), element("p", item.text, "agent-help"));
+        return line;
+      }) : [element("li", "Sonuç yok. Başka kelimeler deneyin veya belgeyi ekleyin.", "agent-help")]));
+    }));
+    const controls = element("div", null, "agent-actions"); controls.append(check);
+    const searchRow = element("div", null, "agent-actions"); searchRow.append(search);
+    box.append(controls, report, query.wrapper, searchRow, results);
+    return disclosure("Kaynakları kontrol et ve dene", box);
   }
 
   function runForm(view, agent) {
@@ -951,11 +1130,25 @@
     for (const [identity, event] of ui.events) {
       if (!visibleEvents.has(identity)) { event.item.remove(); ui.events.delete(identity); }
     }
-    const resultKey = JSON.stringify([run.summary, run.result, run.error]);
+    const resultKey = JSON.stringify([run.summary, run.result, run.error, run.handoff, run.handoff_resolved_at]);
     if (resultKey !== ui.resultKey) {
       ui.resultKey = resultKey;
       ui.result.replaceChildren();
       if (run.error) ui.result.append(element("p", run.error, "agent-error"));
+      if (run.handoff) {
+        const box = element("div", null, "agent-notice agent-handoff");
+        box.append(element("strong", "Ajan bu işi size bıraktı"), element("p", "Uyan süreç kartı yoktu veya kart işi insana "
+          + "bırakıyor. Ajan değişiklik yapmadı; özeti aşağıdadır.", "agent-help"));
+        if (run.handoff_resolved_at) box.append(element("p", `Ele alındı: ${run.handoff_resolved_by || "Yetkili"} · ${timeLabel(run.handoff_resolved_at)}`, "agent-help"));
+        else {
+          const done = action("Ele alındı olarak işaretle", () => view.busy(done, async () => {
+            await view.request(`/api/agents/runs/${run.id}/handoff/resolve`, "POST");
+            if (view.alive && view.selectedRun === run.id) { await openRun(view, run.id); pollAttention(view); }
+          }), "primary");
+          box.append(done);
+        }
+        ui.result.append(box);
+      }
       if (run.summary) ui.result.append(element("h3", "Sonuç"), element("p", run.summary, "agent-task-text"));
       if (run.result !== null && run.result !== undefined) ui.result.append(disclosure("Yapılandırılmış sonuç", jsonBlock(run.result)));
     }
@@ -966,7 +1159,8 @@
   }
   function eventTitle(event) {
     if (event.kind === "tool_call") return toolTitles[event.data?.name] || "Araç kullanıldı";
-    if (event.kind === "approval_decision") return event.data?.approved ? "İşlem onaylandı" : "İşlem reddedildi";
+    if (event.kind === "approval_decision") return event.data?.edited ? "Taslak düzeltilerek onaylandı"
+      : event.data?.approved ? "İşlem onaylandı" : "İşlem reddedildi";
     return eventTitles[event.kind] || "Kayıt";
   }
   // Event data are untrusted model or user text; they are only ever rendered with textContent.
@@ -989,6 +1183,12 @@
     if (event.kind === "web_search") return `«${text(data.query)}» · ${data.count ?? 0} sonuç${(data.urls || []).length ? ` · ${(data.urls || []).slice(0, 3).join(", ")}` : ""}`;
     if (event.kind === "web_fetch") return `${text(data.title) || "Başlıksız sayfa"} · ${text(data.url)}`;
     if (event.kind === "automation") return text(data.name);
+    if (event.kind === "knowledge_search") return `«${text(data.query)}» · ${data.count ?? 0} bölüm${(data.sources || []).length ? ` · ${(data.sources || []).slice(0, 3).join(", ")}` : ""}`;
+    if (event.kind === "playbook_selected") return `${text(data.title)}${data.reason ? ` · ${text(data.reason)}` : ""}`;
+    if (event.kind === "handoff") return data.title ? `Kart: ${text(data.title)}` : "Uyan süreç kartı yok.";
+    if (event.kind === "approval_decision" && data.edited && data.changes) {
+      return Object.entries(data.changes).map(([key, change]) => `${key}: «${text(change?.before)}» → «${text(change?.after)}»`).join("\n");
+    }
     return "";
   }
   function updateUsage(box, run, agent) {
@@ -1070,7 +1270,9 @@
     } else if (approval) {
       const card = element("section", null, "agent-pending approval");
       card.append(element("h3", "İşlem onayı gerekiyor"), element("p", approval.workflow_name || "Seçilen akış"),
-        element("p", approval.reason || "Gerekçe belirtilmedi.", "agent-task-text"), element("h4", "Onaylanacak girdiler"),
+        element("p", approval.reason || "Gerekçe belirtilmedi.", "agent-task-text"));
+      if (approval.playbook_title) card.append(element("p", `Süreç kartı: ${approval.playbook_title}`, "agent-help"));
+      card.append(element("h4", "Onaylanacak girdiler"),
         jsonBlock(approval.inputs || {}), element("p", `Onay süresi: ${timeLabel(approval.expires_at)}`, "agent-help"));
       if (view.session.can_approve) {
         const controls = element("div", null, "agent-actions");
@@ -1081,10 +1283,51 @@
           }), approved ? "primary" : "danger");
           controls.append(button);
         }
+        const inputs = approval.inputs || {};
+        const editable = Object.entries(inputs).filter(([, value]) => ["string", "number", "boolean"].includes(typeof value));
+        if (editable.length) {
+          const edit = action("Düzenleyerek onayla", () => { edit.hidden = true; controls.after(draftEditor(view, run, approval, editable, () => { edit.hidden = false; })); });
+          controls.append(edit);
+        }
         card.append(controls);
       } else card.append(element("p", "Bu işlemi yalnız firmanın onay yetkilisi onaylayabilir. Onay gelene kadar akış başlamaz.", "agent-notice"));
       ui.pending.append(card);
     }
+  }
+
+  // The approver corrects the agent's draft; exactly the corrected values run. Masked secrets cannot be edited.
+  function draftEditor(view, run, approval, editable, close) {
+    const form = identify(element("form", null, "agent-draft"), "draft");
+    form.append(element("h4", "Taslağı düzeltin"), element("p", "Düzelttiğiniz hâl çalışır ve ajana bildirilir; ajan "
+      + "düzeltmeden genel bir kural çıkarsa not olarak önerir.", "agent-help"));
+    const readers = [];
+    for (const [key, value] of editable) {
+      const hidden = typeof value === "string" && value.includes("[gizlendi]");
+      let item;
+      if (typeof value === "boolean") { item = toggle(key, value); readers.push(() => [key, item.input.checked]); }
+      else if (typeof value === "number") { item = field(key, value, "number"); item.input.step = "any"; readers.push(() => [key, Number(item.input.value)]); }
+      else {
+        item = field(key, value, value.length > 80 || value.includes("\n") ? "textarea" : "text",
+          hidden ? "Gizli değer içerdiği için düzenlenemez." : "");
+        if (item.input.tagName === "TEXTAREA") item.input.rows = Math.min(14, Math.max(3, value.split("\n").length + 1));
+        readers.push(() => [key, item.input.value]);
+      }
+      item.input.disabled = hidden;
+      form.append(item.wrapper);
+    }
+    const send = action("Düzeltilmiş hâliyle onayla", () => form.requestSubmit(), "primary");
+    const controls = element("div", null, "agent-actions");
+    controls.append(send, action("Vazgeç", () => { form.remove(); close(); }));
+    form.append(controls);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      view.busy(send, async () => {
+        const inputs = { ...(approval.inputs || {}), ...Object.fromEntries(readers.map((read) => read())) };
+        await view.request(`/api/agents/runs/${run.id}/approvals/${approval.id}/decision`, "POST", { approved: true, inputs });
+        if (view.alive && view.selectedRun === run.id) await openRun(view, run.id);
+      });
+    });
+    return form;
   }
 
   function isCloud(provider) { return ["openai", "gemini", "anthropic"].includes(provider); }

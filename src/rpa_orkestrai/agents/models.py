@@ -120,6 +120,27 @@ class WorkflowGrant(Model):
     )
 
 
+MAX_PLAYBOOKS = 30
+MAX_KNOWLEDGE_SOURCES = 50
+
+
+class Playbook(Model):
+    """Süreç kartı: a topic and how the firm handles it. It narrows what the agent may do, never widens it."""
+
+    id: Identifier = Field(default_factory=uid)
+    title: str = Field(min_length=1, max_length=120)
+    when: str = Field(default="", max_length=1000)
+    steps: str = Field(min_length=1, max_length=2000)
+    workflow_ids: list[Identifier] = Field(default_factory=list, max_length=20)
+    # act: the flow grants decide; review: every change is presented for approval; handoff: no changes, a person takes over.
+    mode: Literal["act", "review", "handoff"] = "act"
+
+    @field_validator("title", "when", "steps")
+    @classmethod
+    def trimmed(cls, value: str) -> str:
+        return value.strip()
+
+
 class AgentInput(Model):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -134,6 +155,22 @@ class AgentInput(Model):
     # Internet research: off, only the listed sites, or the open web. Read-only search and page reading.
     web_access: Literal["off", "allowlist", "open"] = "off"
     web_domains: list[Annotated[str, Field(min_length=3, max_length=255)]] = Field(default_factory=list, max_length=50)
+    # Firm documents (files or folders on this computer) the agent searches before answering.
+    knowledge_sources: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
+        default_factory=list, max_length=MAX_KNOWLEDGE_SOURCES)
+    playbooks: list[Playbook] = Field(default_factory=list, max_length=MAX_PLAYBOOKS)
+
+    @field_validator("knowledge_sources")
+    @classmethod
+    def clean_sources(cls, value: list[str]) -> list[str]:
+        from .knowledge import normalize_source
+
+        cleaned = []
+        for item in value:
+            source = normalize_source(item)
+            if source not in cleaned:
+                cleaned.append(source)
+        return cleaned
 
     @field_validator("web_domains")
     @classmethod
@@ -158,6 +195,15 @@ class AgentInput(Model):
             raise ValueError("Yönetici ajan başka bir yöneticiye bağlanamaz.")
         if self.web_access == "allowlist" and not self.web_domains:
             raise ValueError("Yalnız izinli siteler seçildiğinde en az bir site yazın (ör. mevzuat.gov.tr).")
+        titles = [card.title.casefold() for card in self.playbooks]
+        if len(titles) != len(set(titles)):
+            raise ValueError("Süreç kartlarının başlıkları birbirinden farklı olmalıdır.")
+        if len({card.id for card in self.playbooks}) != len(self.playbooks):
+            raise ValueError("Süreç kartı kimlikleri tekrarlanamaz.")
+        granted = set(identities)
+        for card in self.playbooks:
+            if not set(card.workflow_ids) <= granted:
+                raise ValueError(f"«{card.title}» kartındaki akışlar ajanın izinli akışları arasında olmalıdır.")
         return self
 
 
@@ -265,6 +311,11 @@ class AgentRun(AgentRunRequest):
     result: Any = None
     pending_question: dict[str, Any] | None = None
     pending_approval: dict[str, Any] | None = None
+    # The süreç kartı last chosen and whether the agent left the work to a person.
+    playbook_id: Identifier | None = None
+    handoff: bool = False
+    handoff_resolved_at: str | None = None
+    handoff_resolved_by: str | None = Field(default=None, max_length=200)
 
     @field_validator("result", "pending_question", "pending_approval", mode="before")
     @classmethod

@@ -59,8 +59,13 @@ class AgentStore:
             # Unused newer fields stay out of the file, so earlier Studio versions still read the agent.
             if data.get("web_access") == "off":
                 data.pop("web_access", None)
-            if not data.get("web_domains"):
-                data.pop("web_domains", None)
+            for name in ("web_domains", "knowledge_sources", "playbooks"):
+                if not data.get(name):
+                    data.pop(name, None)
+        if kind == "agent_runs":
+            for name in ("playbook_id", "handoff", "handoff_resolved_at", "handoff_resolved_by"):
+                if not data.get(name):
+                    data.pop(name, None)
         if len(json.dumps(data, ensure_ascii=False, allow_nan=False, indent=2).encode("utf-8")) > MAX_RECORD_BYTES:
             raise ValueError("Ajan kaydı izin verilen boyutu aşıyor.")
         with self._lock:

@@ -23,6 +23,17 @@ class AnswerRequest(Model):
 
 class ApprovalRequest(Model):
     approved: bool = Field(strict=True)
+    # Only with an approval: the approver's edited draft (same fields as the request).
+    inputs: dict[str, Any] | None = None
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def bounded_inputs(cls, value):
+        return None if value is None else validate_json_value(value)
+
+
+class KnowledgeQuery(Model):
+    query: str = Field(min_length=1, max_length=300)
 
 
 class SearchInput(Model):
@@ -81,6 +92,10 @@ def router(service: AgentService) -> APIRouter:
     def notes():
         return call(service.notes)
 
+    @result.get("/handoffs")
+    def handoffs():
+        return call(service.handoffs)
+
     @result.get("/search")
     def search_settings():
         actor = call(service._authorize)
@@ -122,7 +137,11 @@ def router(service: AgentService) -> APIRouter:
 
     @result.post("/runs/{run_id}/approvals/{approval_id}/decision")
     def approve(run_id: str, approval_id: str, body: ApprovalRequest):
-        return call(service.approve, run_id, approval_id, body.approved)
+        return call(service.approve, run_id, approval_id, body.approved, body.inputs)
+
+    @result.post("/runs/{run_id}/handoff/resolve")
+    def resolve_handoff(run_id: str):
+        return call(service.resolve_handoff, run_id)
 
     @result.get("/{agent_id}")
     def get_agent(agent_id: str):
@@ -136,6 +155,18 @@ def router(service: AgentService) -> APIRouter:
     def delete_agent(agent_id: str):
         call(service.delete_agent, agent_id)
         return Response(status_code=204)
+
+    @result.get("/{agent_id}/knowledge")
+    def knowledge_status(agent_id: str):
+        return call(service.knowledge_status, agent_id)
+
+    @result.post("/{agent_id}/knowledge/search")
+    def knowledge_search(agent_id: str, body: KnowledgeQuery):
+        return call(service.knowledge_test, agent_id, body.query)
+
+    @result.get("/{agent_id}/playbook-stats")
+    def playbook_stats(agent_id: str):
+        return call(service.playbook_stats, agent_id)
 
     @result.post("/{agent_id}/notes", status_code=201)
     def add_note(agent_id: str, body: NoteInput):

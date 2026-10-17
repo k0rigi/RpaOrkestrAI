@@ -69,6 +69,9 @@ STEP_FIELD_HELP = {
     ("web.open", "browser"): "Seçilen tarayıcı bilgisayarda kurulu olmalıdır; ayrıca tarayıcı indirilmez.",
     ("mail.send", "cc"): "Alıcıların göreceği ek adresler; virgülle ayırın.",
     ("mail.send", "bcc"): "Diğer alıcıların görmeyeceği adresler; virgülle ayırın.",
+    ("mail.send", "in_reply_to"): "Bir e-postayı yanıtlarken onun kimliği: ${eposta.message_id} (uzun yazışmalarda "
+                                  "${eposta.references} ${eposta.message_id}). Yanıt alıcının e-posta programında aynı "
+                                  "yazışmanın altında görünür. Boş bırakılırsa yeni e-posta gider.",
     ("web.click", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
     ("web.fill", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",
     ("web.read", "by"): "Görünen metin, alan etiketi veya düğme adı çoğu sitede yeterlidir; CSS yalnız gerekirse.",

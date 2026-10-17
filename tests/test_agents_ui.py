@@ -66,6 +66,14 @@ def ui():
             route.fulfill(json=run)
         elif path == f"/api/agents/{AID}/runs":
             route.fulfill(json=run)
+        elif path == "/api/agents/handoffs":
+            route.fulfill(json=session.get("handoffs", []))
+        elif path.startswith(f"/api/agents/runs/{RID}/approvals/") and path.endswith("/decision"):
+            route.fulfill(json=run)
+        elif path == f"/api/agents/runs/{RID}/handoff/resolve":
+            run.update(handoff_resolved_at="2026-10-17T12:00:00+00:00", handoff_resolved_by="Çalışan")
+            session["handoffs"] = []
+            route.fulfill(json=run)
         else:
             route.fulfill(status=404, json={"detail": "Test ucu bulunamadı."})
 
@@ -113,8 +121,10 @@ def test_agent_editor_keeps_user_text_safe_and_sends_exact_schema(ui):
     saved = [body for method, path, body in calls if method == "PUT" and path == f"/api/agents/{AID}"][0]
     assert saved["model"] == "benim-serbest-modelim" and saved["instructions"] == ATTACK
     assert set(saved) == {"name", "description", "instructions", "department", "role", "manager_id",
-                          "provider_connection_id", "model", "workflows", "limits", "web_access", "web_domains"}
+                          "provider_connection_id", "model", "workflows", "limits", "web_access", "web_domains",
+                          "knowledge_sources", "playbooks"}
     assert saved["web_access"] == "off" and saved["web_domains"] == []
+    assert saved["knowledge_sources"] == [] and saved["playbooks"] == []
     assert page.locator("img").count() == 0
 
 
@@ -430,3 +440,67 @@ def test_answer_and_agent_suggestion_can_become_notes(ui):
     assert [body for method, path, body in calls if method == "POST" and path.endswith("/notes")][-1] == {
         "text": "Onaylar Muhasebe'den alınır.", "source_run_id": RID}
     assert_unique_interactive_ids(page)
+
+
+def test_editor_sends_cards_and_sources_and_the_agent_card_lists_them(ui):
+    page, calls, _, _, _ = ui
+    page.get_by_role("button", name="Düzenle", exact=True).click()
+    page.get_by_label("Belgeler ve klasörler").fill("/Users/firma/Belgeler\n/Users/firma/fiyat.xlsx")
+    page.get_by_role("button", name="Kart ekle").click()
+    card = page.locator(".agent-playbook")
+    card.get_by_label("Konu").fill("İade talebi")
+    card.get_by_label("Ne zaman").fill("Müşteri iade isterse")
+    card.get_by_label("Ne yapılır").fill("İade politikasına bak, iade kaydı aç.")
+    card.get_by_label("Kural").select_option("review")
+    card.get_by_label("Bilgileri oku", exact=True).check()
+    preview = page.locator(".agent-preview").inner_text()
+    assert "«İade talebi» konusunda her değişikliği taslak olarak onaya sunar." in preview
+    assert "2 bilgi kaynağında arar" in preview
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Ajanı kaydet").click()
+    page.get_by_role("button", name="Görev ver").wait_for()
+    saved = [body for method, path, body in calls if method == "PUT" and path == f"/api/agents/{AID}"][0]
+    assert saved["knowledge_sources"] == ["/Users/firma/Belgeler", "/Users/firma/fiyat.xlsx"]
+    assert saved["playbooks"] == [{"title": "İade talebi", "when": "Müşteri iade isterse",
+                                   "steps": "İade politikasına bak, iade kaydı aç.", "mode": "review", "workflow_ids": [WID]}]
+    assert page.get_by_text("Süreç kartları (1)").count() == 1 and page.get_by_text("Bilgi kaynakları (2)").count() == 1
+
+
+def test_approver_corrects_the_draft_and_masked_values_stay_read_only(ui):
+    page, calls, _, _, run = ui
+    run["pending_question"] = None
+    run["status"] = "waiting_approval"
+    run["pending_approval"] = {"id": QID, "workflow_name": "Yanıt gönder", "reason": "Müşteriye yanıt",
+                               "inputs": {"metin": "Taslak yanıt", "kod": "[gizlendi]", "adet": 2, "liste": [1]},
+                               "playbook_title": "Bilgi talebi", "expires_at": "2099-01-01T00:00:00Z"}
+    page.evaluate("identity => window.RpaAgents.openRun(identity)", RID)
+    page.get_by_role("heading", name="İşlem onayı gerekiyor").wait_for()
+    assert page.get_by_text("Süreç kartı: Bilgi talebi").count() == 1
+    page.get_by_role("button", name="Düzenleyerek onayla").click()
+    assert page.get_by_label("kod", exact=True).is_disabled()
+    page.get_by_label("metin", exact=True).fill("Düzeltilmiş yanıt")
+    page.get_by_label("adet", exact=True).fill("3")
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Düzeltilmiş hâliyle onayla").click()
+    posted = []
+    for _ in range(100):
+        posted = [body for method, path, body in calls if method == "POST" and path.endswith("/decision")]
+        if posted:
+            break
+        page.wait_for_timeout(50)
+    assert posted == [{"approved": True, "inputs": {"metin": "Düzeltilmiş yanıt", "kod": "[gizlendi]", "adet": 3, "liste": [1]}}]
+
+
+def test_work_left_to_a_person_is_announced_and_can_be_marked_handled(ui):
+    page, calls, _, session, run = ui
+    run.update(status="succeeded", pending_question=None, handoff=True, summary="Fiyat itirazı; uyan kart yok.",
+               finished_at="2026-10-17T11:00:00+00:00")
+    session["handoffs"] = [{"run_id": RID, "agent_id": AID, "agent_name": "Destek", "title": "Fiyat itirazı",
+                            "finished_at": "2026-10-17T11:00:00+00:00"}]
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
+    page.get_by_role("button", name="Destek: işi size bıraktı · Fiyat itirazı").click()
+    page.get_by_text("Ajan bu işi size bıraktı").wait_for()
+    page.get_by_role("button", name="Ele alındı olarak işaretle").click()
+    page.get_by_text("Ele alındı: Çalışan", exact=False).wait_for()
+    assert ("POST", f"/api/agents/runs/{RID}/handoff/resolve", None) in calls
+    page.locator(".agent-attention").wait_for(state="hidden")

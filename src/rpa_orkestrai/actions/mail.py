@@ -43,6 +43,26 @@ def attachments(value: Any) -> list[Path]:
     return files
 
 
+MESSAGE_ID = re.compile(r"<[^<>\s@]+@[^<>\s]+>")
+
+
+def reply_headers(value: Any) -> tuple[str, str]:
+    """In-Reply-To and References for a reply. The last id is the answered message; earlier ids (e.g.
+    ${eposta.references}) keep the whole conversation together. A bare id gets its angle brackets."""
+    text_value = str(value or "").strip()
+    if not text_value:
+        return "", ""
+    if any(char in text_value for char in "\r\n") or len(text_value) > 4000:
+        raise WorkflowError("Yanıtlanan e-postanın kimliği tek satır olmalıdır.")
+    ids = MESSAGE_ID.findall(text_value)
+    if not ids and "<" not in text_value and MESSAGE_ID.fullmatch(f"<{text_value}>"):
+        ids = [f"<{text_value}>"]
+    if not ids:
+        raise WorkflowError("Yanıtlanan e-posta kimliği <...@...> biçiminde olmalıdır (ör. ${eposta.message_id}).")
+    chain = list(dict.fromkeys(ids))[-20:]
+    return ids[-1], " ".join(chain)
+
+
 def build(config: dict, p: dict) -> tuple[EmailMessage, list[str]]:
     to = addresses(p.get("to"), "Kime", required=True)
     cc = addresses(p.get("cc"), "Bilgi (CC)", required=False)
@@ -59,6 +79,11 @@ def build(config: dict, p: dict) -> tuple[EmailMessage, list[str]]:
         message["Cc"] = ", ".join(cc)
     message["Subject"] = subject
     message["Message-ID"] = make_msgid(domain=config["sender"].rsplit("@", 1)[-1])
+    parent, chain = reply_headers(p.get("in_reply_to"))
+    if parent:
+        # Threading headers: the reply appears under the original message in the recipient's mail program.
+        message["In-Reply-To"] = parent
+        message["References"] = chain
     message.set_content(text(p.get("body"), "İleti", required=False, limit=1_000_000) or " ", charset="utf-8")
     for item in attachments(p.get("attachments")):
         kind, _ = mimetypes.guess_type(item.name)

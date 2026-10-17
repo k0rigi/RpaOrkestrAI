@@ -981,6 +981,7 @@ LIBRARY = [
             field("body", "İleti", "code", "", help="Düz metin. Değişken kullanılabilir."),
             field("attachments", "Ek dosyalar", "code", "",
                   help="Her satıra bir dosya yolu. Toplam en fazla 25 MB. Bulunamayan ek varsa gönderilmez."),
+            field("in_reply_to", "Yanıtlanan e-posta (Message-ID)", default="", omit_default=True),
             output("mail_result", "Gönderilen adresler: ${mail_result.to}.")]),
     action("mail.read", "E-postaları oku", "Web, e-posta ve API",
            "Gelen kutusundaki (IMAP) e-postaları liste olarak okur: gönderen, konu, metin ve ekler. Okumak iletiyi "
