@@ -29,7 +29,10 @@ PROVIDERS = {
     "brave": "Brave Search (aylık 5 $ kredi, anahtar gerekir)",
     "searxng": "SearXNG (kendi sunucunuz, ücretsiz)",
     "wikipedia": "Vikipedi (anahtarsız, yalnız ansiklopedik bilgi)",
+    "model": "Model sağlayıcısının kendi araması (Gemini, OpenAI, Claude; ek anahtar gerekmez)",
 }
+MODEL_PROVIDERS = frozenset({"gemini", "openai", "anthropic"})
+GROUNDING_REDIRECT = "vertexaisearch.cloud.google.com"
 PAGE_LIMIT = 2 * 1024 * 1024
 TEXT_LIMIT = 12_000
 QUERY_STRING_LIMIT = 300
@@ -202,8 +205,40 @@ def search(config: dict, key: str | None, query: str, max_results: int = 5,
         items = [{"title": item.get("title", ""), "snippet": item.get("snippet", ""),
                   "url": f"https://{language}.wikipedia.org/wiki/{quote(str(item.get('title', '')).replace(' ', '_'))}"}
                  for item in data.get("query", {}).get("search", [])]
+    elif provider == "model":
+        raise WorkflowError("Model araması ajanın kendi model bağlantısıyla yapılır.")
     else:
         raise WorkflowError("Web araması kapalı. Ajanlar → Bağlantılar → Web araması bölümünden bir hizmet seçin.")
+    return clean_results(items, domains, max_results)
+
+
+class _NoFollow(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def resolve_redirect(url: str, timeout: float = 8) -> str:
+    """Gemini's source links are Google redirects; the real address is read without opening the page."""
+    import certifi
+
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != GROUNDING_REDIRECT:
+        return url
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())),
+                          _NoFollow())
+    try:
+        opener.open(Request(url, method="GET", headers={"User-Agent": "RpaOrkestrAI"}), timeout=timeout).close()
+    except HTTPError as exc:
+        location = exc.headers.get("Location", "") if exc.headers else ""
+        exc.close()
+        if location.startswith(("https://", "http://")) and len(location) <= 2000:
+            return location
+    except (URLError, OSError, ValueError):
+        pass
+    return url
+
+
+def clean_results(items, domains: list[str] | None, max_results: int) -> list[dict]:
     results = []
     for item in items:
         url = str(item.get("url") or "")

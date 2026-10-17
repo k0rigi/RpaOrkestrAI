@@ -66,6 +66,9 @@ def ui():
             route.fulfill(json=run)
         elif path == f"/api/agents/{AID}/runs":
             route.fulfill(json=run)
+        elif path == "/api/agents/search" and request.method == "GET":
+            route.fulfill(json=session.get("search", {"provider": "none", "provider_label": "Kapalı", "searxng_url": "",
+                                                      "language": "tr", "has_key": False}))
         elif path == "/api/agents/handoffs":
             route.fulfill(json=session.get("handoffs", []))
         elif path.startswith(f"/api/agents/runs/{RID}/approvals/") and path.endswith("/decision"):
@@ -504,3 +507,21 @@ def test_work_left_to_a_person_is_announced_and_can_be_marked_handled(ui):
     page.get_by_text("Ele alındı: Çalışan", exact=False).wait_for()
     assert ("POST", f"/api/agents/runs/{RID}/handoff/resolve", None) in calls
     page.locator(".agent-attention").wait_for(state="hidden")
+
+
+def test_search_service_choice_explains_model_search_and_the_editor_warns_without_a_service(ui):
+    page, calls, _, session, _ = ui
+    page.get_by_role("button", name="Düzenle", exact=True).click()
+    page.get_by_label("İnternet erişimi").select_option("open")
+    notice = page.get_by_text("Web araması hizmeti seçilmemiş", exact=False)
+    notice.wait_for()
+    page.get_by_label("İnternet erişimi").select_option("off")
+    assert notice.is_hidden()
+    page.get_by_role("button", name="Vazgeç").click()
+    page.get_by_role("button", name="Bağlantılar", exact=True).click()
+    service = page.get_by_label("Arama hizmeti")
+    service.wait_for()
+    service.select_option("model")
+    assert page.get_by_label("Hizmet anahtarı").is_hidden()
+    assert page.get_by_text("Ollama ve kurum sunucusu bağlantılı ajanlar bu seçenekle arama yapamaz", exact=False).is_visible()
+    assert_unique_interactive_ids(page)

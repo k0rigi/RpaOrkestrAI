@@ -271,6 +271,22 @@ adresini bildiği sayfaları okuyabilir. Google Custom Search 1 Ocak 2027'de kap
 için desteklenmez. İnternet erişimi kullanılmayan ajan dosyaları eski sürümlerle
 uyumlu kalır; erişimi açılmış ajan 0.9.29 ve önceki sürümlerde okunamaz.
 
+**Model sağlayıcısının kendi araması (0.9.32+).** Gemini (Google Search ile destekleme), OpenAI (web
+arama aracı) ve Claude (web arama aracı) internette kendileri arayabilir. Bu seçenek seçilince ek anahtar
+gerekmez; her ajan kendi model bağlantısıyla arar.
+- Arama, ajanın konuşmasından ayrı bir istekle yapılır. Aranacak metin önce uygulamanın denetiminden geçer:
+  kayıtlı şifre denetimi, izinli siteler ve görev başına 20 istek sınırı.
+- Dönen kaynaklar izinli sitelere göre süzülür; Gemini'nin yönlendirme bağlantıları gerçek adrese çevrilir.
+  Sağlayıcının kısa özeti de ajana verilir. Kaynaklar ve özet güvenilmeyen veridir.
+- Kullanılan tokenlar ajanın token sınırına sayılır. Sağlayıcının arama ücreti ve tokenlar model
+  faturanıza eklenir; Gemini'de aylık ücretsiz bir kota vardır.
+- Ollama, yerel OpenAI uyumlu sunucu ve kurum sunucusu bağlantılarının kendi araması yoktur. Bu ajanlar
+  arama yapmaya çalışırsa ne yapılacağını söyleyen bir uyarı alır; onlar için Tavily, Vikipedi veya
+  SearXNG seçin.
+- **Aramayı test et**, ilk uygun ajanın bağlantısıyla gerçek bir deneme araması yapar.
+- Ajan formu iki durumda uyarı gösterir: internet erişimi açık ama arama hizmeti seçilmemişse ya da
+  ajanın bağlantısı model aramasını desteklemiyorsa.
+
 ### Görevleri silme (0.9.29)
 
 Ajanları yönetme yetkisi olan kişi bitmiş görevleri silebilir:

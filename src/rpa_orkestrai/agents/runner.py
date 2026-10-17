@@ -73,6 +73,8 @@ PLAYBOOK_GUIDE = ("\nSüreç kartları (firmanın işleyişi; izin vermez, yaln�
                   "özetleyip finish ile handoff=true olarak işi insana bırak.\n")
 PLAYBOOK_MODES = {"act": "akış izinlerine göre uygula", "review": "her değişikliği onaya sun",
                   "handoff": "değişiklik yapma, insana bırak"}
+MODEL_SEARCH_UNSUPPORTED = ("Bu ajanın model bağlantısının kendi web araması yok (Ollama, yerel sunucu veya kurum "
+                            "sunucusu). Ajanlar → Bağlantılar → Web araması'ndan Tavily, Vikipedi veya SearXNG seçin.")
 MANAGER_GUIDE = (
     "\nYöneticisin: işi list_team ile tanıdığın, doğrudan bağlı departman ajanlarına delegate_task ile ver. "
     "Bir departmanın sonucu başka bir departmana gerekiyorsa wait_tasks(until='any') ile bekle ve sonucu yeni "
@@ -139,6 +141,7 @@ class Context:
     current_tool: str | None = None
     playbook: Playbook | None = None
     knowledge_searches: int = 0
+    provider: Any = None
 
 
 class AgentService:
@@ -361,11 +364,79 @@ class AgentService:
         if context.redactor.contains_secret(query):
             raise WorkflowError("Arama metni kayıtlı bir şifre veya anahtar içeriyor; arama yapılmadı.")
         company = context.run.actor.company_id
-        results = web.search(self.search_settings.get(company), self.search_settings.key(company), query,
-                             max_results, domains)
+        config = self.search_settings.get(company)
+        summary = ""
+        if config["provider"] == "model":
+            results, summary = self._model_search(context, query, max_results, domains)
+        else:
+            results = web.search(config, self.search_settings.key(company), query, max_results, domains)
         self._event(context, "web_search", "İnternette arama yapıldı.",
-                    {"query": query, "count": len(results), "urls": [item["url"] for item in results]})
-        return {"results": results}
+                    {"query": query, "count": len(results), "urls": [item["url"] for item in results],
+                     "service": config["provider"]})
+        answer = {"results": results}
+        if summary:
+            answer["summary"] = context.redactor.text(summary)[:4000]
+        return answer
+
+    def _model_search(self, context, query, max_results, domains):
+        """The model provider searches in a separate request; our checks ran before, its tokens count here."""
+        from . import web
+
+        provider = context.provider
+        if getattr(provider, "kind", None) not in web.MODEL_PROVIDERS or not callable(getattr(provider, "search", None)):
+            raise WorkflowError(MODEL_SEARCH_UNSUPPORTED)
+        try:
+            items, summary, usage = provider.search(query, max_results, domains, model=context.agent.model,
+                                                    cancel=context.cancel, deadline=context.deadline)
+        except (ProviderCancelled, ProviderTimeout):
+            raise
+        except ProviderError as exc:
+            raise WorkflowError(f"Model araması yapılamadı: {exc}") from None
+        context.run.tokens_in += usage.input_tokens
+        context.run.tokens_out += usage.output_tokens
+        context.run.total_tokens = context.run.tokens_in + context.run.tokens_out
+        context.budget.release_turn(f"{context.run.id}:search", usage)
+        if context.run.total_tokens > context.agent.limits.max_tokens:
+            raise AgentStopped("Model araması ajanın token sınırını aştı; görev durduruldu.")
+        for item in items:
+            item["url"] = web.resolve_redirect(item["url"])
+        return web.clean_results(items, domains, max_results), summary
+
+    def test_search(self) -> dict:
+        """Ayarları kaydeden kişi için kısa deneme araması; model aramasında ilk uygun ajanın bağlantısı kullanılır."""
+        from . import web
+
+        actor = self._authorize("agents.manage")
+        if self.search_settings is None:
+            raise AgentServiceError("Web araması bu kurulumda kullanılamıyor.")
+        config = self.search_settings.get(actor.company_id)
+        if config["provider"] != "model":
+            try:
+                results = web.search(config, self.search_settings.key(actor.company_id), "RpaOrkestrAI", 3)
+            except WorkflowError as exc:
+                raise AgentServiceError(str(exc)) from None
+            return {"ok": True, "message": f"Arama çalışıyor: {len(results)} sonuç geldi.", "results": results}
+        for agent in self.agent_store.agents():
+            if agent.company_id != actor.company_id or not agent.provider_connection_id:
+                continue
+            try:
+                provider = self._provider_factory(agent.model_copy(deep=True))
+            except ProviderError:
+                continue
+            if getattr(provider, "kind", None) not in web.MODEL_PROVIDERS:
+                continue
+            model = agent.model or (self.model_resolver(agent) if self.model_resolver else "")
+            try:
+                items, _, _ = provider.search("RpaOrkestrAI otomasyon", 3, None, model=model,
+                                              cancel=threading.Event(), deadline=time.monotonic() + 60)
+            except ProviderError as exc:
+                raise AgentServiceError(f"«{agent.name}» ajanının bağlantısıyla arama yapılamadı: {exc}") from None
+            results = web.clean_results([{**item, "url": web.resolve_redirect(item["url"])} for item in items], None, 3)
+            return {"ok": True, "message": f"Model araması çalışıyor («{agent.name}» ajanının bağlantısıyla): "
+                                           f"{len(results)} sonuç geldi.", "results": self._new_redactor().sanitize(results)}
+        raise AgentServiceError("Gemini, OpenAI veya Claude bağlantısı kullanan bir ajan bulunamadı. Model araması "
+                                "yalnız bu bağlantılarla çalışır; Ollama ve kurum sunucusu için Tavily, Vikipedi veya "
+                                "SearXNG seçin.")
 
     def _web_fetch(self, context, url):
         from . import web
@@ -920,6 +991,7 @@ class AgentService:
             if context.redactor.contains_secret(context.agent.model):
                 raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
             provider = self._provider_factory(context.agent.model_copy(deep=True))
+            context.provider = provider
             with self._lock:
                 context.notes = [note.text for note in self._note_record(context.agent).notes]
                 context.run.status = "running"

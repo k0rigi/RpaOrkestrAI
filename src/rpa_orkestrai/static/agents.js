@@ -751,8 +751,22 @@
     webDomains.input.rows = 3;
     const webWarning = element("p", "Tüm web açıkken ajan herhangi bir açık siteyi okuyabilir. Sayfalar ajanı yanıltmaya çalışabilir; "
       + "riskli akışlar yine onay ister. Mümkünse yalnız izinli siteleri kullanın.", "agent-notice");
-    const paintWeb = () => { webDomains.wrapper.hidden = webAccess.input.value !== "allowlist"; webWarning.hidden = webAccess.input.value !== "open"; };
+    const searchNotice = element("p", "", "agent-notice"); searchNotice.hidden = true;
+    let searchService = null;
+    const paintSearch = () => {
+      const selected = view.connections.find((item) => item.id === connection.input.value);
+      const message = webAccess.input.value === "off" || !searchService ? ""
+        : searchService === "none" ? "Web araması hizmeti seçilmemiş: ajan arama yapamaz, yalnız adresini bildiği sayfaları okur. "
+          + "Ajanlar → Bağlantılar → Web araması'ndan bir hizmet seçin."
+          : searchService === "model" && selected && !searchCapable.has(selected.provider)
+            ? "Web araması «Model sağlayıcısının kendi araması» seçili, ama bu ajanın bağlantısı (Ollama veya kurum sunucusu) "
+              + "kendi aramasını desteklemiyor. Tavily, Vikipedi veya SearXNG seçin ya da Gemini, OpenAI veya Claude bağlantısı kullanın." : "";
+      searchNotice.textContent = message; searchNotice.hidden = !message;
+    };
+    view.request("/api/agents/search").then((settings) => { searchService = settings?.provider || "none"; paintSearch(); }).catch(() => {});
+    const paintWeb = () => { webDomains.wrapper.hidden = webAccess.input.value !== "allowlist"; webWarning.hidden = webAccess.input.value !== "open"; paintSearch(); };
     webAccess.input.addEventListener("change", paintWeb);
+    connection.input.addEventListener("change", paintSearch);
     paintWeb();
     const readDomains = () => webDomains.input.value.split(/[\n,]/).map((line) => line.trim()).filter(Boolean);
     const description = field("Kısa açıklama", agent.description, "textarea");
@@ -942,7 +956,7 @@
       });
     });
     const internet = element("section", null, "agent-grants");
-    internet.append(element("h3", "İnternet araştırması"), webAccess.wrapper, webDomains.wrapper, webWarning);
+    internet.append(element("h3", "İnternet araştırması"), webAccess.wrapper, webDomains.wrapper, webWarning, searchNotice);
     form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants, knowledge, playbooks, internet,
       disclosure("Çalışma sınırları", limits), preview, buttons);
     view.pane.replaceChildren(form);
@@ -1369,7 +1383,9 @@
     ["none", "Kapalı"], ["tavily", "Tavily · ayda 1.000 ücretsiz arama, kart gerekmez (önerilen)"],
     ["wikipedia", "Vikipedi · anahtarsız ve ücretsiz, yalnız ansiklopedik bilgi"],
     ["brave", "Brave Search · aylık 5 $ kredi (≈1.000 arama), sonrası ücretli"], ["searxng", "SearXNG · kendi sunucunuz, ücretsiz"],
+    ["model", "Model sağlayıcısının kendi araması · Gemini, OpenAI, Claude; ek anahtar gerekmez"],
   ];
+  const searchCapable = new Set(["gemini", "openai", "anthropic"]);
   async function renderSearch(view, box) {
     let settings;
     try { settings = await view.request("/api/agents/search"); } catch (error) {
@@ -1390,6 +1406,9 @@
       language.wrapper.hidden = value !== "wikipedia";
       cost.textContent = value === "brave" ? "Brave aylık 5 $ krediyi aşan aramaları ücretlendirir; kredi için sitenizde Brave atfı gerekir."
         : value === "tavily" ? "Ücretsiz plan ayda 1.000 aramayla sınırlıdır; dolunca aramalar ay başına kadar durur, ücret çıkmaz."
+          : value === "model" ? "Arama, her ajanın kendi model bağlantısıyla (Gemini, OpenAI, Claude) yapılır; ek anahtar gerekmez. "
+            + "Sağlayıcının arama ücreti ve kullanılan tokenlar model faturanıza eklenir (Gemini'de aylık ücretsiz kota vardır). "
+            + "Ollama ve kurum sunucusu bağlantılı ajanlar bu seçenekle arama yapamaz."
           : value === "none" ? "Arama kapalıyken interneti açık ajanlar yalnız adresini bildikleri sayfaları okuyabilir." : "";
       cost.hidden = !cost.textContent;
     };
@@ -1404,6 +1423,8 @@
         if (view.alive) { view.options.toast("Web araması kaydedildi."); renderSearch(view, box); }
       }), "primary");
       const test = action("Aramayı test et", () => view.busy(test, async () => {
+        if (settings.provider === "model" && !await view.confirm("Model aramasını dene", "Deneme, ilk uygun ajanın model "
+          + "bağlantısıyla gerçek bir arama yapar; sağlayıcı küçük bir ücret alabilir.", "Dene")) return;
         const result = await view.request("/api/agents/search/test", "POST", {});
         if (view.alive) view.options.toast(result.message);
       }));

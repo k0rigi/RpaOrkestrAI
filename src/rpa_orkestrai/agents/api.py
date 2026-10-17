@@ -108,16 +108,7 @@ def router(service: AgentService) -> APIRouter:
 
     @result.post("/search/test")
     def test_search():
-        from ..errors import WorkflowError
-        from .web import search
-
-        actor = call(service._authorize, "agents.manage")
-        settings = service.search_settings
-        try:
-            results = search(settings.get(actor.company_id), settings.key(actor.company_id), "RpaOrkestrAI", 3)
-        except WorkflowError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from None
-        return {"ok": True, "message": f"Arama çalışıyor: {len(results)} sonuç geldi.", "results": results}
+        return call(service.test_search)
 
     @result.get("/runs/{run_id}")
     def get_run(run_id: str):
