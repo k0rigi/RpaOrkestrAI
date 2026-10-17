@@ -16,6 +16,7 @@ import copy
 import hashlib
 import ipaddress
 import json
+import re
 import ssl
 import threading
 import time
@@ -201,6 +202,24 @@ class JsonTransport:
         raise ProviderError()
 
 
+GEMINI_VERSION = re.compile(r"gemini-(\d+)")
+GEMINI_BLOCKED = {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "LANGUAGE"}
+
+
+def gemini_thinking(model: str) -> dict | None:
+    """The least thinking a Gemini model accepts: 2.x Flash can switch it off, 3.x and later only lower it.
+
+    Thinking tokens count toward the output limit; left at the default they can use it up before any answer."""
+    name = model.lower()
+    match = GEMINI_VERSION.search(name)
+    major = int(match.group(1)) if match else None
+    if (major is not None and major >= 3) or "latest" in name:
+        return {"thinkingLevel": "low"}
+    if major == 2 and "flash" in name:
+        return {"thinkingBudget": 0}
+    return None
+
+
 def _token(value):
     if type(value) is not int or not 0 <= value <= 1_000_000_000:
         raise ProviderProtocolError(usage=True)
@@ -277,13 +296,14 @@ class _SearchMixin:
     def _gemini_search(self, model, prompt, cancel, deadline):
         clean = model.removeprefix("models/").strip()
         generation = {"maxOutputTokens": SEARCH_OUTPUT_TOKENS}
-        if "flash" in clean.lower():
-            generation["thinkingConfig"] = {"thinkingBudget": 0}
+        thinking = gemini_thinking(clean)
+        if thinking:
+            generation["thinkingConfig"] = thinking
         payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
                    "systemInstruction": {"parts": [{"text": SEARCH_INSTRUCTION}]},
                    "tools": [{"google_search": {}}], "generationConfig": generation}
         endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + quote(clean, safe="") + ":generateContent"
-        raw = self.transport.post(endpoint, payload, {"x-goog-api-key": self._key}, cancel=cancel, deadline=deadline)
+        raw = self._post(endpoint, payload, {"x-goog-api-key": self._key}, cancel=cancel, deadline=deadline)
         counts = raw.get("usageMetadata") or {}
         input_tokens = _token(counts.get("promptTokenCount", 0))
         usage = Usage(input_tokens, max(0, _token(counts.get("totalTokenCount", input_tokens)) - input_tokens))
@@ -455,7 +475,7 @@ class HttpProvider(_SearchMixin):
                 if self.kind == "ollama":
                     self._verify_local_model(model.strip(), bool(tools), cancel, deadline)
                 url, payload, headers = self._request(messages, tools, model.strip(), max_tokens)
-                raw = self.transport.post(url, payload, headers, cancel=cancel, deadline=deadline)
+                raw = self._post(url, payload, headers, cancel=cancel, deadline=deadline)
                 result = self._parse(raw)
                 if any(call.name not in names for call in result.tool_calls):
                     raise ProviderError()
@@ -465,6 +485,17 @@ class HttpProvider(_SearchMixin):
             raise
         except Exception:
             raise ProviderError() from None
+
+    def _post(self, url, payload, headers, *, cancel, deadline):
+        try:
+            return self.transport.post(url, payload, headers, cancel=cancel, deadline=deadline)
+        except ProviderError as exc:
+            # A model that does not take the thinking setting (older or newer than expected) is asked once without it.
+            generation = payload.get("generationConfig") if self.kind == "gemini" else None
+            if exc.reason != "bad_request" or not isinstance(generation, dict) or "thinkingConfig" not in generation:
+                raise
+            generation.pop("thinkingConfig")
+            return self.transport.post(url, payload, headers, cancel=cancel, deadline=deadline)
 
     def _verify_local_model(self, model, needs_tools, cancel, deadline):
         # No task text is sent until the daemon and selected model both pass.
@@ -533,10 +564,10 @@ class HttpProvider(_SearchMixin):
                     contents.append({"role": "user", "parts": [{"text": _content(message)}]})
             clean_model = model.removeprefix("models/").strip()
             generation = {"maxOutputTokens": max_tokens}
-            # Düşünme, küçük çıktı bütçesini boş yanıtla tüketebilir. Flash modelleri kapatmaya izin verir;
-            # Pro modeller yalnız düşünme kipinde çalıştığından onlara bu ayar gönderilmez.
-            if "flash" in clean_model.lower():
-                generation["thinkingConfig"] = {"thinkingBudget": 0}
+            # Düşünme, küçük çıktı bütçesini boş yanıtla tüketebilir; modelin izin verdiği en düşük düzey istenir.
+            thinking = gemini_thinking(clean_model)
+            if thinking:
+                generation["thinkingConfig"] = thinking
             payload = {"contents": contents, "generationConfig": generation}
             if system:
                 payload["systemInstruction"] = {"parts": system}
@@ -617,7 +648,9 @@ class HttpProvider(_SearchMixin):
             usage = raw["usage"]
             usage = Usage(_token(usage["input_tokens"]), _token(usage["output_tokens"]))
             if raw.get("status", "completed") != "completed":
-                raise ProviderError()
+                reason = (raw.get("incomplete_details") or {}).get("reason")
+                raise ProviderError(reason="length" if reason == "max_output_tokens"
+                                    else "blocked" if reason == "content_filter" else "default")
             for item in raw["output"]:
                 kind = item.get("type")
                 if kind == "message":
@@ -640,9 +673,13 @@ class HttpProvider(_SearchMixin):
             if total < input_tokens:
                 raise ProviderError()
             usage = Usage(input_tokens, total - input_tokens)
-            candidates = raw["candidates"]
-            if len(candidates) != 1 or candidates[0].get("finishReason") != "STOP":
-                raise ProviderError()
+            candidates = raw.get("candidates") or []
+            if not candidates and (raw.get("promptFeedback") or {}).get("blockReason"):
+                raise ProviderError(reason="blocked")
+            finish = candidates[0].get("finishReason") if len(candidates) == 1 else None
+            if finish != "STOP":
+                raise ProviderError(reason="length" if finish == "MAX_TOKENS"
+                                    else "blocked" if finish in GEMINI_BLOCKED else "default")
             for part in candidates[0]["content"]["parts"]:
                 if "functionCall" in part:
                     call = part["functionCall"]
@@ -661,7 +698,7 @@ class HttpProvider(_SearchMixin):
             input_tokens = _token(counts["input_tokens"]) + _token(counts.get("cache_creation_input_tokens", 0)) + _token(counts.get("cache_read_input_tokens", 0))
             usage = Usage(input_tokens, _token(counts["output_tokens"]))
             if raw.get("stop_reason") not in {"end_turn", "tool_use", "stop_sequence"}:
-                raise ProviderError()
+                raise ProviderError(reason={"max_tokens": "length", "refusal": "blocked"}.get(raw.get("stop_reason"), "default"))
             for block in raw["content"]:
                 kind = block.get("type")
                 if kind == "text":
@@ -673,8 +710,9 @@ class HttpProvider(_SearchMixin):
                 continuation.append(copy.deepcopy(block))
         else:
             if self.kind == "ollama":
-                if (raw.get("done") is not True or raw.get("done_reason", "stop") == "length"
-                        or raw.get("remote_host") or raw.get("remote_model")):
+                if raw.get("done") is True and raw.get("done_reason") == "length":
+                    raise ProviderError(reason="length")
+                if raw.get("done") is not True or raw.get("remote_host") or raw.get("remote_model"):
                     raise ProviderError()
                 usage = Usage(_token(raw["prompt_eval_count"]), _token(raw["eval_count"]))
                 message = raw["message"]
@@ -682,8 +720,9 @@ class HttpProvider(_SearchMixin):
                 counts = raw["usage"]
                 usage = Usage(_token(counts["prompt_tokens"]), _token(counts["completion_tokens"]))
                 choices = raw["choices"]
-                if len(choices) != 1 or choices[0].get("finish_reason") not in {"stop", "tool_calls"}:
-                    raise ProviderError()
+                finish = choices[0].get("finish_reason") if len(choices) == 1 else None
+                if finish not in {"stop", "tool_calls"}:
+                    raise ProviderError(reason={"length": "length", "content_filter": "blocked"}.get(finish, "default"))
                 message = choices[0]["message"]
             if message.get("content"):
                 texts.append(message["content"])

@@ -69,6 +69,16 @@ def ui():
         elif path == "/api/agents/search" and request.method == "GET":
             route.fulfill(json=session.get("search", {"provider": "none", "provider_label": "Kapalı", "searxng_url": "",
                                                       "language": "tr", "has_key": False}))
+        elif path == "/api/connections":
+            route.fulfill(json=session.get("studio_connections", []))
+        elif path == f"/api/agents/{AID}/chat" and request.method == "GET":
+            route.fulfill(json=session.get("chat", []))
+        elif path == f"/api/agents/{AID}/chat" and request.method == "POST":
+            session.setdefault("chat", []).extend([
+                {"role": "user", "text": body["text"], "at": "2026-10-18T09:00:00+00:00", "user": "Çalışan", "tokens": 0},
+                {"role": "assistant", "text": "Bugün 3 görev tamamladım; 1 onay bekliyor.", "at": "2026-10-18T09:00:05+00:00",
+                 "user": "", "tokens": 120}])
+            route.fulfill(json={"reply": session["chat"][-1], "messages": session["chat"]})
         elif path == "/api/agents/handoffs":
             route.fulfill(json=session.get("handoffs", []))
         elif path.startswith(f"/api/agents/runs/{RID}/approvals/") and path.endswith("/decision"):
@@ -125,7 +135,7 @@ def test_agent_editor_keeps_user_text_safe_and_sends_exact_schema(ui):
     assert saved["model"] == "benim-serbest-modelim" and saved["instructions"] == ATTACK
     assert set(saved) == {"name", "description", "instructions", "department", "role", "manager_id",
                           "provider_connection_id", "model", "workflows", "limits", "web_access", "web_domains",
-                          "knowledge_sources", "playbooks"}
+                          "knowledge_sources", "playbooks", "abilities"}
     assert saved["web_access"] == "off" and saved["web_domains"] == []
     assert saved["knowledge_sources"] == [] and saved["playbooks"] == []
     assert page.locator("img").count() == 0
@@ -524,4 +534,44 @@ def test_search_service_choice_explains_model_search_and_the_editor_warns_withou
     service.select_option("model")
     assert page.get_by_label("Hizmet anahtarı").is_hidden()
     assert page.get_by_text("Ollama ve kurum sunucusu bağlantılı ajanlar bu seçenekle arama yapamaz", exact=False).is_visible()
+    assert_unique_interactive_ids(page)
+
+
+def test_abilities_are_chosen_in_the_editor_and_shown_on_the_card(ui):
+    page, calls, _, session, _ = ui
+    session["studio_connections"] = [{"id": "1" * 32, "name": "Destek e-postası", "type": "smtp"},
+                                     {"id": "2" * 32, "name": "Gelen kutusu", "type": "imap"},
+                                     {"id": "3" * 32, "name": "WhatsApp", "type": "webhook"}]
+    page.evaluate("window.RpaAgents.mount(document.getElementById('root'), window.agentOptions)")
+    page.get_by_role("button", name="Düzenle", exact=True).click()
+    page.get_by_label("Okuyabileceği klasörler").fill("/Users/firma/Gelen ekler")
+    page.get_by_label("Okuyabileceği gelen kutusu").select_option("2" * 32)
+    page.get_by_label("E-posta gönderebileceği hesap").select_option("1" * 32)
+    page.get_by_label("Kimlere gönderebilir").select_option("domains")
+    page.get_by_label("İzinli alan adları").fill("firma.com")
+    page.get_by_label("Mesaj gönderebileceği kanal").select_option("3" * 32)
+    preview = page.locator(".agent-preview").inner_text()
+    assert "yalnız firma.com adreslerine" in preview and "her gönderim onayınıza gelir" in preview
+    assert "Gelen ekler" in preview
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Ajanı kaydet").click()
+    page.get_by_role("button", name="Görev ver").wait_for()
+    saved = [body for method, path, body in calls if method == "PUT" and path == f"/api/agents/{AID}"][0]
+    assert saved["abilities"] == {"document_folders": ["/Users/firma/Gelen ekler"], "inbox_connection_id": "2" * 32,
+                                  "email_connection_id": "1" * 32, "email_recipients": "domains",
+                                  "email_domains": ["firma.com"], "email_without_approval": False,
+                                  "message_connection_id": "3" * 32, "message_without_approval": False}
+
+
+def test_asking_an_agent_shows_the_conversation(ui):
+    page, calls, _, _, _ = ui
+    page.get_by_role("button", name="Soru sor").click()
+    page.get_by_text("Henüz soru yok", exact=False).wait_for()
+    page.get_by_role("button", name="Bugün neler yaptın?").click()
+    page.get_by_text("Bugün 3 görev tamamladım; 1 onay bekliyor.").wait_for()
+    assert ("POST", f"/api/agents/{AID}/chat", {"text": "Bugün neler yaptın?"}) in calls
+    assert page.get_by_text("120 token", exact=False).count() == 1
+    page.get_by_label("Sorunuz").fill("Bekleyen onay hangisi?")
+    page.get_by_label("Sorunuz").press("Enter")
+    page.wait_for_function("() => document.querySelectorAll('.agent-chat-message').length === 4")
     assert_unique_interactive_ids(page)

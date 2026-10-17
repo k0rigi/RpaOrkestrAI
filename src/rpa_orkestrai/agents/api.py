@@ -36,6 +36,10 @@ class KnowledgeQuery(Model):
     query: str = Field(min_length=1, max_length=300)
 
 
+class ChatQuestion(Model):
+    text: str = Field(min_length=1, max_length=4000)
+
+
 class SearchInput(Model):
     provider: str = Field(max_length=20)
     searxng_url: str = Field(default="", max_length=2000)
@@ -154,6 +158,19 @@ def router(service: AgentService) -> APIRouter:
     @result.post("/{agent_id}/knowledge/search")
     def knowledge_search(agent_id: str, body: KnowledgeQuery):
         return call(service.knowledge_test, agent_id, body.query)
+
+    @result.get("/{agent_id}/chat")
+    def chat_history(agent_id: str):
+        return call(service.chat.history, agent_id)
+
+    @result.post("/{agent_id}/chat")
+    def chat_ask(agent_id: str, body: ChatQuestion):
+        return call(service.chat.ask, agent_id, body.text)
+
+    @result.delete("/{agent_id}/chat", status_code=204)
+    def chat_clear(agent_id: str):
+        call(service.chat.clear, agent_id)
+        return Response(status_code=204)
 
     @result.get("/{agent_id}/playbook-stats")
     def playbook_stats(agent_id: str):

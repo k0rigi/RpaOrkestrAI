@@ -38,7 +38,7 @@ def test_gemini_uses_google_search_and_returns_sources_with_snippets():
     results, summary, usage = search(adapter, "gemini-3.8-flash", ["*.gib.gov.tr"])
     payload = opener.requests[0][1]
     assert payload["tools"] == [{"google_search": {}}] and "gib.gov.tr" in payload["contents"][0]["parts"][0]["text"]
-    assert payload["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+    assert payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
     assert results == [{"title": "gib.gov.tr", "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/x",
                         "snippet": "Geçiş 1 Temmuz'da"}]
     assert summary == "Geçiş 1 Temmuz'da [1]." and (usage.input_tokens, usage.output_tokens) == (40, 50)

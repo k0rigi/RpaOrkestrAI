@@ -6699,7 +6699,7 @@
     imap: { label: "Gelen e-posta (IMAP)", glyph: "download", example: "Ör. Fatura posta kutusu" },
     api: { label: "Web servisi (API)", glyph: "globe", example: "Ör. ERP API" },
     ftp: { label: "FTP / FTPS", glyph: "upload", example: "Ör. Banka FTP" },
-    webhook: { label: "Mesajlaşma (Teams, Slack…)", glyph: "spark", example: "Ör. Muhasebe kanalı" },
+    webhook: { label: "Mesajlaşma (WhatsApp, Telegram, Teams…)", glyph: "spark", example: "Ör. Muhasebe kanalı" },
   };
   async function refreshConnections() {
     state.connections = await api("/api/connections");
@@ -7228,21 +7228,77 @@
       );
     }
     function webhookForm(body) {
-      inputs.service = choices([["teams", "Microsoft Teams (İş Akışları)"], ["slack", "Slack"], ["google_chat", "Google Chat"],
+      const tokenServices = new Set(["telegram", "whatsapp"]);
+      inputs.service = choices([["whatsapp", "WhatsApp (Business Cloud API)"], ["telegram", "Telegram (bot)"],
+        ["teams", "Microsoft Teams (İş Akışları)"], ["slack", "Slack"], ["google_chat", "Google Chat"],
         ["discord", "Discord"], ["generic", "Diğer (JSON gövde)"]], profile?.service || "teams");
       inputs.url = secretInput(profile?.has_url, "https://…");
+      inputs.token = secretInput(profile?.has_token && tokenServices.has(profile?.service), "");
+      inputs.chat_id = plainInput(profile?.chat_id, "-1001234567890 veya @kanal");
+      inputs.phone_number_id = plainInput(profile?.phone_number_id, "123456789012345");
+      inputs.to = plainInput(profile?.to, "905321234567");
+      inputs.api_version = plainInput(profile?.api_version || "v26.0", "v26.0");
+      inputs.mode = choices([["text", "Serbest metin (son 24 saatte size yazan kişiye)"],
+        ["template", "Onaylı şablon (Meta ücretlendirir)"]], profile?.mode || "text");
+      inputs.template_name = plainInput(profile?.template_name, "siparis_bilgisi");
+      inputs.template_language = plainInput(profile?.template_language || "tr", "tr");
+      const urlField = field("Webhook adresi", inputs.url, "Adres bir parola gibi saklanır; dışa aktarılan akışlara eklenmez.", true);
+      const tokenHelp = node("p", "help");
+      const tokenField = field("Erişim anahtarı", inputs.token, "", true);
+      tokenField.append(tokenHelp);
+      const chatList = node("div", "telegram-chats");
+      const findChats = button("Sohbetleri bul", "search", () => attempt(async () => {
+        findChats.disabled = true;
+        try {
+          const found = await api("/api/connections/telegram-chats", {
+            method: "POST", body: JSON.stringify({ token: inputs.token.value.trim(), id: profile?.id }),
+          });
+          chatList.replaceChildren(...(found.chats.length ? found.chats.map((chat) => button(
+            `${chat.name || "Adsız sohbet"} · ${chat.id}`, "", () => { inputs.chat_id.value = chat.id; }, "small"))
+            : [node("p", "help", "Sohbet bulunamadı. Bota Telegram'dan /start yazın veya botu gruba ekleyip bir mesaj gönderin, sonra yeniden deneyin.")]));
+        } finally {
+          findChats.disabled = false;
+        }
+      }), "small");
+      const chatField = field("Sohbet kimliği", inputs.chat_id, "Bota /start yazan kişinin, botun eklendiği grubun veya kanalın kimliği.", true);
+      chatField.append(findChats, chatList);
+      const phoneField = field("Telefon numarası kimliği (Phone number ID)", inputs.phone_number_id,
+        "Meta for Developers → WhatsApp → API Setup sayfasında yazar.", true);
+      const toField = field("Varsayılan alıcı", inputs.to,
+        "Ülke koduyla, yalnız rakam (905321234567). Adımda alıcı yazılmazsa buraya gider; deneme mesajı da buraya gönderilir.");
+      const versionField = field("API sürümü", inputs.api_version, "Meta Graph API sürümü; bilmiyorsanız değiştirmeyin.");
+      const modeField = field("Gönderim türü", inputs.mode,
+        "Size son 24 saatte yazmamış kişiye yalnız Meta'da onaylı şablonla mesaj gönderilebilir.");
+      const templateField = field("Şablon adı", inputs.template_name, "Meta'da onaylandığı adıyla (küçük harf ve alt çizgi).", true);
+      const languageField = field("Şablon dili", inputs.template_language, "Şablonun onaylandığı dil kodu: tr, en_US …");
       const help = node("p", "help");
       const hints = {
+        whatsapp: "Meta for Developers'ta bir WhatsApp Business uygulaması açın; API Setup sayfasındaki telefon numarası kimliğini ve "
+          + "bir sistem kullanıcısının kalıcı erişim anahtarını girin. Serbest metin yalnız son 24 saatte size yazan kişiye gider; "
+          + "diğerlerine onaylı şablon gerekir. Meta şablon mesajlarını ücretlendirir.",
+        telegram: "Telegram'da @BotFather'a /newbot yazıp bot oluşturun ve verdiği anahtarı yapıştırın. Kişi bota /start yazsın "
+          + "ya da botu gruba ekleyin; ardından Sohbetleri bul ile sohbeti seçin. Telegram ücretsizdir.",
         teams: "Teams kanalında … → İş Akışları → «Webhook isteği alındığında kanala gönder» şablonunu ekleyin ve verilen adresi yapıştırın.",
         slack: "Slack'te bir uygulamaya Incoming Webhooks ekleyip kanal için oluşan adresi yapıştırın.",
         google_chat: "Google Chat alanında Uygulamalar ve entegrasyonlar → Webhook'lar bölümünden adres oluşturun.",
         discord: "Discord kanal ayarları → Entegrasyonlar → Webhook'lar bölümünden adres oluşturun.",
         generic: "Adrese {\"title\": …, \"text\": …} gövdesiyle POST isteği gönderilir.",
       };
-      const paint = () => { help.textContent = hints[inputs.service.value]; };
+      const paint = () => {
+        const service = inputs.service.value, whatsapp = service === "whatsapp";
+        urlField.hidden = tokenServices.has(service);
+        tokenField.hidden = !tokenServices.has(service);
+        tokenHelp.textContent = whatsapp ? "Sistem kullanıcısının kalıcı erişim anahtarı (geçici 24 saatlik anahtar kısa sürede geçersizleşir)."
+          : "@BotFather'ın verdiği bot anahtarı (123456:ABC…).";
+        chatField.hidden = service !== "telegram";
+        for (const item of [phoneField, toField, versionField, modeField]) item.hidden = !whatsapp;
+        templateField.hidden = languageField.hidden = !whatsapp || inputs.mode.value !== "template";
+        help.textContent = hints[service];
+      };
       inputs.service.addEventListener("change", paint);
-      body.append(field("Servis", inputs.service, "", true), field("Webhook adresi", inputs.url, "Adres bir parola gibi saklanır; dışa aktarılan akışlara eklenmez.", true),
-        help, testArea());
+      inputs.mode.addEventListener("change", paint);
+      body.append(field("Servis", inputs.service, "", true), urlField, tokenField, chatField, phoneField, toField, modeField,
+        templateField, languageField, versionField, help, testArea());
       paint();
     }
     function testArea() {
@@ -7251,7 +7307,7 @@
       result.setAttribute("role", "status");
       const test = button(kind === "webhook" ? "Deneme mesajı gönder" : "Bağlantıyı test et", "check", () => attempt(async () => {
         if (kind === "webhook" && !(await confirmDialog("Deneme mesajı gönderilsin mi?",
-          "Kanala «Bağlantı testi» başlıklı kısa bir mesaj gönderilir.", "Gönder"))) return;
+          "Kanala veya varsayılan alıcıya «Bağlantı testi» başlıklı kısa bir mesaj gönderilir.", "Gönder"))) return;
         test.disabled = true;
         result.replaceChildren(node("p", "help", "Deneniyor…"));
         try {
@@ -7294,7 +7350,10 @@
         for (const key of ["host", "port", "user", "password", "base_dir"]) values[key] = inputs[key].value.trim();
         return values;
       }
-      if (kind === "webhook") return { service: inputs.service.value, url: inputs.url.value.trim() };
+      if (kind === "webhook") return { service: inputs.service.value, url: inputs.url.value.trim(), token: inputs.token.value.trim(),
+        chat_id: inputs.chat_id.value.trim(), phone_number_id: inputs.phone_number_id.value.trim(), to: inputs.to.value.trim(),
+        api_version: inputs.api_version.value.trim(), mode: inputs.mode.value, template_name: inputs.template_name.value.trim(),
+        template_language: inputs.template_language.value.trim() };
       if (kind === "api") {
         let headers = {};
         const raw = inputs.headers.value.trim();

@@ -60,7 +60,8 @@ class TeamBudget:
             available = remaining - sum(self.reserved.values())
             if available <= 0:
                 return None
-            allowance = min(requested, available, 4096)
+            # Thinking models spend part of the answer room on reasoning; 8K leaves space for the reply itself.
+            allowance = min(requested, available, 8192)
             if allowance <= 0:
                 self._fail("Ajanın token sınırına ulaşıldı.")
             self.reserved[identity] = allowance

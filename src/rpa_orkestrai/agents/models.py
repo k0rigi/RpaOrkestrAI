@@ -141,6 +141,66 @@ class Playbook(Model):
         return value.strip()
 
 
+EMAIL_DOMAIN = r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$"
+
+
+class AgentAbilities(Model):
+    """Things an agent does without a Studio flow. Reading is limited to chosen folders and accounts; sending asks
+    for approval unless the approver allowed it, and always goes through the chosen connection."""
+
+    document_folders: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(default_factory=list, max_length=20)
+    inbox_connection_id: Identifier | None = None
+    email_connection_id: Identifier | None = None
+    # reply: only to addresses given with the task (e.g. the sender of the e-mail that started it).
+    email_recipients: Literal["reply", "domains", "any"] = "reply"
+    email_domains: list[Annotated[str, Field(min_length=3, max_length=255)]] = Field(default_factory=list, max_length=50)
+    email_without_approval: bool = False
+    message_connection_id: Identifier | None = None
+    message_without_approval: bool = False
+
+    @field_validator("document_folders")
+    @classmethod
+    def clean_folders(cls, value: list[str]) -> list[str]:
+        from .knowledge import normalize_source
+
+        return list(dict.fromkeys(normalize_source(item) for item in value))
+
+    @field_validator("email_domains")
+    @classmethod
+    def clean_email_domains(cls, value: list[str]) -> list[str]:
+        import re
+
+        cleaned = []
+        for item in value:
+            domain = item.strip().casefold().removeprefix("@").removeprefix("*.")
+            if not re.fullmatch(EMAIL_DOMAIN, domain):
+                raise ValueError(f"E-posta alan adı geçersiz: {item}. Ör. firma.com")
+            if domain not in cleaned:
+                cleaned.append(domain)
+        return cleaned
+
+    @model_validator(mode="after")
+    def consistent(self) -> AgentAbilities:
+        if self.email_recipients == "domains" and not self.email_domains:
+            raise ValueError("E-posta yalnız izinli alan adlarına gidecekse en az bir alan adı yazın (ör. firma.com).")
+        if self.email_without_approval and not self.email_connection_id:
+            raise ValueError("Onaysız e-posta izni için önce bir e-posta bağlantısı seçin.")
+        if self.message_without_approval and not self.message_connection_id:
+            raise ValueError("Onaysız mesaj izni için önce bir mesaj bağlantısı seçin.")
+        return self
+
+    def unused(self) -> bool:
+        return self == AgentAbilities()
+
+
+class AbilityChange(Model):
+    timestamp: str = Field(default_factory=now)
+    user_id: int = Field(ge=1)
+    ability: Literal["email", "message"]
+    allow_without_approval: bool
+    connection_id: Identifier | None = None
+
+
 class AgentInput(Model):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -159,6 +219,7 @@ class AgentInput(Model):
     knowledge_sources: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
         default_factory=list, max_length=MAX_KNOWLEDGE_SOURCES)
     playbooks: list[Playbook] = Field(default_factory=list, max_length=MAX_PLAYBOOKS)
+    abilities: AgentAbilities = Field(default_factory=AgentAbilities)
 
     @field_validator("knowledge_sources")
     @classmethod
@@ -224,6 +285,7 @@ class Agent(AgentInput):
     revision: int = Field(default=1, ge=1)
     grant_revisions: dict[Identifier, Annotated[str, Field(max_length=128)]] = Field(default_factory=dict)
     permission_audit: list[PermissionChange] = Field(default_factory=list, max_length=1000)
+    ability_audit: list[AbilityChange] = Field(default_factory=list, max_length=1000)
 
 
 MAX_NOTES = 30

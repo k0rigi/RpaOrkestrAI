@@ -8,7 +8,7 @@ RpaOrkestrAI bir işi üç yoldan yapabilir: ekranda bir kişi gibi tıklayıp y
 | --- | --- | --- |
 | **Bağlantılar** | Nereye ve nasıl bağlanılacağı: veritabanı, Google Sheets, e-posta gönderme (SMTP) ve okuma (IMAP), web servisi (API), FTP, Teams / Slack. Şifre ve anahtarlar yalnız bu bilgisayarda saklanır, günlükte gizlenir, dışa aktarılan akışlara eklenmez. | Ayarlar → Bağlantılar veya adımdaki Bağlantı alanı |
 | **Akışlar** | Ne yapılacağı: adım adım, her seferinde aynı biçimde. API veya SQL adımı ile ekran adımları aynı akışta kullanılabilir. | Akışlarım |
-| **Ajanlar** | Hangi akışın hangi bilgiyle çalışacağına karar vermek; belirsizlikte sormak, gerekirse internette araştırmak. Ajan SQL'e veya API'ye doğrudan dokunmaz, izinli akışı çağırır. | Ajanlar |
+| **Ajanlar** | Metni anlamak, karar vermek ve yanıt yazmak; hangi akışın hangi bilgiyle çalışacağını seçmek; belirsizlikte sormak, gerekirse internette araştırmak. Belge ve e-posta okuma ile e-posta/mesaj gönderme için akış gerekmez (doğrudan yetenekler, 0.9.33+). Ajan SQL'e veya API'ye doğrudan dokunmaz, izinli akışı çağırır. | Ajanlar |
 | **Otomasyonlar** | Ne zaman başlanacağı: belirli zamanlar, bir akışın bitişi, klasöre dosya, tabloya kayıt, posta kutusuna e-posta. Hedef bir ajan veya doğrudan bir akıştır. | Ajanlar → Otomasyonlar; yalnız zamanlı akışlar için Zamanlayıcı |
 
 Bu ayrımın nedeni: akış test edilebilir, sürümlenir ve risk sınıfına göre onaya bağlanır. Ajan yalnız izin verdiğiniz akışları çalıştırabildiği için, bir API veya veritabanı işlemini ajana açmanın tek yolu onu bir akışa koymak ve akışa izin vermektir.
@@ -44,9 +44,18 @@ Sunucu, şifreleme (SSL/TLS 993, STARTTLS 143), kullanıcı, şifre ve klasör (
 
 Sunucu, güvenlik (açık TLS ile FTPS önerilir), port, kullanıcı, şifre, pasif mod ve başlangıç klasörü. Adımlar başlangıç klasörünün dışına çıkamaz. SFTP (SSH) farklı bir protokoldür ve desteklenmez.
 
-### Mesajlaşma (Teams, Slack, Google Chat, Discord)
+### Mesajlaşma (WhatsApp, Telegram, Teams, Slack, Google Chat, Discord)
 
-Kanalın webhook adresi parola gibi saklanır. Teams'te kanalın **İş Akışları** bölümünden «Webhook isteği alındığında kanala gönder» şablonu kullanılır; mesaj Adaptive Card olarak gider. Test kanala gerçek bir deneme mesajı gönderir.
+- **WhatsApp (0.9.33+)** Meta'nın resmî WhatsApp Business Cloud API'siyle çalışır.
+  - **Kurulum:** Meta for Developers'ta bir WhatsApp Business uygulaması açın. API Setup sayfasındaki **telefon numarası kimliğini** ve bir sistem kullanıcısının **kalıcı erişim anahtarını** girin; geçici 24 saatlik anahtar kısa sürede geçersizleşir.
+  - **Serbest metin ve şablon:** Serbest metin yalnız son 24 saatte size yazmış kişiye gider. Diğer kişilere yalnız Meta'da onaylanmış bir **şablonla** yazılabilir; adımda şablon değişkenleri her satıra bir değer olarak girilir.
+  - **Ücret:** Meta şablon mesajlarını ücretlendirir. Son 24 saat içindeki serbest metin yanıtları ücretsizdir.
+  - **Alıcı:** Bağlantıya bir varsayılan alıcı yazılabilir; adımda başka bir numara verilebilir.
+- **Telegram (0.9.33+)** ücretsizdir.
+  - **Kurulum:** Telegram'da @BotFather'a `/newbot` yazıp bot oluşturun ve verilen anahtarı girin.
+  - **Sohbet:** Kişi bota `/start` yazmalı ya da bot gruba eklenmelidir. **Sohbetleri bul** düğmesi bota yazan kişileri ve grupları listeler; sohbet kimliği oradan seçilir.
+- **Teams, Slack, Google Chat, Discord:** Kanalın webhook adresi parola gibi saklanır. Teams'te kanalın **İş Akışları** bölümünden «Webhook isteği alındığında kanala gönder» şablonu kullanılır; mesaj Adaptive Card olarak gider.
+- **Bağlantı testi:** Kanala veya varsayılan alıcıya gerçek bir deneme mesajı gönderir. WhatsApp şablonuyla deneme mesajı gönderilmez.
 
 ### Veritabanı: yazma izni
 
@@ -80,15 +89,17 @@ Gelen işler sıraya girer (en fazla 200) ve önceki iş bitince sıradaki başl
 3. **Gece kontrolü:** *Belirli zamanlarda* (her gün 22:00) → hedef: *Kontrol ajanı*. Ajan Veritabanı sorgusu akışıyla açık kalan kayıtları bulur, özeti Mesaj gönder akışıyla kanala iletir.
 4. **Banka dosyası:** *Klasöre yeni dosya geldiğinde* (`*.xml`) → hedef: *Banka aktarım akışı* (doğrudan): FTP dosya aktarımı ile bankaya yükler, sonucu e-postayla bildirir.
 
-## Örnek: gelen e-postaları yanıtlayan ajan (0.9.31+)
+## Örnek: gelen e-postaları yanıtlayan ajan (0.9.31+, akışsız 0.9.33+)
 
-1. **Akış «E-postayı yanıtla»:** tek bir **E-posta gönder** adımı içerir.
-   - Kime: `${kime}`
-   - Konu: `${konu}`
-   - İleti: `${metin}`
-   - Yanıtlanan e-posta: `${yanitlanan}`
+Ajan e-postayı kendisi okur, anlar ve yanıtı kendisi yazar; bunun için akış gerekmez.
 
-   Akışın girdileri `kime`, `konu`, `metin`, `yanitlanan` olur. Ajana bu akış için izin verin.
+1. **Ajanın doğrudan yetenekleri (0.9.33+):**
+   - **E-posta gönderebileceği hesap:** SMTP bağlantınız.
+   - **Kimlere gönderebilir:** «Yalnız göreve gelen adreslere». Böylece ajan yalnız yazan kişiye yanıt verebilir.
+   - **Okuyabileceği klasörler:** e-posta eklerinin kaydedildiği klasör. Ajan ekli faturayı veya PDF'i okuyup anlar.
+
+   Ajan yanıtı `send_email` ile gönderir; yanıt aynı yazışmanın altına düşer. 0.9.31–0.9.32'de bunun
+   yerine tek bir **E-posta gönder** adımlı «E-postayı yanıtla» akışı ve izni kullanılır.
 2. **Ajan:**
    - **Bilgi kaynakları:** iade politikası, fiyat listesi, sık sorulan sorular.
    - **Süreç kartları:** ör. «Bilgi talebi» (taslak), «Sipariş durumu» (sipariş sorgu akışı, taslak),
@@ -96,11 +107,11 @@ Gelen işler sıraya girer (en fazla 200) ve önceki iş bitince sıradaki başl
 3. **Otomasyon:** *Yeni e-posta geldiğinde* → hedef bu ajan. Görev metni: «Gelen e-postayı oku, uyan
    kartı seç ve yanıtla.»
 
-   Ajan `${eposta}` bilgisini görür. Akışı çalıştırırken iletinin kimliğini (`message_id`) `yanitlanan`
-   girdisine verir; yanıt aynı yazışmanın altına düşer.
+   Ajan `${eposta}` bilgisini (gönderen, konu, metin, ekler, `message_id`) görür.
 4. **İlk haftalar:** yanıtlar taslak olarak onaya gelir. Metni **Düzenleyerek onayla** ile düzeltin; ajan
    düzeltmelerden not önerir. Bir konuda taslaklar sürekli değiştirilmeden onaylanıyorsa kart istatistiği
-   bunu gösterir. O konuya ayrı bir yanıt akışı verip yalnız ona «Onaysız çalışabilir» izni tanıyabilirsiniz.
+   bunu gösterir. Onay yetkilisi isterse e-posta yeteneğine «Onay beklemeden gönderebilir» izni verir;
+   taslağını görmek istediğiniz konuların kartında «Her değişikliği onaya sun» seçili kalır.
 5. **Uyan kart yoksa** (ör. beklenmeyen bir konu) ajan yanıt göndermez. İşi Sizi bekleyen işler'e bırakır.
 
 Bu adımları veya bağlantı alanını kullanan akışlar 0.9.29 ve önceki sürümlerde açılmaz; kullanmayan akışların dosya biçimi değişmez.

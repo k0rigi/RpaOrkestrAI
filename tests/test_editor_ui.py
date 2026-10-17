@@ -686,7 +686,7 @@ def test_database_query_command_modes_and_loop_start_in_the_editor(tmp_path):
             manager = page.locator("dialog.connection-manager")
             playwright.expect(manager.locator(".connection-group h3")).to_have_text([
                 "Google Sheets", "Veritabanı", "E-posta (SMTP)", "Gelen e-posta (IMAP)", "Web servisi (API)",
-                "FTP / FTPS", "Mesajlaşma (Teams, Slack…)"])
+                "FTP / FTPS", "Mesajlaşma (WhatsApp, Telegram, Teams…)"])
             manager.get_by_role("button", name="Kapat").click()
 
             # Veritabanı sorgusu: a SQLite connection made from the step's own form.
@@ -2194,4 +2194,53 @@ def test_steps_are_numbered_and_web_targets_can_be_picked(tmp_path):
             playwright.expect(page.get_by_text(f"ADIM {STEP_NUMBERS['web.open']} · AYARLAR")).to_be_visible()
             playwright.expect(page.get_by_role("button", name="Tarayıcıda seç")).to_have_count(0)
             browser.close()
+    assert not errors
+
+
+def test_whatsapp_connection_from_the_message_step(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        assert client.post("/api/workflows", json={"name": "Bildirim akışı", "steps": []}).status_code == 201
+        with playwright.sync_playwright() as runner:
+            browser = runner.chromium.launch()
+            page = browser.new_page(viewport={"width": 1400, "height": 1000})
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def handle(route):
+                request = route.request
+                result = client.request(request.method, urlsplit(request.url).path, content=request.post_data_buffer,
+                                        headers={"content-type": "application/json"})
+                route.fulfill(status=result.status_code, headers=dict(result.headers), body=result.content)
+
+            page.route("http://127.0.0.1:8765/**", handle)
+            page.goto("http://127.0.0.1:8765/")
+            page.get_by_role("button", name="Bildirim akışı", exact=True).click()
+            page.locator(".library-action").filter(has_text="Mesaj gönder").click()
+            inspector = page.locator("#inspector")
+            inspector.get_by_role("button", name="Mesajlaşma (WhatsApp, Telegram, Teams…) bağlantısı oluştur").click()
+            dialog = page.locator("dialog.connection-dialog")
+            dialog.get_by_label("Bağlantı adı").fill("Müşteri WhatsApp")
+            dialog.get_by_label("Servis").select_option("whatsapp")
+            playwright.expect(dialog.get_by_label("Webhook adresi")).to_be_hidden()
+            playwright.expect(dialog.get_by_label("Şablon adı")).to_be_hidden()
+            dialog.get_by_label("Erişim anahtarı").fill("EAAG-gizli-anahtar")
+            dialog.get_by_label("Telefon numarası kimliği (Phone number ID)").fill("1098765432")
+            dialog.get_by_label("Varsayılan alıcı").fill("+90 532 123 45 67")
+            dialog.get_by_label("Gönderim türü").select_option("template")
+            playwright.expect(dialog.get_by_label("Şablon adı")).to_be_visible()
+            dialog.get_by_label("Şablon adı").fill("siparis_kargoda")
+            dialog.get_by_role("button", name="Bağlantıyı oluştur", exact=True).click()
+            playwright.expect(dialog).to_have_count(0)
+            playwright.expect(inspector.locator(".connection-meta")).to_contain_text("Hazır")
+            inspector.get_by_label("Alıcı (WhatsApp, Telegram)").fill("905551112233")
+            browser.close()
+        saved = [item for item in client.get("/api/connections").json() if item["type"] == "webhook"][0]
+        assert saved["service"] == "whatsapp" and saved["to"] == "905321234567" and saved["mode"] == "template"
+        assert saved["has_token"] and "EAAG-gizli-anahtar" not in str(saved)
     assert not errors

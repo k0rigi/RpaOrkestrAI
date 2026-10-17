@@ -10,7 +10,7 @@ from rpa_orkestrai import vault as vault_module
 from rpa_orkestrai.agents.connections import ProviderConnectionStore
 from rpa_orkestrai.agents.models import Actor, Agent, ProviderConnection, WorkflowGrant
 from rpa_orkestrai.agents.policy import prepare_workflow
-from rpa_orkestrai.agents.providers import ProviderResponse, ScriptedProvider, ToolCall, Usage
+from rpa_orkestrai.agents.providers import ProviderError, ProviderResponse, ScriptedProvider, ToolCall, Usage
 from rpa_orkestrai.agents.schema import compile_schema
 from rpa_orkestrai.agents.workflow_ai import WorkflowAIService
 from rpa_orkestrai.config import Settings
@@ -241,8 +241,8 @@ def test_locked_vault_stops_before_model_request(ai, monkeypatch):
     assert "private-error" not in str(denied.value) and not ai.state["provider"].requests
 
 
-@pytest.mark.parametrize("kind", ["gate", "actor", "company", "session", "permission", "scheduled"])
-def test_license_identity_scope_and_manual_trigger_enforced(ai, kind):
+@pytest.mark.parametrize("kind", ["gate", "actor", "company", "session", "permission"])
+def test_license_identity_and_scope_enforced(ai, kind):
     if kind == "gate":
         ai.state["gate"] = False
     elif kind == "actor":
@@ -254,13 +254,50 @@ def test_license_identity_scope_and_manual_trigger_enforced(ai, kind):
     elif kind == "session":
         ai.state["provider"] = ScriptedProvider([], callback=lambda request: (
             ai.state.update(actor=ai.actor.model_copy(update={"session_id": "new"})) or ProviderResponse(text="Yanıt")))
-    else:
-        ai.executor.run.trigger = "schedule"
     with pytest.raises(WorkflowError):
         execute(ai)
     assert "result" not in ai.executor.variables
     if kind != "session":
         assert not ai.state["provider"].requests
+
+
+def test_scheduled_and_automation_runs_may_ask_with_the_same_checks(ai):
+    ai.executor.run.trigger = "schedule"
+    ai.state["provider"] = ScriptedProvider([ProviderResponse(text="Ödenecek tutar: 9.248,11 TL", usage=Usage(10, 5))])
+    execute(ai)
+    assert ai.executor.variables["result"] == "Ödenecek tutar: 9.248,11 TL"
+    ai.state["gate"] = False
+    with pytest.raises(WorkflowError):
+        execute(ai)
+
+
+def test_a_thinking_model_that_fills_the_limit_is_asked_once_more_with_more_room(ai):
+    class Thinking:
+        def __init__(self):
+            self.limits = []
+
+        def complete(self, messages, tools, *, model, max_tokens, cancel, deadline):
+            self.limits.append(max_tokens)
+            if len(self.limits) == 1:
+                raise ProviderError(reason="length")
+            return ProviderResponse(text="9.248,11 TL", usage=Usage(10, 900))
+
+    ai.state["provider"] = provider = Thinking()
+    execute(ai, ai.step(max_tokens=1024))
+    assert provider.limits == [1024, 4096] and ai.executor.variables["result"] == "9.248,11 TL"
+    assert any("yeniden soruldu" in event.message for event in ai.executor.run.events)
+
+
+@pytest.mark.parametrize("reason,text", [("not_found", "Model bulunamadı"), ("quota", "kotası"),
+                                         ("length", "token sınırına takıldı")])
+def test_the_provider_reason_is_shown_instead_of_a_generic_error(ai, reason, text):
+    class Failing:
+        def complete(self, messages, tools, *, model, max_tokens, cancel, deadline):
+            raise ProviderError(reason=reason)
+
+    ai.state["provider"] = Failing()
+    with pytest.raises(WorkflowError, match=text):
+        execute(ai, ai.step(max_tokens=16384))
 
 
 @pytest.mark.parametrize("change", ["cancel", "gate", "timeout"])
@@ -302,9 +339,10 @@ def test_ai_limits_and_unexpected_tools_fail_closed(ai, kind):
     if kind == "tool":
         ai.state["provider"] = ScriptedProvider([ProviderResponse(tool_calls=[ToolCall(uid(), "run_workflow", {})])])
     elif kind == "tokens":
+        step.params["max_tokens"] = 1024
         ai.state["provider"] = ScriptedProvider([ProviderResponse(text="Yanıt", usage=Usage(1, 1025))])
     elif kind == "total":
-        ai.state["provider"] = ScriptedProvider([ProviderResponse(text="Yanıt", usage=Usage(16_384, 1))])
+        ai.state["provider"] = ScriptedProvider([ProviderResponse(text="Yanıt", usage=Usage(65_536, 1))])
     elif kind == "size":
         ai.state["provider"] = ScriptedProvider([ProviderResponse(text="x" * 32_001)])
     elif kind == "input":

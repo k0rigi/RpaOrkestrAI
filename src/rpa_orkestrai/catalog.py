@@ -802,8 +802,9 @@ LIBRARY = [
                        "uzak başvuru ve düzenli ifade kuralları desteklenmez."),
             field("timeout", "Yanıt süresi (saniye)", "number", 60, min=0.1, max=120,
                   help="Süre dolarsa veya oturum değişirse sonuç kullanılmadan akış durur."),
-            field("max_tokens", "Yanıt token sınırı", "number", 1024, min=16, max=8192,
-                  help="Model yanıtının üst sınırı. İstek ve yanıt toplamı ayrıca 16.384 tokenla sınırlandırılır."),
+            field("max_tokens", "Yanıt token sınırı", "number", 4096, min=16, max=16384,
+                  help="Model yanıtının üst sınırı; güncel modellerin yanıttan önceki düşünmesi de buna sayılır. Sınır "
+                       "düşünürken dolarsa adım bir kez daha geniş sınırla sorar."),
             output("ai_result")]),
     # ----- Veritabanı ------------------------------------------------------------------
     action("database.query", "Veritabanı sorgusu", "Veritabanı",
@@ -1008,12 +1009,14 @@ LIBRARY = [
             field("local_path", "Yerel dosya", default="", visible_when={"operation": ["download", "upload"]}),
             field("overwrite", "Varsa üzerine yaz", "boolean", False, visible_when={"operation": ["download", "upload"]}),
             output("ftp_result")]),
-    action("notify.send", "Mesaj gönder (Teams, Slack…)", "Web, e-posta ve API",
-           "Microsoft Teams, Slack, Google Chat veya Discord kanalına mesaj gönderir: hata bildirimi, günlük özet "
-           "veya onay bekleyen iş haberi için.",
+    action("notify.send", "Mesaj gönder (WhatsApp, Telegram, Teams…)", "Web, e-posta ve API",
+           "WhatsApp, Telegram, Microsoft Teams, Slack, Google Chat veya Discord'a mesaj gönderir: hata bildirimi, "
+           "günlük özet, müşteriye bilgi veya onay bekleyen iş haberi için.",
            [WEBHOOK_CONNECTION,
             field("title", "Başlık", default="", omit_default=True),
             field("text", "Mesaj", "code", "", required=True, help="Değişken kullanılabilir: ${row.no} numaralı fatura işlendi."),
+            field("to", "Alıcı (WhatsApp, Telegram)", default="", omit_default=True),
+            field("template_values", "Şablon değişkenleri (WhatsApp)", "code", "", omit_default=True),
             output("message_result")]),
     action("http.request", "HTTP isteği gönder (API)", "Web, e-posta ve API",
            "Bir web servisine istek gönderir; JSON yanıt ${response.body} içinde gelir.",

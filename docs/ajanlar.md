@@ -287,6 +287,43 @@ gerekmez; her ajan kendi model bağlantısıyla arar.
 - Ajan formu iki durumda uyarı gösterir: internet erişimi açık ama arama hizmeti seçilmemişse ya da
   ajanın bağlantısı model aramasını desteklemiyorsa.
 
+### Doğrudan yetenekler: akışsız okuma ve gönderme (0.9.33)
+
+Ajan bir yapay zekâ modelidir: metni anlamak, sınıflandırmak, özetlemek, hesaplamak ve yanıt yazmak için akışa
+ihtiyaç duymaz, bunları kendisi yapar. Akışlar masaüstü, ERP ve sistem işleri içindir. Ajan formundaki
+**Doğrudan yetenekler** bölümünde ajanın akış gerekmeden neyi okuyabileceği ve nereye gönderebileceği seçilir:
+
+| Yetenek | Ne yapar | Sınır |
+| --- | --- | --- |
+| Okuyabileceği klasörler | Klasörlerdeki PDF, Word, Excel, metin, CSV ve HTML belgelerini listeler ve okur (ör. e-posta ekleri) | Yalnız seçilen klasörler; Studio klasörleri seçilemez; görevde en fazla 30 belge |
+| Okuyabileceği gelen kutusu | Gelen e-posta (IMAP) bağlantısındaki iletileri okur | Okundu yapmaz; görevde en fazla 5 okuma |
+| E-posta gönderebileceği hesap | E-posta yazar, gönderir veya yanıtlar (aynı yazışmanın altında) | Kimlere: yalnız göreve gelen adreslere (ör. yazan müşteri), yalnız izinli alan adlarına veya herkese; görevde en fazla 10 gönderim; ek dosya eklenmez |
+| Mesaj gönderebileceği kanal | WhatsApp, Telegram, Teams, Slack… bağlantısına mesaj gönderir | Yalnız bağlantıdaki kanala veya varsayılan alıcıya |
+
+- **Onay:** Her e-posta ve mesaj, akışlardaki gibi onayınıza gelir. Onay ekranında **Düzenleyerek onayla**
+  ile konu ve metin düzeltilebilir; gönderilen, onaylanan hâldir.
+- **Onaysız gönderim:** **Onay beklemeden gönderebilir** iznini yalnız onay yetkilisi verir ve kayda
+  geçer.
+- **Süreç kartları:** Kart kuralları gönderimde de geçerlidir. Kartı olan ajan uyan kartı seçmeden
+  göndermez; «İnsana bırak» kartında hiç göndermez; «Her değişikliği onaya sun» kartında izin olsa bile
+  onay ister.
+- **Kayıt:** Okunan belgeler ve gönderilen e-postalar zaman çizelgesine yazılır.
+- **Uyumluluk:** Yetenek tanımlanmamış ajanların dosyası değişmez. Yetenek tanımlanmış ajan 0.9.32 ve
+  önceki sürümlerde okunamaz.
+
+### Ajana soru sorma (0.9.33)
+
+Ajan kartındaki **Soru sor** ile ajanla konuşulur. Örnek sorular: «Bugün neler yaptın?», «Şu an bekleyen
+işler neler?», «Son hatalar neydi?», «Bu hafta kaç görev tamamladın?».
+- **Neye bakar:** Ajan bu bilgisayardaki görev kayıtlarına, otomasyon sıralarına, onaylı notlarına ve
+  bilgi kaynaklarına bakarak yanıtlar. İnterneti veya okuma yetenekleri açıksa onları da kullanır.
+  Yönetici ajan, bağlı departmanların durumunu da anlatır.
+- **Sınır:** Sohbet yalnız bilgi verir; iş başlatmaz, akış çalıştırmaz, e-posta veya mesaj göndermez. İş
+  yaptırmak için **Görev ver** kullanılır.
+- **Gönderilen veri:** Sohbette görev kayıtlarının maskelenmiş özetleri ajanın model bağlantısına
+  gönderilir; kullanılan token her yanıtın altında görünür.
+- **Geçmiş:** Ajan başına son 40 mesaj saklanır; **Sohbeti temizle** ile silinir.
+
 ### Görevleri silme (0.9.29)
 
 Ajanları yönetme yetkisi olan kişi bitmiş görevleri silebilir:

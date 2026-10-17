@@ -70,7 +70,8 @@
     delegate_task: "Görev devri", get_task: "Alt görev durumu okunuyor", list_tasks: "Alt görevler okunuyor",
     wait_tasks: "Alt görevler bekleniyor", answer_department: "Departmana yanıt", suggest_note: "Not önerisi",
     web_search: "İnternette arama", fetch_page: "Web sayfası okuma", search_knowledge: "Bilgi kaynaklarında arama",
-    use_playbook: "Süreç kartı seçimi" };
+    use_playbook: "Süreç kartı seçimi", list_documents: "Belgelere bakılıyor", read_document: "Belge okunuyor",
+    read_emails: "Gelen kutusu okunuyor", send_email: "E-posta gönderme isteği", send_message: "Mesaj gönderme isteği" };
   const eventTitles = { created: "Görev alındı", queue: "Masaüstü sırası bekleniyor", workflow_started: "Akış başladı",
     question: "Size soru soruldu", user_answer: "Yanıtınız iletildi", approval_requested: "Onay istendi",
     approval_decision: "Onay kararı verildi", approval_submitted: "Onay kararı gönderildi", approval_consumed: "Onay kullanıldı",
@@ -81,12 +82,14 @@
     assistant: "Ajanın notu", tool_result: "Araç sonucu", provider_request: "Modele gönderilen istek",
     note_suggested: "Ajan kalıcı not önerdi", web_search: "İnternette arandı", web_fetch: "Web sayfası okundu",
     automation: "Otomasyonla başladı", knowledge_search: "Bilgi kaynaklarında arandı", playbook_selected: "Süreç kartı seçildi",
-    handoff: "İş size bırakıldı" };
+    handoff: "İş size bırakıldı", document_read: "Belge okundu", emails_read: "Gelen kutusu okundu",
+    email_sent: "E-posta gönderildi", message_sent: "Mesaj gönderildi" };
   const playbookModes = { act: "Akış izinlerine göre uygula", review: "Her değişikliği onaya sun (taslak)",
     handoff: "Değişiklik yapma, insana bırak" };
   const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
   const quietTools = new Set(["list_workflows", "describe_workflow", "get_run", "list_recent_runs", "list_team", "get_task",
-    "list_tasks", "wait_tasks", "read_artifact", "suggest_note", "web_search", "fetch_page", "search_knowledge", "use_playbook"]);
+    "list_tasks", "wait_tasks", "read_artifact", "suggest_note", "web_search", "fetch_page", "search_knowledge", "use_playbook",
+    "list_documents", "read_document", "read_emails"]);
   const extensions = new Map();
   let active = null;
   let sequence = 0;
@@ -353,9 +356,10 @@
       const values = await Promise.all([
         request("/api/agents/session"), request("/api/agents"), request("/api/agents/connections"),
         request("/api/agents/workflows"), request("/api/agents/notes").catch(() => ({})),
+        request("/api/connections").catch(() => []),
       ]);
       if (!view.alive) return;
-      [view.session, view.agents, view.connections, view.workflows, view.notes] = values;
+      [view.session, view.agents, view.connections, view.workflows, view.notes, view.studioConnections] = values;
       shell(view);
       showTab(view, view.tabButtons.has(options.initialTab) ? options.initialTab : "agents");
       pollAttention(view);
@@ -498,6 +502,19 @@
         if (card.mode === "handoff") cannot.push(`«${card.title}» konusunda değişiklik yapmaz; işi insana bırakır.`);
       }
     }
+    const abilities = agent.abilities || {};
+    if ((abilities.document_folders || []).length) can.push(`Şu klasörlerdeki belgeleri okuyup anlayabilir: ${abilities.document_folders.join(", ")}.`);
+    if (abilities.inbox_connection_id) can.push("Gelen kutusundaki e-postaları okuyabilir (okundu yapmaz).");
+    if (abilities.email_connection_id) {
+      const who = abilities.email_recipients === "any" ? "herkese" : abilities.email_recipients === "domains"
+        ? `yalnız ${(abilities.email_domains || []).join(", ")} adreslerine` : "yalnız göreve gelen adreslere";
+      if (abilities.email_without_approval) can.push(`E-posta gönderebilir (${who}); onaysız, onay yetkilisi izin verdi.`);
+      else approval.push(`E-posta gönderebilir (${who}); her gönderim onayınıza gelir, metni düzeltebilirsiniz.`);
+    }
+    if (abilities.message_connection_id) {
+      if (abilities.message_without_approval) can.push("Mesaj kanalına gönderebilir; onaysız, onay yetkilisi izin verdi.");
+      else approval.push("Mesaj kanalına gönderebilir; her mesaj onayınıza gelir.");
+    }
     if (access === "open") can.push("İnternette araştırabilir (tüm web, bir görevde en fazla 20 istek).");
     else if (access === "allowlist") can.push(`İnternette yalnız şu sitelerde araştırabilir: ${(agent.web_domains || []).join(", ")}.`);
     if (agent.role === "manager") {
@@ -632,7 +649,7 @@
       if (agent.instructions) card.append(disclosure("Talimatlar", element("p", agent.instructions, "agent-help agent-instructions")));
 
       const buttons = element("div", null, "agent-actions");
-      buttons.append(action("Görev ver", () => runForm(view, agent), "primary"));
+      buttons.append(action("Görev ver", () => runForm(view, agent), "primary"), action("Soru sor", () => chatView(view, agent)));
       if (view.session.can_manage) buttons.append(action("Düzenle", () => editAgent(view, agent)));
       buttons.append(action("Çalışmaları gör", () => { view.filterAgent = agent.id; showTab(view, "runs"); }));
       card.append(buttons);
@@ -844,6 +861,58 @@
     preset.wrapper.append(presetHelp);
     limits.append(preset.wrapper, limitGrid);
     matchPreset();
+    const abilities = agent.abilities || {};
+    const studio = view.studioConnections || [];
+    const pick = (label, type, value, none, help) => {
+      const options = studio.filter((item) => item.type === type).map((item) => [item.id, item.name]);
+      if (value && !options.some(([id]) => id === value)) options.push([value, "Kayıtlı bağlantı"]);
+      return select(label, [["", none], ...options], value || "", help);
+    };
+    const folders = field("Okuyabileceği klasörler", (abilities.document_folders || []).join("\n"), "textarea",
+      "Her satıra bir klasörün tam yolu (ör. e-posta eklerinin kaydedildiği klasör). Ajan buradaki PDF, Word, Excel ve metin belgelerini okuyup kendisi anlar.");
+    folders.input.rows = 2;
+    const readFolders = () => folders.input.value.split("\n").map((line) => line.trim()).filter(Boolean);
+    const addFolder = action("Klasör ekle", () => view.busy(addFolder, async () => {
+      const chosen = await view.request("/api/desktop/choose-path", "POST", { kind: "folder" });
+      if (chosen?.path) { folders.input.value = [...readFolders(), chosen.path].join("\n"); refreshPreview(); }
+    }));
+    const inbox = pick("Okuyabileceği gelen kutusu", "imap", abilities.inbox_connection_id, "Yok",
+      "Gelen e-posta (IMAP) bağlantısı; e-postalar okundu yapılmaz.");
+    const outbox = pick("E-posta gönderebileceği hesap", "smtp", abilities.email_connection_id, "Gönderemez",
+      "E-posta (SMTP) bağlantısı. Ajan yanıtı kendisi yazar; gönderim onayınıza gelir.");
+    const recipients = select("Kimlere gönderebilir", [["reply", "Yalnız göreve gelen adreslere (ör. yazan müşteriye yanıt)"],
+      ["domains", "Yalnız izinli alan adlarına"], ["any", "Herkese"]], abilities.email_recipients || "reply");
+    const emailDomains = field("İzinli alan adları", (abilities.email_domains || []).join("\n"), "textarea",
+      "Her satıra bir alan adı (ör. firma.com); alt alan adları da kapsanır.");
+    emailDomains.input.rows = 2;
+    const emailFree = toggle("E-postayı onay beklemeden gönderebilir", abilities.email_without_approval || false);
+    emailFree.input.disabled = !view.session.can_approve;
+    const channel = pick("Mesaj gönderebileceği kanal", "webhook", abilities.message_connection_id, "Gönderemez",
+      "WhatsApp, Telegram, Teams… bağlantısı; ajan yalnız bu kanala veya bağlantıdaki alıcıya gönderir.");
+    const messageFree = toggle("Mesajı onay beklemeden gönderebilir", abilities.message_without_approval || false);
+    messageFree.input.disabled = !view.session.can_approve;
+    const paintAbilities = () => {
+      recipients.wrapper.hidden = emailFree.wrapper.hidden = !outbox.input.value;
+      emailDomains.wrapper.hidden = !outbox.input.value || recipients.input.value !== "domains";
+      messageFree.wrapper.hidden = !channel.input.value;
+    };
+    for (const control of [outbox.input, recipients.input, channel.input]) control.addEventListener("change", paintAbilities);
+    paintAbilities();
+    const readAbilities = () => ({ document_folders: readFolders(), inbox_connection_id: inbox.input.value || null,
+      email_connection_id: outbox.input.value || null, email_recipients: recipients.input.value,
+      email_domains: outbox.input.value && recipients.input.value === "domains"
+        ? emailDomains.input.value.split(/[\n,]/).map((line) => line.trim()).filter(Boolean) : [],
+      email_without_approval: Boolean(outbox.input.value) && emailFree.input.checked,
+      message_connection_id: channel.input.value || null,
+      message_without_approval: Boolean(channel.input.value) && messageFree.input.checked });
+    const abilitySection = element("section", null, "agent-grants agent-abilities");
+    abilitySection.append(element("h3", "Doğrudan yetenekler (akış gerekmez)"),
+      element("p", "Ajan metni kendisi anlar, sınıflandırır ve yanıtı kendisi yazar; bunlar için akış gerekmez. Burada yalnız "
+        + "neyi okuyabileceğini ve nereye gönderebileceğini seçersiniz. Gönderimler onayınıza gelir ve metni düzeltebilirsiniz; "
+        + "onaysız gönderimi yalnız onay yetkilisi açar.", "agent-help"),
+      folders.wrapper, addFolder, inbox.wrapper, outbox.wrapper, recipients.wrapper, emailDomains.wrapper, emailFree.wrapper,
+      channel.wrapper, messageFree.wrapper);
+    if (!studio.length) abilitySection.append(element("p", "E-posta ve mesaj bağlantıları Ayarlar → Bağlantılar'dan eklenir.", "agent-help"));
     const knowledge = element("section", null, "agent-grants agent-knowledge");
     const sourcesField = field("Belgeler ve klasörler", (agent.knowledge_sources || []).join("\n"), "textarea",
       "Her satıra bir dosyanın veya klasörün tam yolu. PDF (metinli), Word (.docx), Excel (.xlsx), metin, CSV ve HTML okunur; "
@@ -931,7 +1000,7 @@
         allowed_hosts: item.grant?.allowed_hosts || [],
       })), limits: readLimits(), web_access: webAccess.input.value,
       web_domains: webAccess.input.value === "allowlist" ? readDomains() : [],
-      knowledge_sources: readSources(), playbooks: readCards() });
+      knowledge_sources: readSources(), playbooks: readCards(), abilities: readAbilities() });
     const refreshPreview = () => {
       const current = draft();
       previewBody.replaceChildren(permissionCard(permissionSummary(view, current)), element("p", limitSummary(current), "agent-help agent-limit-line"));
@@ -943,13 +1012,13 @@
       event.preventDefault();
       view.busy(save, async () => {
         const { workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains,
-          knowledge_sources: chosenSources, playbooks: chosenCards } = draft();
+          knowledge_sources: chosenSources, playbooks: chosenCards, abilities: chosenAbilities } = draft();
         const body = { name: name.input.value.trim(), description: description.input.value, instructions: instructions.input.value,
           department: department.input.value.trim(), role: role.input.value,
           manager_id: role.input.value === "manager" ? null : manager.input.value || null,
           provider_connection_id: connection.input.value || null, model: model.input.value.trim(),
           workflows, limits: chosenLimits, web_access: chosenAccess, web_domains: chosenDomains,
-          knowledge_sources: chosenSources, playbooks: chosenCards };
+          knowledge_sources: chosenSources, playbooks: chosenCards, abilities: chosenAbilities };
         const saved = await view.request(original ? `/api/agents/${original.id}` : "/api/agents", original ? "PUT" : "POST", body);
         view.agents = [...view.agents.filter((item) => item.id !== saved.id), saved];
         if (view.alive) { view.options.toast("Ajan kaydedildi."); renderAgents(view); }
@@ -957,10 +1026,78 @@
     });
     const internet = element("section", null, "agent-grants");
     internet.append(element("h3", "İnternet araştırması"), webAccess.wrapper, webDomains.wrapper, webWarning, searchNotice);
-    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, grants, knowledge, playbooks, internet,
-      disclosure("Çalışma sınırları", limits), preview, buttons);
+    form.append(heading, grid, cloudWarning, description.wrapper, instructions.wrapper, abilitySection, grants, knowledge, playbooks,
+      internet, disclosure("Çalışma sınırları", limits), preview, buttons);
     view.pane.replaceChildren(form);
     name.input.focus();
+  }
+
+  // A conversation for information only: the agent answers from its work records and knowledge; it starts nothing.
+  function chatView(view, agent) {
+    const head = element("div", null, "agent-toolbar");
+    head.append(element("h2", `${agent.name} ile konuşun`), action("Görev ver", () => runForm(view, agent)),
+      action("Listeye dön", () => renderAgents(view)));
+    const intro = element("p", "Ajana bugün neler yaptığını, neyin beklediğini, son hataları veya bildiklerini sorabilirsiniz. "
+      + "Sohbet iş başlatmaz ve bir şey göndermez; iş yaptırmak için Görev ver'i kullanın. Yanıt modelinize gönderilen "
+      + "maskelenmiş kayıtlardan hazırlanır.", "agent-help");
+    const list = element("ol", null, "agent-chat-list");
+    list.setAttribute("aria-live", "polite"); list.setAttribute("aria-label", "Sohbet");
+    const form = identify(element("form", null, "agent-chat-form"), "chat");
+    const question = field("Sorunuz", "", "textarea"); question.input.rows = 2; question.input.maxLength = 4000;
+    const send = action("Gönder", () => form.requestSubmit(), "primary");
+    const clear = action("Sohbeti temizle", () => view.busy(clear, async () => {
+      await view.request(`/api/agents/${agent.id}/chat`, "DELETE");
+      if (view.alive) paint([]);
+    }));
+    const chips = element("div", null, "agent-chips");
+    for (const suggestion of ["Bugün neler yaptın?", "Şu an bekleyen işler neler?", "Son hatalar neydi?", "Bu hafta kaç görev tamamladın?"]) {
+      const chip = identify(element("button", suggestion, "agent-chip"), "chat-chip");
+      chip.type = "button";
+      chip.addEventListener("click", () => { question.input.value = suggestion; form.requestSubmit(); });
+      chips.append(chip);
+    }
+    const bubble = (role, body, meta) => {
+      const item = element("li", null, `agent-chat-message ${role}`);
+      item.append(element("small", meta, "muted"), element("p", body, "agent-task-text"));
+      return item;
+    };
+    const paint = (messages) => {
+      list.replaceChildren(...(messages.length ? messages.map((item) => bubble(item.role, item.text,
+        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.tokens ? ` · ${count(item.tokens)} token` : ""}`))
+        : [element("li", "Henüz soru yok. Aşağıdaki önerilerden birini seçebilir veya kendi sorunuzu yazabilirsiniz.", "agent-help")]));
+      list.scrollTop = list.scrollHeight;
+    };
+    question.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const textValue = question.input.value.trim();
+      if (!textValue) return;
+      view.busy(send, async () => {
+        const waiting = [bubble("user", textValue, "Siz"), bubble("assistant", "Düşünüyor…", agent.name)];
+        list.append(...waiting); list.scrollTop = list.scrollHeight;
+        question.input.value = ""; question.input.disabled = true;
+        try {
+          const answer = await view.request(`/api/agents/${agent.id}/chat`, "POST", { text: textValue });
+          if (view.alive) paint(answer.messages || []);
+        } catch (error) {
+          for (const item of waiting) item.remove();
+          question.input.value = textValue;
+          throw error;
+        } finally {
+          question.input.disabled = false;
+          if (view.alive) question.input.focus();
+        }
+      });
+    });
+    const controls = element("div", null, "agent-actions"); controls.append(send, clear);
+    form.append(question.wrapper, controls);
+    view.pane.replaceChildren(head, intro, list, chips, form);
+    paint([]);
+    view.request(`/api/agents/${agent.id}/chat`).then((messages) => { if (view.alive && Array.isArray(messages)) paint(messages); })
+      .catch(view.error);
+    question.input.focus();
   }
 
   // Checks the saved sources: what was read, what could not be, and what a search finds (no model, no cost).
@@ -1200,6 +1337,10 @@
     if (event.kind === "knowledge_search") return `«${text(data.query)}» · ${data.count ?? 0} bölüm${(data.sources || []).length ? ` · ${(data.sources || []).slice(0, 3).join(", ")}` : ""}`;
     if (event.kind === "playbook_selected") return `${text(data.title)}${data.reason ? ` · ${text(data.reason)}` : ""}`;
     if (event.kind === "handoff") return data.title ? `Kart: ${text(data.title)}` : "Uyan süreç kartı yok.";
+    if (event.kind === "document_read") return `${text(data.name)}${data.parts > 1 ? ` · bölüm ${data.part}/${data.parts}` : ""}`;
+    if (event.kind === "emails_read") return `${data.count ?? 0} e-posta`;
+    if (event.kind === "email_sent") return `${(data.to || []).join(", ")} · ${text(data.subject)}`;
+    if (event.kind === "message_sent") return [text(data.title), text(data.to)].filter(Boolean).join(" · ");
     if (event.kind === "approval_decision" && data.edited && data.changes) {
       return Object.entries(data.changes).map(([key, change]) => `${key}: «${text(change?.before)}» → «${text(change?.after)}»`).join("\n");
     }

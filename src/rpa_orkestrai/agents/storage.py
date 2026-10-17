@@ -10,7 +10,7 @@ from typing import TypeVar
 
 from ..config import atomic_json
 from ..models import Model, now
-from .models import TERMINAL_STATUSES, Agent, AgentEvent, AgentNotes, AgentRun, AgentTask
+from .models import TERMINAL_STATUSES, Agent, AgentAbilities, AgentEvent, AgentNotes, AgentRun, AgentTask
 
 Record = TypeVar("Record", bound=Model)
 MAX_RECORD_BYTES = 8 * 1024 * 1024
@@ -59,9 +59,11 @@ class AgentStore:
             # Unused newer fields stay out of the file, so earlier Studio versions still read the agent.
             if data.get("web_access") == "off":
                 data.pop("web_access", None)
-            for name in ("web_domains", "knowledge_sources", "playbooks"):
+            for name in ("web_domains", "knowledge_sources", "playbooks", "ability_audit"):
                 if not data.get(name):
                     data.pop(name, None)
+            if data.get("abilities") == AgentAbilities().model_dump(mode="json"):
+                data.pop("abilities", None)
         if kind == "agent_runs":
             for name in ("playbook_id", "handoff", "handoff_resolved_at", "handoff_resolved_by"):
                 if not data.get(name):

@@ -23,6 +23,9 @@ REASONS = {
     "server": "Sağlayıcı hizmetinde geçici bir hata oluştu (5xx). Biraz sonra yeniden deneyin.",
     "unreachable": "Sağlayıcıya bağlanılamadı. İnternet bağlantısını; yerel modelde Ollama'nın açık olduğunu "
                    "kontrol edin.",
+    "length": "Modelin yanıtı token sınırına takıldı. Güncel modeller yanıtlamadan önce düşünür ve bu da sınıra "
+              "sayılır; yanıt token sınırını artırın veya daha kısa veri gönderin.",
+    "blocked": "Sağlayıcı yanıtı güvenlik filtresi nedeniyle vermedi; istek metnini veya veriyi gözden geçirin.",
 }
 
 

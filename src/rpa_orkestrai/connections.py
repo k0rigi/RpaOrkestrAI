@@ -21,7 +21,7 @@ from .errors import WorkflowError
 
 TYPES = {"google_sheets": "Google Sheets", "database": "Veritabanı", "smtp": "E-posta (SMTP)",
          "imap": "Gelen e-posta (IMAP)", "api": "Web servisi (API)", "ftp": "FTP / FTPS",
-         "webhook": "Mesajlaşma (Teams, Slack…)"}
+         "webhook": "Mesajlaşma (Teams, Slack, WhatsApp, Telegram…)"}
 SHEETS_METHODS = {"apps_script": "Apps Script", "service_account": "Servis hesabı"}
 SECRET_FIELDS = {"script_token", "credentials_path", "url", "password", "token", "api_key", "client_secret"}
 API_AUTH = {"none": "Kimlik doğrulama yok", "bearer": "Bearer token", "basic": "Kullanıcı adı ve şifre (Basic)",
@@ -31,7 +31,24 @@ IMAP_SECURITY = {"ssl": "SSL/TLS (genellikle 993)", "starttls": "STARTTLS (genel
 IMAP_PORTS = {"ssl": "993", "starttls": "143", "none": "143"}
 FTP_SECURITY = {"ftps": "FTPS · açık TLS (önerilen)", "none": "Şifrelemesiz FTP (yalnız iç ağ)"}
 WEBHOOK_SERVICES = {"teams": "Microsoft Teams (İş Akışları)", "slack": "Slack", "google_chat": "Google Chat",
-                    "discord": "Discord", "generic": "Diğer (JSON gövde)"}
+                    "discord": "Discord", "telegram": "Telegram (bot)", "whatsapp": "WhatsApp (Business Cloud API)",
+                    "generic": "Diğer (JSON gövde)"}
+# Telegram and WhatsApp are reached with a token and an address; the others with a secret webhook address.
+TOKEN_SERVICES = {"telegram", "whatsapp"}
+TELEGRAM_CHAT = re.compile(r"^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$")
+WHATSAPP_NUMBER = re.compile(r"^\d{8,15}$")
+GRAPH_VERSION = re.compile(r"^v\d{2,3}\.\d$")
+WHATSAPP_TEMPLATE = re.compile(r"^[a-z0-9_]{1,512}$")
+LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(_[A-Z]{2})?$")
+WHATSAPP_API_VERSION = "v26.0"
+
+
+def phone_number(value: Any) -> str:
+    """A WhatsApp recipient: country code and number, digits only (+90 532 … → 90532…)."""
+    digits = re.sub(r"[\s()+.-]", "", str(value or ""))
+    if digits and not WHATSAPP_NUMBER.fullmatch(digits):
+        raise ValueError("WhatsApp numarası ülke koduyla yazılmalıdır (ör. 905321234567).")
+    return digits
 HEADER_NAME = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,100}$")
 # Credentials belong in the protected fields, never in plain default headers.
 CREDENTIAL_HEADERS = {"authorization", "proxy-authorization", "cookie", "x-api-key", "api-key"}
@@ -274,10 +291,43 @@ class Connections:
         service = config.get("service") or previous.get("service") or "teams"
         if service not in WEBHOOK_SERVICES:
             raise ValueError("Mesajlaşma servisi geçersiz.")
-        url = secret("url", "Webhook adresi")
-        if url and urlsplit(url).scheme != "https":
-            raise ValueError("Webhook adresi https:// ile başlamalıdır.")
-        return {"service": service, "url": url}
+        if service not in TOKEN_SERVICES:
+            url = secret("url", "Webhook adresi")
+            if url and urlsplit(url).scheme != "https":
+                raise ValueError("Webhook adresi https:// ile başlamalıdır.")
+            return {"service": service, "url": url}
+        # A token saved for another service is never carried over to this one.
+        token = secret("token", "Erişim anahtarı") if previous.get("service") == service \
+            else _text(config.get("token"), "Erişim anahtarı")
+        if token and any(ord(char) < 33 for char in token):
+            raise ValueError("Erişim anahtarı boşluk veya satır sonu içeremez.")
+
+        def value(key: str, label: str, limit: int = 200) -> str:
+            return _text(str(config.get(key, previous.get(key, "")) or ""), label, limit)
+
+        if service == "telegram":
+            chat = value("chat_id", "Sohbet kimliği", 40)
+            if chat and not TELEGRAM_CHAT.fullmatch(chat):
+                raise ValueError("Telegram sohbet kimliği bir sayı (ör. -1001234567890) veya @kanaladi olmalıdır.")
+            return {"service": service, "token": token, "chat_id": chat}
+        number_id = value("phone_number_id", "Telefon numarası kimliği", 30)
+        if number_id and not number_id.isdigit():
+            raise ValueError("Telefon numarası kimliği (Phone number ID) yalnız rakamlardan oluşur.")
+        version = value("api_version", "API sürümü", 10) or WHATSAPP_API_VERSION
+        if not GRAPH_VERSION.fullmatch(version):
+            raise ValueError("API sürümü v26.0 biçiminde olmalıdır.")
+        mode = config.get("mode") or previous.get("mode") or "text"
+        if mode not in {"text", "template"}:
+            raise ValueError("WhatsApp gönderim türü serbest metin veya şablon olmalıdır.")
+        template = value("template_name", "Şablon adı", 512)
+        if mode == "template" and not WHATSAPP_TEMPLATE.fullmatch(template):
+            raise ValueError("Şablon adını Meta'da onaylandığı gibi küçük harf, rakam ve alt çizgiyle yazın.")
+        language = value("template_language", "Şablon dili", 10) or "tr"
+        if not LANGUAGE_CODE.fullmatch(language):
+            raise ValueError("Şablon dili tr veya en_US biçiminde olmalıdır.")
+        return {"service": service, "token": token, "phone_number_id": number_id, "to": phone_number(value("to", "Alıcı", 30)),
+                "api_version": version, "mode": mode, "template_name": template if mode == "template" else "",
+                "template_language": language}
 
     @staticmethod
     def _clean_smtp(config: dict, previous: dict, secret: Any) -> dict:
@@ -313,6 +363,10 @@ class Connections:
         if item["type"] == "ftp":
             return bool(config.get("host"))
         if item["type"] == "webhook":
+            if config.get("service") == "telegram":
+                return bool(config.get("token") and config.get("chat_id"))
+            if config.get("service") == "whatsapp":
+                return bool(config.get("token") and config.get("phone_number_id"))
             return bool(config.get("url"))
         if item["type"] == "api":
             needed = {"none": (), "bearer": ("token",), "basic": ("user", "password"), "api_key": ("api_key",),
@@ -351,7 +405,9 @@ class Connections:
                         **{key: config.get(key, "") for key in ("host", "port", "security", "user", "base_dir")})
         elif item["type"] == "webhook":
             data.update(service=config["service"], service_label=WEBHOOK_SERVICES[config["service"]],
-                        has_url=bool(config.get("url")))
+                        has_url=bool(config.get("url")), has_token=bool(config.get("token")),
+                        **{key: config.get(key, "") for key in ("chat_id", "phone_number_id", "to", "api_version", "mode",
+                                                                "template_name", "template_language")})
         elif item["type"] == "api":
             data.update(auth_label=API_AUTH[config["auth"]], headers=dict(config.get("headers") or {}),
                         has_token=bool(config.get("token")), has_password=bool(config.get("password")),

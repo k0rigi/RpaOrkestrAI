@@ -275,6 +275,10 @@ STEP_FIELD_HELP = {
     ("ftp.transfer", "local_path"): "Bu bilgisayardaki dosyanın tam yolu (ör. C:\\Aktarim\\fatura.xml).",
     ("ftp.transfer", "overwrite"): "Kapalıyken hedefte aynı adlı dosya varsa aktarım yapılmaz ve akış durur.",
     ("notify.send", "title"): "Mesajın üstünde kalın görünen kısa başlık (isteğe bağlı).",
+    ("notify.send", "to"): "WhatsApp'ta ülke koduyla telefon (905321234567, ör. ${musteri.telefon}); Telegram'da sohbet "
+                           "kimliği. Boşsa bağlantıdaki varsayılan alıcıya gider. Teams, Slack gibi kanallarda kullanılmaz.",
+    ("notify.send", "template_values"): "WhatsApp şablonuyla gönderirken şablondaki {{1}}, {{2}}… yerine geçecek değerler; "
+                                        "her satıra bir değer. Serbest metinde kullanılmaz.",
     ("database.execute", "query"): "Tek bir komut: INSERT INTO tablo (...) VALUES (...), UPDATE tablo SET ... WHERE ..., "
                                    "DELETE FROM tablo WHERE ..., MERGE veya EXEC dbo.yordam @p = ${deger}. Değerleri "
                                    "${row.no} ile yazın; tırnak gerekmez, güvenli parametre olarak gönderilir.",
@@ -607,8 +611,8 @@ GUIDES = {
          "Sonucu kaydeden değişkeni Koşul adımında kullanın; örneğin ${ai_result.karar}."],
         "Şema yoksa metin, şema varsa doğrulanmış JSON döner. Geçersiz yanıt sonuç değişkenine yazılmaz.",
         "Ajan lisansı gerekir. Bulut bağlantısında girdi sağlayıcıya gönderilir; hassas veri için yerel model "
-        "seçin. Önizleme dış çağrı yapmaz; sonuç bilinmeyen kalır. Bu adım yalnız elle çalıştırılan akışlarda "
-        "kullanılır ve ajanların araç olarak çalıştırdığı akışlara eklenemez."),
+        "seçin. Önizleme dış çağrı yapmaz; sonuç bilinmeyen kalır. Elle, zamanlayıcıyla veya otomasyonla başlayan "
+        "akışlarda çalışır; ajanların araç olarak çalıştırdığı akışlara eklenemez (ajan metni zaten kendisi anlar)."),
     "core.set": guide(
         ["Değişkene bir ad verin (ör. sonuc).", "Değeri yazın: metin, sayı veya başka bir değişken."],
         "${ad}: verdiğiniz değer. Sonraki adımlarda kullanılır.",
@@ -671,12 +675,14 @@ GUIDES = {
         "${ftp_result}: indirme/yüklemede dosya boyutu, listelemede ${ftp_result.items}.",
         "SFTP (SSH) farklı bir protokoldür ve bu adımla kullanılamaz. Yarım kalan indirme hedef dosyayı bozmaz."),
     "notify.send": guide(
-        ["Ayarlar → Bağlantılar'da Mesajlaşma bağlantısı oluşturun: Teams'te kanalın İş Akışları (Workflows) "
-         "webhook'u, Slack'te Incoming Webhook adresi.",
-         "Mesajı yazın; değişken kullanabilirsiniz."],
+        ["Ayarlar → Bağlantılar'da Mesajlaşma bağlantısı oluşturun: WhatsApp'ta Meta'nın telefon numarası kimliği ve "
+         "erişim anahtarı, Telegram'da @BotFather bot anahtarı ve sohbet, Teams'te kanalın İş Akışları webhook'u, "
+         "Slack'te Incoming Webhook adresi.",
+         "Mesajı yazın; değişken kullanabilirsiniz. WhatsApp ve Telegram'da isterseniz alıcıyı yazın."],
         "${message_result.sent}: gönderildi.",
-        "Hata olursa mesaj yeniden gönderilmez (iki kez gitmesin diye). Akış hatalarını bildirmek için Hata olursa "
-        "bloğunun içinde kullanın."),
+        "Hata olursa mesaj yeniden gönderilmez (iki kez gitmesin diye). WhatsApp'ta son 24 saatte size yazmamış "
+        "kişiye yalnız Meta'da onaylı şablonla mesaj gönderilebilir; Meta şablon mesajlarını ücretlendirir. "
+        "Telegram ücretsizdir; kişi bota önce /start yazmalıdır."),
     "database.execute": guide(
         ["Ayarlar → Bağlantılar'da veritabanı bağlantısını açın; Kayıt değiştirmeye izin ver'i işaretleyip "
          "değiştirilecek tabloları ve saklı yordamları yazın.",

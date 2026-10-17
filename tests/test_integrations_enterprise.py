@@ -273,7 +273,7 @@ def test_ftp_paths_cannot_leave_the_start_folder_and_transfers_use_the_connectio
 def test_messages_use_each_services_format(server, service, check):
     from rpa_orkestrai.actions.transfer import post_message
 
-    assert post_message({"service": service, "url": server.url + "/hook"}, "Bildirim", "Fatura işlendi") == 200
+    assert post_message({"service": service, "url": server.url + "/hook"}, "Bildirim", "Fatura işlendi")["status"] == 200
     assert check(json.loads(server.seen[-1]["body"]))
 
 

@@ -173,6 +173,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                               agent.provider_connection_id, agent.company_id).model,
                           secret_source=agent_secrets, approval_backend=agent_approvals, search_settings=agent_search)
     automations = AutomationService(agents, settings.data_dir, manager=manager, dispatch=dispatch, connections=connections)
+    agents.automation_source = automations.automations
     manager.finished_listeners.append(automations.workflow_finished)
 
     def license_locked(reason):
@@ -997,8 +998,30 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             raise ValueError("Mesajlaşma testi kanala gerçek bir deneme mesajı gönderir; onaylayarak yeniden deneyin.")
         from .actions.transfer import post_message
 
+        if config.get("service") == "whatsapp" and config.get("mode") == "template":
+            raise ValueError("Şablonla gönderimde deneme mesajı gönderilmez (şablon ücretli olabilir); bir akışta "
+                             "Mesaj gönder adımını Bu adımı test et ile deneyin.")
         post_message(config, "RpaOrkestrAI", "Bağlantı testi: bu kanal RpaOrkestrAI bildirimleri için hazır.", 20)
         return "Deneme mesajı gönderildi. Kanalda görünüyorsa bağlantı çalışıyor."
+
+    @app.post("/api/connections/telegram-chats")
+    def telegram_chats(body: dict = Body(...)):
+        """Chats that recently wrote to the bot (to pick a chat id); the stored token is used if none is typed."""
+        from .actions.transfer import telegram_chats as read_chats
+
+        token = body.get("token") if isinstance(body.get("token"), str) and body.get("token").strip() else ""
+        if not token and body.get("id"):
+            try:
+                stored = connections.get(body["id"])
+            except KeyError:
+                raise HTTPException(status_code=404, detail="Bağlantı bulunamadı.") from None
+            token = stored["config"].get("token", "") if stored["config"].get("service") == "telegram" else ""
+        if not token.strip() or any(ord(char) < 33 for char in token.strip()):
+            raise HTTPException(status_code=422, detail="Önce bot anahtarını yazın.")
+        try:
+            return {"chats": read_chats(token.strip())}
+        except WorkflowError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
 
     @app.post("/api/connections/test")
     def test_connection(body: dict = Body(...)):
