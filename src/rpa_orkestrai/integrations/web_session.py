@@ -318,8 +318,10 @@ class WebSession:
             item.click(timeout=target.timeout_ms)  # Exactly once, including timeout/cancellation paths.
             # Preserve the short event-delivery grace for scripts scheduled by the click.
             # Slow network responses wait only when the browser observed a new window.
+            # A frame from another site reports through its own browser process, which can take longer.
             if not pending and not opened:
-                page.wait_for_timeout(min(150, max(0, deadline - time.monotonic()) * 1000))
+                grace = 500 if target.frame else 150
+                page.wait_for_timeout(min(grace, max(0, deadline - time.monotonic()) * 1000))
             while opened < pending:
                 self._cancelled()
                 remaining = deadline - time.monotonic()
