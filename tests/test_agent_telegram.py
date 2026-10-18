@@ -203,6 +203,16 @@ def test_secrets_are_masked_closed_items_reject_late_answers_and_switches_are_ke
     assert silent_telegram.sent() == []
 
 
+def test_an_idle_channel_reads_nothing_and_calls_telegram_for_nothing(tmp_path):
+    bridge, telegram, service, _ = make(tmp_path)
+    reads = []
+    service._authorize = lambda permission="agents.use": reads.append(permission) or OWNER
+    bridge.notify("closed", context(), {"id": ITEM})  # Starts the channel, but nothing was sent and nothing waits.
+    time.sleep(0.3)
+    bridge.close()
+    assert reads == [] and telegram.calls == []
+
+
 def test_a_refused_answer_is_explained_on_telegram(tmp_path):
     bridge, telegram, service, chosen = make(tmp_path)
     question(bridge)

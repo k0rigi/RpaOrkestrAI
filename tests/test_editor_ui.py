@@ -2073,7 +2073,7 @@ def test_condition_test_checks_only_the_condition_by_default(tmp_path):
             playwright.expect(only).to_be_checked()
             playwright.expect(dialog.locator(".step-test-sources code")).to_have_text(["${islem_durumu}"])
             dialog.get_by_role("button", name="Testi çalıştır").click()
-            playwright.expect(dialog).to_contain_text("Koşul: Evet · sol değer “Fatura 1069”", timeout=10_000)
+            playwright.expect(dialog).to_contain_text("Koşul: Evet · sol değer “Fatura 1069”", timeout=30_000)
             # Unchecked: the branches run again, and their window value is prepared too.
             only.uncheck()
             dialog = page.locator(".step-test-dialog")

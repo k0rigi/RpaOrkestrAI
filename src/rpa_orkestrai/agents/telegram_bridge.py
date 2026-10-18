@@ -171,15 +171,16 @@ class TelegramBridge:
                 pass
 
     def _send(self, kind: str, context, payload: dict) -> None:
-        actor, ready = self._account()
         if kind == "closed":
             with self._lock:
                 key = next((key for key, item in self._open.items()
                             if item["run_id"] == context.run.id and item["item_id"] == payload["id"]), None)
                 item = self._open.pop(key, None) if key else None
-            if item and ready:
+            ready = self._account()[1] if item else None
+            if ready:
                 self._edit(ready[0], ready[1], item, item["text"] + CLOSED)
             return
+        actor, ready = self._account()
         if ready is None or actor is None or (actor.company_id, actor.user_id) != (
                 context.run.actor.company_id, context.run.actor.user_id):
             return
@@ -241,8 +242,9 @@ class TelegramBridge:
         while not self._stop.is_set():
             with self._lock:
                 waiting = bool(self._open)
-            actor, ready = self._account()
-            if not waiting or ready is None:
+            # Nothing waits on Telegram: the account, settings and bot are not even read until a message goes out.
+            ready = self._account()[1] if waiting else None
+            if ready is None:
                 self._wake.wait(5)
                 self._wake.clear()
                 continue
