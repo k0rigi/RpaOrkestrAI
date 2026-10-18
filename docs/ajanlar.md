@@ -203,6 +203,14 @@ kurar.
 - **Uyumluluk:** ofisli kayıtlar (ajan, çalışma, görev, otomasyon) 0.9.34'ten eski
   Studio sürümlerinde açılmaz. Ofislere ayrılmamış firmalarda dosyalar değişmez.
 
+## Bireysel hesapta ajanlar (0.9.35)
+
+Bireysel hesapta (bkz. [lisans](lisans.md#bireysel-hesaplar-0935)) Ajanlar ek modüldür ve ekip tek kişidir.
+
+- Kişi kendi ajanlarının yöneticisi ve onaycısıdır: riskli işlemleri o onaylar, onaysız çalıştırma izinlerini de o verir.
+- İnsan görevleri (**Görevler** sekmesi) ve **Organizasyon** sekmesindeki çalışan listesi gösterilmez.
+- Yönetici ve departman ajanları, bilgi kaynakları, süreç kartları, otomasyonlar ve doğrudan yetenekler firma hesaplarındakiyle aynı çalışır.
+
 ## Organizasyon ve insan görevleri
 
 Yönetici yalnız görev devreder; departman ajanının akış ve onay izinlerini

@@ -26,7 +26,8 @@ def test_session_summary_omits_session_tokens(client):
     response = client.client.get("/api/agents/session")
     assert response.status_code == 200
     assert response.json() == {"actor": {"user_id": 1, "company_id": 2, "name": "Yetkili"},
-                               "can_manage": True, "can_approve": True, "office": None}
+                               "can_manage": True, "can_approve": True, "office": None,
+                               "individual": False}
 
 
 def test_write_only_key_is_not_in_metadata_validation_or_record(client, tmp_path):

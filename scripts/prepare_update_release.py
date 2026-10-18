@@ -86,14 +86,88 @@ font-weight:600;margin:0}}.download{{display:block;background:#ffd23f;color:#151
 font-weight:700;text-align:center;text-decoration:none;margin-top:auto}}.download:focus-visible{{outline:3px solid
 #151a26;outline-offset:4px}}.download:hover{{background:#f2c21a}}.note{{max-width:850px;margin:30px 0 0;color:#5d6270;
 font-size:14px}}footer{{border-top:1px solid #d8d3c4;margin-top:36px;padding-top:20px;font-size:13px;color:#5d6270}}
-@media(max-width:540px){{main{{padding:20px 16px 40px}}header{{padding:26px}}}}
+.plans{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:20px;margin-top:36px}}
+.plans h2{{font-size:28px;letter-spacing:-.8px;margin:0 0 6px}}section.signup{{margin-top:36px;border:1px solid #d8d3c4;
+border-radius:18px;background:white;padding:28px}}section.signup h2{{margin:0 0 8px;font-size:28px;letter-spacing:-.8px}}
+.steps{{padding-left:20px;color:#5d6270;line-height:1.7}}form.apply{{display:grid;grid-template-columns:repeat(auto-fit,
+minmax(240px,1fr));gap:14px 18px;margin-top:18px}}form.apply label{{display:grid;gap:6px;font-size:14px;font-weight:600}}
+form.apply input[type=text],form.apply input[type=email],form.apply input[type=tel],form.apply input[type=password]{{
+font:inherit;padding:11px 12px;border:1px solid #cfc9b8;border-radius:10px;background:#fbfaf6}}fieldset{{border:0;
+padding:0;margin:0;display:grid;gap:8px}}legend{{font-size:14px;font-weight:600;margin-bottom:6px}}form.apply label.choice{{display:flex;
+gap:10px;align-items:flex-start;font-weight:400}}form.apply label.choice input{{margin-top:4px;flex:none}}.wide{{grid-column:1/-1}}.consent{{font-size:13px;
+color:#5d6270;line-height:1.6;margin:0}}.trap{{position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden}}
+form.apply button{{background:#ffd23f;color:#151a26;border:0;padding:15px 18px;border-radius:10px;font:inherit;
+font-weight:700;cursor:pointer}}form.apply button:disabled{{opacity:.6;cursor:wait}}form.apply button:focus-visible,
+form.apply input:focus-visible{{outline:3px solid #151a26;outline-offset:3px}}.result{{grid-column:1/-1;margin:0;
+padding:12px 14px;border-radius:10px;background:#f4f1e6}}.result.error{{background:#fde8e8;color:#8a1c1c}}
+@media(max-width:540px){{main{{padding:20px 16px 40px}}header{{padding:26px}}section.signup{{padding:20px}}}}
 </style></head><body><main><header><div class="brand"><span class="mark" aria-hidden="true">O</span>RpaOrkestrAI Studio</div>
 <h1>İşlerinize akış kazandırın.</h1><p>Masaüstü uygulamanızı bir kez kurun. Akışlarınızı bilgisayarınızda oluşturun;
 yayımlanan yeni sürümler uygulama açıldığında otomatik kontrol edilsin.</p>
 <span class="version">Sürüm {html.escape(version)}</span></header>
 <section class="downloads" aria-label="Bilgisayarınıza uygun sürümü indirin">{''.join(cards)}</section>
 <p class="note"><strong>Uygulama orkestrai.net kullanıcı adınız ve şifrenizle açılır.</strong>
-Kullanım için firmanızda ve hesabınızda RpaOrkestrAI lisansı tanımlı olmalıdır; lisans için firma yöneticinize başvurun.</p>
+Firma hesaplarında lisans firmaya ve hesaba birlikte tanımlanır; lisans için firma yöneticinize başvurun.
+Bireysel kullanım için aşağıdan başvurabilirsiniz.</p>
+<section class="plans" aria-label="Kullanım seçenekleri">
+<article><p class="platform">Firmalar için</p><h2>Ekibinizle kullanın</h2><p>Her çalışan kendi orkestrai.net hesabıyla
+girer. Ajanlar modülüyle departmanlar kendi ofislerini ve yapay zekâ ajanlarını kurar; riskli işlemleri ofis yetkilisi
+onaylar.</p></article>
+<article><p class="platform">Bireysel kullanım</p><h2>Kendi işiniz için</h2><p>Hesap size aittir ve tek bilgisayarda
+çalışır. RpaOrkestrAI Studio ile akışlarınızı kurarsınız; isterseniz Ajanlar modülünü de ekleyebilirsiniz. Ajanlarınızın
+riskli işlemlerini siz onaylarsınız.</p></article>
+</section>
+<section class="signup" id="bireysel" aria-labelledby="bireysel-baslik">
+<h2 id="bireysel-baslik">Bireysel hesap başvurusu</h2>
+<ol class="steps"><li>Formu doldurun; şifrenizi siz belirlersiniz.</li>
+<li>Fiyat ve ödeme bilgisini başvurudaki e-posta veya telefonla size iletiriz.</li>
+<li>Ödemeniz onaylanınca hesabınız açılır. Uygulamayı indirip e-posta adresiniz ve şifrenizle girersiniz.</li></ol>
+<form class="apply" id="basvuru" novalidate>
+<label>Ad soyad<input type="text" name="ad_soyad" autocomplete="name" required minlength="3" maxlength="120"></label>
+<label>E-posta<input type="email" name="eposta" autocomplete="email" required maxlength="150"></label>
+<label>Telefon (isteğe bağlı)<input type="tel" name="telefon" autocomplete="tel" maxlength="32"></label>
+<label>Şifre<input type="password" name="sifre" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+<label>Şifre (tekrar)<input type="password" name="tekrar" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+<fieldset class="wide"><legend>Paket</legend>
+<label class="choice"><input type="radio" name="paket" value="rpa" checked> RpaOrkestrAI Studio: masaüstü otomasyon akışları</label>
+<label class="choice"><input type="radio" name="paket" value="rpa_ajan"> RpaOrkestrAI Studio + Ajanlar: akışlarınızı kullanan yapay zekâ ajanları</label>
+</fieldset>
+<label class="trap" aria-hidden="true">Web sitesi<input type="text" name="web_sitesi" tabindex="-1" autocomplete="off"></label>
+<label class="choice wide"><input type="checkbox" name="onay" required> <span class="consent">Ad soyad, e-posta ve telefon
+bilgilerim hesabımın açılması, lisansımın yönetimi ve ödeme için benimle iletişim kurulması amacıyla orkestrai.net tarafından
+işlenir ve saklanır. Şifrem yalnız geri çevrilemez bir özet olarak saklanır. Onaylanmayan başvurular 90 gün sonra silinir.
+Bu bilgilendirmeyi okudum ve kabul ediyorum.</span></label>
+<button type="submit" class="wide">Başvuruyu gönder</button>
+<p class="result" id="basvuru-sonuc" role="status" aria-live="polite" hidden></p>
+</form>
+<script>
+(function () {{
+  var form = document.getElementById('basvuru'), result = document.getElementById('basvuru-sonuc');
+  function show(text, error) {{ result.hidden = !text; result.textContent = text || ''; result.className = 'result' + (error ? ' error' : ''); }}
+  form.addEventListener('submit', function (event) {{
+    event.preventDefault();
+    var data = new FormData(form), password = data.get('sifre') || '';
+    if (password !== data.get('tekrar')) return show('Şifre ile tekrarı aynı değil.', true);
+    if (password.length < 8 || !/\\p{{L}}/u.test(password) || !/\\d/.test(password))
+      return show('Şifre en az 8 karakter olmalı; harf ve rakam içermelidir.', true);
+    if (!data.get('onay')) return show('Başvuru için bilgilendirmeyi onaylamanız gerekir.', true);
+    var body = {{ ad_soyad: (data.get('ad_soyad') || '').trim(), eposta: (data.get('eposta') || '').trim(),
+      sifre: password, paket: data.get('paket'), onay: true }};
+    var phone = (data.get('telefon') || '').trim();
+    if (phone) body.telefon = phone;
+    if (data.get('web_sitesi')) body.web_sitesi = data.get('web_sitesi');
+    var button = form.querySelector('button'); button.disabled = true; show('');
+    fetch('/api/rpa/basvuru', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(body) }})
+      .then(function (response) {{ return response.json().catch(function () {{ return {{}}; }}).then(function (answer) {{
+        if (!response.ok || !answer.success) throw new Error(answer.message || 'Başvuru gönderilemedi. Daha sonra tekrar deneyin.');
+        form.reset(); show(answer.message, false);
+      }}); }})
+      .catch(function (error) {{ show(error.message || 'Başvuru gönderilemedi. İnternet bağlantınızı kontrol edin.', true); }})
+      .then(function () {{ button.disabled = false; }});
+  }});
+}})();
+</script>
+</section>
 <p class="note">Python veya sanal ortam kurmanız gerekmez. Uygulama terminal açmadan çalışır.
 Windows için Microsoft Edge WebView2 gerekir; eksikse kurulum yönlendirmesini izleyin.
 Mac'te ERP pencerelerini tanımak ve kontrol etmek için Ekran Kaydı ve Erişilebilirlik izinleri gerekir.</p>

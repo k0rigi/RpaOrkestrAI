@@ -60,6 +60,19 @@ Kurallar:
 
 Firma, kullanıcı, ofis, yetkili ve bitiş tarihini kullanıcıdan açıkça teyit etmeden `apply` çalıştırma.
 
+## Bireysel hesaplar
+
+Kişiler `orkestrai.net/rpa/#bireysel` formundan başvurur (`SYS_RpaBasvurulari`, durum `bekliyor`). Başvuru lisans vermez. Ödemeyi platform yöneticisi (Admin) `orkestrai.net/rpa-yonetim.html` sayfasında onaylar: tek kullanıcılı firma, `Personel` hesabı, MOD_RPA firma+hesap satırları ve Ajanlar seçildiyse MOD_AJAN satırları ile ajan ekibi birlikte açılır.
+
+Aynı sayfada şunlar yapılır:
+- süre uzatma;
+- Ajanlar'ı ekleme veya kaldırma;
+- tek kullanımlık şifre yenileme kodu (24 saat geçerli; kişi Studio'da "Şifre yenileme kodum var" ile kullanır).
+
+Uçlar `/api/rpa/yonetim/...` altındadır ve yalnız veritabanında etkin Admin rolündeki web oturumuyla çalışır; firma hesaplarına dokunmaz. Bireysel hesap, `SYS_RpaBasvurulari` içinde `Durum = 'onaylandi'` ve `FirmaID` ile tanınır.
+
+Firma hesaplarında lisans, yukarıdaki SQL ile veya MOD_AJAN iş akışıyla yönetilmeye devam eder.
+
 ## Oturumlar (tek bilgisayar kuralı)
 
 Her giriş `SYS_RpaOturumlari` tablosuna bir satır açar ve hesabın başka bilgisayardaki oturumunu kapatır. Tabloyu API yazar; elle satır ekleme. İnceleme ve elle kapatma:

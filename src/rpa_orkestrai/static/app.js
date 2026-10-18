@@ -7743,9 +7743,11 @@
     );
     const rows = node("dl", "license-facts");
     const days = licenseDaysLeft(account);
+    const individual = account.account_type === "bireysel";
     for (const [label, value] of [
       ["Kullanıcı", account.full_name ? `${account.full_name} (${account.user})` : account.user],
-      ["Firma", account.company],
+      ["Hesap", individual ? "Bireysel hesap" : account.account_type === "kurumsal" ? "Firma hesabı" : ""],
+      ["Firma", individual ? "" : account.company],
       ["Bitiş", account.ends_on ? `${licenseDate(account.ends_on)}${days !== null ? ` · ${days} gün kaldı` : ""}` : "Süresiz"],
       ["Doğrulama", state.license?.online === false
         ? "orkestrai.net'e şu anda ulaşılamıyor; bağlantı gelmezse Studio bir süre sonra kilitlenir"
@@ -7771,9 +7773,98 @@
         verify.disabled = false;
       }
     }));
-    actions.append(verify, button("Oturumu kapat", "logout", () => logoutLicense()));
+    actions.append(verify, button("Şifreyi değiştir", "key", () => passwordDialog()));
+    if (individual) actions.append(externalLink("Lisansı uzat", RENEWAL_PAGE));
+    actions.append(button("Oturumu kapat", "logout", () => logoutLicense()));
     section.append(rows, actions);
     return section;
+  }
+  // Individual (bireysel) accounts apply and renew on the download page; a firm's account asks its administrator.
+  const RENEWAL_PAGE = "https://orkestrai.net/rpa/#bireysel";
+  function externalLink(text, href) {
+    const link = node("a", "button", text);
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    return link;
+  }
+  function passwordProblem(value, repeat) {
+    if (value.length < 8 || value.length > 128) return "Yeni şifre 8-128 karakter olmalıdır.";
+    if (!/\p{L}/u.test(value) || !/\d/.test(value)) return "Yeni şifrede en az bir harf ve bir rakam bulunmalıdır.";
+    if (value !== repeat) return "Yeni şifre ile tekrarı aynı değil.";
+    return "";
+  }
+  function passwordForm(body, fields) {
+    const message = node("div", "license-message");
+    message.setAttribute("role", "alert");
+    body.append(...fields.map(([label, input, help]) => field(label, input, help)), message);
+    return (text) => message.replaceChildren(text ? note(text, "error") : "");
+  }
+  function passwordDialog() {
+    const current = textInput("", "", "password");
+    current.autocomplete = "current-password";
+    const fresh = textInput("", "", "password");
+    fresh.autocomplete = "new-password";
+    const repeat = textInput("", "", "password");
+    repeat.autocomplete = "new-password";
+    let show = () => {};
+    dialog("Şifreyi değiştir", (body) => {
+      body.append(node("p", "small muted", "orkestrai.net şifreniz değişir. Hesabınızın diğer bilgisayarlardaki oturumları kapanır; bu bilgisayarda yeni şifreyle oturum sürer."));
+      show = passwordForm(body, [["Mevcut şifre", current], ["Yeni şifre", fresh, "En az 8 karakter; harf ve rakam içersin."],
+        ["Yeni şifre (tekrar)", repeat]]);
+      queueMicrotask(() => current.focus());
+    }, [
+      { label: "Vazgeç", fn: (d) => d.close() },
+      { label: "Şifreyi değiştir", variant: "primary", fn: async (d) => {
+        const problem = !current.value ? "Mevcut şifrenizi yazın." : passwordProblem(fresh.value, repeat.value);
+        if (problem) return show(problem);
+        try {
+          const result = await api("/api/license/password", {
+            method: "POST", body: JSON.stringify({ current: current.value, password: fresh.value }) });
+          d.close();
+          if (result.state !== "valid") return showLicenseGate(result);
+          state.license = result;
+          toast("Şifreniz değiştirildi. Diğer bilgisayarlardaki oturumlar kapandı.");
+          render();
+        } catch (error) {
+          show(error.message);
+        }
+      } },
+    ]);
+  }
+  function resetDialog(username) {
+    const email = textInput(username?.includes("@") ? username : "", "ad@ornek.com", "email");
+    email.autocomplete = "username";
+    const code = textInput("", "XXXX-XXXX-XXXX");
+    code.autocomplete = "one-time-code";
+    code.autocapitalize = "characters";
+    const fresh = textInput("", "", "password");
+    fresh.autocomplete = "new-password";
+    const repeat = textInput("", "", "password");
+    repeat.autocomplete = "new-password";
+    let show = () => {};
+    dialog("Şifre yenileme kodu", (body) => {
+      body.append(node("p", "small muted", "Bireysel hesabınızın şifresini unuttuysanız orkestrai.net size tek kullanımlık bir kod verir. Kod 24 saat geçerlidir. Firma hesaplarında şifre için firma yöneticinize başvurun."));
+      show = passwordForm(body, [["E-posta", email], ["Yenileme kodu", code], ["Yeni şifre", fresh, "En az 8 karakter; harf ve rakam içersin."],
+        ["Yeni şifre (tekrar)", repeat]]);
+      queueMicrotask(() => (email.value ? code : email).focus());
+    }, [
+      { label: "Vazgeç", fn: (d) => d.close() },
+      { label: "Şifreyi yenile ve giriş yap", variant: "primary", fn: async (d) => {
+        const problem = !email.value.includes("@") ? "E-posta adresinizin tamamını yazın."
+          : code.value.trim().length < 8 ? "Yenileme kodunu yazın." : passwordProblem(fresh.value, repeat.value);
+        if (problem) return show(problem);
+        try {
+          const result = await api("/api/license/reset", {
+            method: "POST", body: JSON.stringify({ email: email.value.trim(), code: code.value.trim(), password: fresh.value }) });
+          d.close();
+          if (result.state === "valid") return boot();
+          showLicenseGate(result);
+        } catch (error) {
+          show(error.message);
+        }
+      } },
+    ]);
   }
   async function logoutLicense() {
     const ok = await confirmDialog(
@@ -7969,7 +8060,12 @@
     });
     if (state.dirty) card.append(node("p", "license-footnote",
       "Açık akıştaki kaydedilmemiş değişiklikler duruyor; giriş yapınca kaldığınız yerden devam edersiniz."));
-    card.append(form, node("p", "license-footnote", "Hesap ve lisans işlemleri için firma yöneticinize başvurun."));
+    const help = node("p", "license-footnote", "Firma hesabınızın işlemleri için firma yöneticinize başvurun. Bireysel kullanım için ");
+    help.append(externalLink("orkestrai.net/rpa", RENEWAL_PAGE), " sayfasından başvurabilirsiniz.");
+    help.querySelector("a").className = "";
+    const reset = button("Şifre yenileme kodum var", "key", () => resetDialog(username.value.trim()));
+    reset.classList.add("ghost");
+    card.append(form, reset, help);
     queueMicrotask(() => (username.value ? password : username).focus());
   }
   function closingNotice(card, status) {
@@ -7986,7 +8082,7 @@
     if (status.license?.user) card.append(node("p", "license-footnote", `Kullanıcı: ${status.license.user}`));
     card.append(node("p", "", outdated
       ? "Güncelleme arka planda indirilir ve uygulamayı kapatıp açtığınızda kurulur. Akışlarınız ve ayarlarınız olduğu gibi kalır."
-      : "Lisansınızı yenilemek veya yetki almak için firma yöneticinize başvurun."));
+      : "Firma hesabında lisans için firma yöneticinize başvurun. Bireysel hesabınızı orkestrai.net/rpa sayfasından uzatabilirsiniz."));
     const countdown = node("p", "license-countdown");
     countdown.setAttribute("aria-live", "polite");
     const actions = node("div", "license-actions");

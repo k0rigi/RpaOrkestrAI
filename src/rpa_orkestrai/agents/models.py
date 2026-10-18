@@ -95,6 +95,8 @@ class Actor(Model):
     # never written into run or task files: those records carry their own office_id.
     office_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$", exclude=True)
     office_name: str = Field(default="", max_length=120, exclude=True)
+    # A person's own account (bireysel): one human in the team, so the human-team screens stay hidden.
+    individual: bool = Field(default=False, exclude=True)
 
     @property
     def can_approve(self) -> bool:

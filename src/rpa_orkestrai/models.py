@@ -293,6 +293,17 @@ class LicenseLoginRequest(Model):
     password: str = Field(min_length=1, max_length=256)
 
 
+class PasswordChangeRequest(Model):
+    current: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetRequest(Model):
+    email: str = Field(min_length=3, max_length=150)
+    code: str = Field(min_length=8, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+
+
 class FavoriteRequest(Model):
     favorite: bool = Field(strict=True)
 

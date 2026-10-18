@@ -383,8 +383,10 @@
     const tabs = element("nav", null, "agent-tabs");
     tabs.setAttribute("aria-label", "Ajan sayfaları");
     view.tabButtons = new Map();
+    // A tab may stay out for some accounts (e.g. human tasks for a person's own, one-person account).
+    const shownTabs = [...extensions.values()].filter((item) => !(typeof item.hidden === "function" && item.hidden(view.session)));
     for (const [id, label] of [["agents", "Ajanlar"], ["runs", "Çalışmalar"], ["connections", "Bağlantılar"],
-      ...[...extensions.values()].map((item) => [item.id, item.label])]) {
+      ...shownTabs.map((item) => [item.id, item.label])]) {
       const button = action(label, () => showTab(view, id));
       button.dataset.agentTab = id;
       view.tabButtons.set(id, button);

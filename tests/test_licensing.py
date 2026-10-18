@@ -166,7 +166,7 @@ def test_login_asks_for_a_fresh_signed_answer_and_stores_no_license(tmp_path, se
 
     assert status["state"] == "valid" and status["online"] is True and licensing.allowed()
     assert status["license"] == {"user": "operator@ornek.com.tr", "full_name": "Örnek Operatör",
-                                 "company": "Örnek Lojistik", "ends_on": "2027-09-27"}
+                                 "company": "Örnek Lojistik", "ends_on": "2027-09-27", "account_type": ""}
     endpoint, body = server.requests[0]
     assert endpoint == "giris" and body["kullanici"] == "operator" and body["protokol"] == 2
     assert len(body["nonce"]) == 32 and body["cihaz"] == licensing.device

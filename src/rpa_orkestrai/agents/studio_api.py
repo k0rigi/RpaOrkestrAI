@@ -61,7 +61,8 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
         # "office" is the department the account works in when the firm is split into offices.
         return {"actor": {"user_id": identity.user_id, "company_id": identity.company_id, "name": identity.name},
                 "can_manage": "agents.manage" in identity.permissions, "can_approve": identity.can_approve,
-                "office": {"id": identity.office_id, "name": identity.office_name} if identity.office_id else None}
+                "office": {"id": identity.office_id, "name": identity.office_name} if identity.office_id else None,
+                "individual": identity.individual}
 
     @result.get("/office")
     def office():

@@ -73,6 +73,36 @@ Yetki değişikliği açık uygulamalara **en geç 10 dakika içinde** yansır. 
 
 Bir kullanıcının kullanımını hemen kesmek için MOD_RPA satırını silin, hesabını `Pasif` yapın ya da şifresini değiştirin. Son iki durumda oturum da kapanır ve yeniden giriş gerekir.
 
+### Bireysel hesaplar (0.9.35)
+
+RpaOrkestrAI firmalara olduğu gibi kişilere de satılır. Bireysel hesap, yalnız o kişiye ait tek kullanıcılı bir firmadır. Firma + kullanıcı modül kuralı burada da aynen geçerlidir: lisans her zaman firma ve hesap satırına birlikte yazılır.
+
+1. **Başvuru:** kişi `orkestrai.net/rpa` sayfasındaki **Bireysel hesap başvurusu** formunu doldurur. Formda ad soyad, e-posta, isteğe bağlı telefon, şifre, paket (RpaOrkestrAI ya da RpaOrkestrAI + Ajanlar) ve bilgilendirme onayı bulunur.
+   - Başvuru lisans vermez. Şifre yalnız geri çevrilemez özet olarak saklanır.
+   - Aynı internet adresinden saatte 5, günde 20 başvuru kabul edilir; hizmetin tamamında günlük sınır 300'dür.
+   - Kayıtlı bir e-posta veya bekleyen başvurusu olan bir e-posta, yeni başvuruyla aynı yanıtı alır. Böylece form hangi adresin hesabı olduğunu belli etmez.
+   - Onaylanmayan ya da reddedilen başvurular 90 gün sonra silinir.
+2. **Bildirim:** yeni başvuru, platform yöneticisinin (Admin) orkestrai.net bildirim zilinde görünür.
+3. **Onay:** ödemeyi gördüğünüzde `orkestrai.net/rpa-yonetim.html` sayfasında başvuruya başlangıç ve bitiş tarihi ile paketi verip **Ödeme alındı, hesabı aç** deyin. Tek işlemde şunlar açılır:
+   - tek kullanıcılı firma ve `Personel` rolünde hesap;
+   - firma ve hesap için MOD_RPA satırları;
+   - Ajanlar seçildiyse MOD_AJAN satırları ve kişinin kendi onaycısı olduğu ajan ekibi.
+
+   Kişi Studio'ya başvuruda belirlediği şifreyle girer.
+4. **Süre ve Ajanlar:** aynı sayfada süreyi uzatır, Ajanlar'ı ekler ya da kaldırırsınız. Firma ve hesap satırı her zaman birlikte değişir.
+5. **Unutulan şifre:** sayfadaki **Şifre yenileme kodu üret** tek kullanımlık bir kod verir. Kodu kişiye siz iletirsiniz.
+   - Kod 24 saat geçerlidir. Yeni kod üretilince öncekisi geçersiz olur.
+   - Kişi Studio giriş ekranında **Şifre yenileme kodum var** ile yeni şifresini belirler.
+   - 15 dakikada hesap başına 10, adres başına 30 hatalı deneme kabul edilir.
+
+Sayfa ve uçları yalnız veritabanında hâlâ etkin `Admin` rolündeki hesabın orkestrai.net oturumuyla çalışır; firma hesaplarına dokunmaz.
+
+Ödemesi beklenen başvurunun e-posta ve şifresiyle Studio'ya girilirse uygulama başvurunun beklediğini söyler. Bu deneme, hatalı giriş sayılmaz.
+
+Lisans içinde hesap türü (`hesap_turu`: `bireysel` veya `kurumsal`) imzalı olarak gelir. Studio, lisans panelinde bunu ve bireysel hesapta **Lisansı uzat** bağlantısını gösterir.
+
+**Şifre değiştirme:** her hesap Studio'da Ayarlar → RpaOrkestrAI lisansı → **Şifreyi değiştir** ile orkestrai.net şifresini değiştirebilir. Değişiklikten sonra hesabın diğer bilgisayarlardaki oturumları kapanır; bu bilgisayarda oturum yeni şifreyle sürer.
+
 `SYS_RpaOturumlari` tablosunda her oturumun kullanıcısı, cihaz kimliği, uygulama sürümü, IP adresi, açılış ve son görülme zamanı, durumu (`Aktif` / `Kapandi`) ve kapanma nedeni görülür:
 
 | Kapanma nedeni | Anlamı |

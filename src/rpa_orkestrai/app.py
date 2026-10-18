@@ -32,6 +32,8 @@ from .models import (
     DesktopPickRequest,
     FavoriteRequest,
     LicenseLoginRequest,
+    PasswordChangeRequest,
+    PasswordResetRequest,
     PathRequest,
     PointerRequest,
     RecordRequest,
@@ -315,6 +317,26 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     def license_login(body: LicenseLoginRequest):
         try:
             licensing.login(body.username, body.password)
+        except LicenseUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LicenseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return license_status()
+
+    @app.post("/api/license/password")
+    def license_password(body: PasswordChangeRequest):
+        try:
+            licensing.change_password(body.current, body.password)
+        except LicenseUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LicenseError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return license_status()
+
+    @app.post("/api/license/reset")
+    def license_reset(body: PasswordResetRequest):
+        try:
+            licensing.reset_password(body.email, body.code, body.password)
         except LicenseUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except LicenseError as exc:

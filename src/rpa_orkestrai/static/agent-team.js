@@ -158,6 +158,11 @@
       tree.append(row);
     }
     if (options.session.can_manage && options.openTab) tree.append(button("Ajanları düzenle", () => options.openTab("agents")));
+    if (options.session.individual) {
+      // A personal account is a team of one: the person approves and there are no colleagues to list.
+      humans.append(el("p", "Bireysel hesapta ekip sizsiniz: ajanlarınızın riskli işlemlerini siz onaylarsınız.", "agent-help"));
+      return view.dispose;
+    }
     const office = options.session.office?.name;
     const people = office ? `${office} çalışanları` : "İnsan çalışanlar";
     humans.append(el("h3", people), el("p", "Kurum hesapları yükleniyor…", "muted"));
@@ -408,6 +413,7 @@
     return view.dispose;
   }
   window.RpaAgents.registerTab({ id: "organization", label: "Organizasyon", mount: mountOrganization });
-  window.RpaAgents.registerTab({ id: "tasks", label: "Görevler", mount: mountTasks });
+  // Human tasks need colleagues; a person's own account has none.
+  window.RpaAgents.registerTab({ id: "tasks", label: "Görevler", mount: mountTasks, hidden: (session) => Boolean(session?.individual) });
   window.RpaAgents.registerTab({ id: "approvals", label: "Onaylar", mount: mountApprovals });
 })();

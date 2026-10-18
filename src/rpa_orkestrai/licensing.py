@@ -59,7 +59,11 @@ RESPONSE_LIMIT = 64 * 1024
 OPEN_PATHS = frozenset({
     "/api/health", "/api/instance", "/api/license", "/api/license/login",
     "/api/license/refresh", "/api/license/logout", "/api/license/quit",
+    # A forgotten password is renewed with a one-time code before anyone is signed in.
+    "/api/license/reset",
 })
+# The account kinds orkestrai.net names in a license: a person's own account or an account of a firm.
+ACCOUNT_TYPES = frozenset({"bireysel", "kurumsal"})
 DENIALS = {"SURE_DOLDU": "expired", "YETKI_YOK": "denied"}
 STARTUP_MESSAGE = ("Lisans doğrulanamadı. RpaOrkestrAI'yi açmak için internet bağlantısı ve orkestrai.net "
                    "erişimi gerekir. Bağlantınızı kontrol edin; uygulama kendiliğinden yeniden dener.")
@@ -104,10 +108,12 @@ class License:
     interval: int = REFRESH_SECONDS
     tolerance: int = TOLERANCE_SECONDS
     agents: dict[str, Any] = field(default_factory=dict)
+    # "bireysel" for a person's own account (a one-person firm); empty when the server does not say.
+    account_type: str = ""
 
     def public(self) -> dict:
         return {"user": self.user, "full_name": self.full_name, "company": self.company,
-                "ends_on": self.ends_on.isoformat() if self.ends_on else None}
+                "ends_on": self.ends_on.isoformat() if self.ends_on else None, "account_type": self.account_type}
 
 
 def _base64(value: Any, size: int | None = None) -> bytes:
@@ -159,6 +165,7 @@ def verify_license(envelope: Any, key: Ed25519PublicKey, device: str, nonce: str
             interval=_bounded(claims.get("aralik"), REFRESH_SECONDS, REFRESH_RANGE),
             tolerance=_bounded(claims.get("tolerans"), TOLERANCE_SECONDS, TOLERANCE_RANGE),
             agents=_agent_claims(claims.get("ajan"), claims),
+            account_type=claims["hesap_turu"] if claims.get("hesap_turu") in ACCOUNT_TYPES else "",
         )
     except (ValueError, TypeError, KeyError, UnicodeError, RecursionError) as exc:
         raise LicenseError("Lisans içeriği geçersiz.") from exc
@@ -241,6 +248,8 @@ class LicenseService:
     ):
         self._path = Path(data_dir) / "license.json"
         self._api = api_url.rstrip("/")
+        # Password changes go to the account service next to the license service.
+        self._account_api = self._api.rsplit("/", 1)[0] + "/hesap"
         self._key = Ed25519PublicKey.from_public_bytes(_base64(public_key, 32))
         self._opener = opener or build_opener(
             HTTPSHandler(context=ssl.create_default_context(cafile=certifi.where())), _NoRedirect())
@@ -322,7 +331,8 @@ class LicenseService:
             return Actor(user_id=extension["user_id"], company_id=extension["company_id"],
                          name=self._license.full_name or self._license.user,
                          session_id=extension["session_id"], permissions=extension["permissions"],
-                         office_id=extension.get("office_id"), office_name=extension.get("office_name") or "")
+                         office_id=extension.get("office_id"), office_name=extension.get("office_name") or "",
+                         individual=self._license.account_type == "bireysel")
 
     def agent_allowed(self) -> bool:
         return self.agent_actor() is not None
@@ -349,8 +359,8 @@ class LicenseService:
                     "detail": (self._denial or {}).get("detail"), "agents": self.agent_actor() is not None}
 
     # ----- server ------------------------------------------------------------------
-    def _post(self, endpoint: str, body: dict, timeout: float | None = None) -> dict:
-        request = Request(f"{self._api}/{endpoint}", data=json.dumps(body).encode("utf-8"), method="POST",
+    def _post(self, endpoint: str, body: dict, timeout: float | None = None, *, base: str | None = None) -> dict:
+        request = Request(f"{base or self._api}/{endpoint}", data=json.dumps(body).encode("utf-8"), method="POST",
                           headers={"Content-Type": "application/json", "Accept": "application/json",
                                    "User-Agent": f"RpaOrkestrAI/{__version__}"})
         try:
@@ -474,6 +484,39 @@ class LicenseService:
                     raise LicenseError(str(exc)) from exc
                 self._deny(exc, username)
             return self.status()
+
+    @staticmethod
+    def _new_password(password: str) -> str:
+        if not isinstance(password, str) or not 8 <= len(password) <= 128:
+            raise LicenseError("Yeni şifre 8-128 karakter olmalıdır.")
+        return password
+
+    def change_password(self, current: str, password: str) -> dict:
+        """Changes the orkestrai.net password and signs in again: the old password closes every session."""
+        password = self._new_password(password)
+        with self._lock:
+            user = self._license.user if self._license is not None else None
+        if not user or not isinstance(current, str) or not current or len(current) > 256:
+            raise LicenseError("Şifre değiştirmek için oturum ve mevcut şifre gerekir.")
+        try:
+            self._post("sifre", {"kullanici": user, "sifre": current, "yeni_sifre": password}, base=self._account_api)
+        except LicenseDenied as exc:
+            raise LicenseError(str(exc)) from exc
+        return self.login(user, password)
+
+    def reset_password(self, email: str, code: str, password: str) -> dict:
+        """A one-time code from the platform administrator sets a new password, then signs in."""
+        password = self._new_password(password)
+        if (not isinstance(email, str) or "@" not in email or len(email.strip()) > 150
+                or not isinstance(code, str) or not 8 <= len(code.strip()) <= 32):
+            raise LicenseError("E-posta adresinizi ve yenileme kodunu yazın.")
+        email = email.strip()
+        try:
+            self._post("sifre-yenile", {"eposta": email, "kod": code.strip(), "yeni_sifre": password},
+                       base=self._account_api)
+        except LicenseDenied as exc:
+            raise LicenseError(str(exc)) from exc
+        return self.login(email, password)
 
     def logout(self) -> dict:
         with self._refresh_lock:

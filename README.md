@@ -8,14 +8,16 @@ Studio, FastAPI üzerinden sunulan bir web arayüzüdür. İsterseniz aynı aray
 
 Hazır kurulum dosyaları için **[RpaOrkestrAI indirme sayfası](https://orkestrai.net/rpa/)** kullanılır. GitHub'daki alternatif dağıtım yeri [Releases](https://github.com/k0rigi/RpaOrkestrAI/releases) bölümüdür; özel depoya erişim için GitHub hesabınızla giriş yapın.
 
-- **Windows:** `RpaOrkestrAI-Setup-0.9.34-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
-- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.34-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
+- **Windows:** `RpaOrkestrAI-Setup-0.9.35-Windows-x64.exe` dosyasını çalıştırın; ardından masaüstündeki **RpaOrkestrAI Studio** kısayolunu açın.
+- **MacBook (Apple Silicon: M1 ve sonrası):** `RpaOrkestrAI-0.9.35-macOS-arm64.dmg` dosyasını açın, içindeki **RpaOrkestrAI.app** uygulamasını **Applications** kısayoluna sürükleyin; `/Applications/RpaOrkestrAI.app` üzerinden açın. Bu paket Intel Mac için değildir.
 
 **0.9.6 ile her uygulama açılışında kullanıcı adı ve şifre yeniden istenir.** Girişte lisans süresi ve yetkiler orkestrai.net üzerinden kontrol edilir; oturum diske kaydedilmez. Kullanıcının firmasında ve kendi hesabında **MOD_RPA** modülünün açık, firma lisans süresinin dolmamış olması gerekir. Süresi dolmuş veya lisansı tanımlı olmayan kullanıcıya uygulama uyarı verip kapanır. **0.8.0 ile** uygulama her açılışta orkestrai.net'ten onay alır (internet gerekir), açıkken bağlantı kesilirse en fazla 60 dakika çalışır ve bir hesap aynı anda tek bilgisayarda kullanılır; 0.8.0'dan eski sürümlere lisans verilmez. [Kullanıcı girişi ve lisans](docs/lisans.md).
 
 Bu paketler kendi Python 3.12 yorumlayıcısını içerir ve terminal açmadan çalışır; bilgisayara ayrıca Python 3.14 kurulması onları etkilemez. **Code → Download ZIP** kaynak kod indirmesidir. `start.command` ve `start.bat`, terminale bağlı geliştirme başlatıcılarıdır; terminal kapatılırsa bu şekilde açılan süreç de kapanabilir. Yeni derlemelerin paketleri **Actions → Build desktop apps → Artifacts** bölümünde bir gün durur; yayınlanan güncel sürüm orkestrai.net/rpa adresindedir. [Masaüstü dağıtım rehberi](docs/masaustu-dagitim.md).
 
 **0.1.x kullananlar güncel sürümü bir kez elle kurmalıdır.** 0.2.0 ve sonraki kurulu uygulamalar açılışta yeni sürümü arka planda kontrol edip doğrulayarak indirir; hazır güncellemeyi sonraki açılışta kurar. Güncelleme indirilemezse mevcut sürüm kullanılmaya devam eder; akışlar ve bağlantı ayarları korunur. Studio'nun açılması için lisans doğrulaması nedeniyle internet bağlantısı gerekir. Kendi akışınıza eklediğiniz adımlar yerel kalır; kodla geliştirilen yeni adım türleri yeni uygulama sürümü yayımlandığında diğer kurulumlara ulaşır. [Güncelleme mimarisi](docs/guncelleme-mimarisi.md).
+
+**0.9.35:** **Bireysel kullanım:** RpaOrkestrAI artık kişilere de satılır. Kişi orkestrai.net/rpa sayfasındaki formdan başvurur ve şifresini kendisi belirler. Ödeme onaylanınca platform yöneticisi orkestrai.net'teki **RpaOrkestrAI bireysel hesaplar** sayfasından hesabı açar: tek kullanıcılı firma ve lisans birlikte açılır, Ajanlar ek modüldür. Yeni başvurular yöneticinin bildirim ziline düşer. Bireysel hesapta Ajanlar tek kişilik ekip olarak çalışır; insan görevleri ve çalışan listesi gizlenir. Lisans panelinde hesap türü ve **Lisansı uzat** bağlantısı görünür. **Şifre:** her hesap Ayarlar'daki lisans panelinden **Şifreyi değiştir** ile şifresini değiştirebilir. Bireysel hesapta unutulan şifre, yöneticinin verdiği tek kullanımlık kodla giriş ekranındaki **Şifre yenileme kodum var** üzerinden yenilenir. Ödemesi beklenen başvuruyla giriş yapılırsa Studio bunu söyler. [Lisans](docs/lisans.md#bireysel-hesaplar-0935).
 
 **0.9.34:** **Departman ofisleri:** firma ajan ekibini departmanlara ayırabilir. Her departmanın kendi ofisi ve ofis yetkilisi olur (ör. «Claim & İade Departmanı», «Lojistik Planlama ve Süreç Geliştirme Departmanı»). Yetkili kendi ofisinde ajan kurar, otomasyon tanımlar, görev verir ve riskli işlemleri onaylar; ofisler birbirinin ajanlarını, görevlerini, onaylarını ve çalışanlarını görmez. Her ofiste ayrı bir yönetici ajan bulunabilir. Ofis adı Ajanlar başlığında, Ekip sekmesinde ve Ofis görünümünde yazar. Ofisler ve yetkilileri orkestrai.net yönetiminde MOD_AJAN atamasıyla tanımlanır; mevcut ajanlar onları kuran kişinin ofisine geçer. Ofisli ajan kayıtları 0.9.33 ve önceki sürümlerde açılmaz. [Ajan rehberi](docs/ajanlar.md#departman-ofisleri-0934).
 
@@ -258,7 +260,7 @@ Uygulama localhost üzerinde kullanılır; bu sürümü port yönlendirmeyle int
 
 - [Ajanlar ve dijital ekip](docs/ajanlar.md): geliştirme aşamaları, ayrı ajan lisansı,
   izinli akışlar, merkezi onay, insan görevleri, performans, yerel ofis önizlemesi
-  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.34. Ortak
+  ve sağlayıcı bağlantıları. Güncel Windows/macOS paketi 0.9.35. Ortak
   sunucu modelinin performans doğrulaması ve etkinleştirilmesi ayrıca bekliyor.
 
 - [Kurumsal entegrasyon: ekran mı, API mi, veritabanı mı; bağlantılar ve otomasyonlar](docs/kurumsal-entegrasyon.md)

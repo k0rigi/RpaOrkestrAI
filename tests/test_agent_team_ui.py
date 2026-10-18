@@ -118,3 +118,16 @@ def test_department_office_names_the_office_its_authority_and_its_people(team):
     page.get_by_text("Claim & İade Departmanı çalışanları", exact=True).wait_for()
     page.get_by_text("Diğer departmanların ofisleri burada görünmez", exact=False).wait_for()
     assert_unique_interactive_ids(page)
+
+
+def test_personal_account_has_no_human_team_screens(team):
+    page, calls, session, _, _ = team
+    session["individual"] = True
+    page.evaluate("""async () => { window.RpaAgents.unmount();
+      await window.RpaAgents.mount(document.getElementById('root'), window.agentOptions); }""")
+    page.get_by_role("button", name="Organizasyon", exact=True).wait_for()
+    assert page.get_by_role("button", name="Görevler", exact=True).count() == 0
+    page.get_by_role("button", name="Organizasyon", exact=True).click()
+    page.get_by_text("Bireysel hesapta ekip sizsiniz", exact=False).wait_for()
+    assert not any(path.endswith("/members") for _, path, _ in calls[-5:])
+    assert_unique_interactive_ids(page)
