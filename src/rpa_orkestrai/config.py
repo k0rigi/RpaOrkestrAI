@@ -7,6 +7,7 @@ import os
 import platform
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,11 @@ from dotenv import load_dotenv
 
 def modifier_key(system: str | None = None) -> str:
     return "command" if (system or platform.system()) == "Darwin" else "ctrl"
+
+
+# Windows refuses a replace for a moment while another writer or reader holds the target file.
+REPLACE_ATTEMPTS = 20
+WINDOWS = os.name == "nt"
 
 
 def atomic_json(path: Path, data: Any) -> None:
@@ -29,7 +35,14 @@ def atomic_json(path: Path, data: Any) -> None:
             json.dump(data, handle, ensure_ascii=False, indent=2, allow_nan=False)
             handle.flush()
             os.fsync(handle.fileno())
-        temporary.replace(path)
+        for attempt in range(REPLACE_ATTEMPTS):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                if not WINDOWS or attempt == REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
     finally:
         temporary.unlink(missing_ok=True)
 

@@ -68,3 +68,23 @@ def test_old_predictable_temporary_is_not_opened_or_overwritten(tmp_path):
     atomic_json(path, {"new": True})
     assert legacy.read_text(encoding="utf-8") == "Başka işlem"
     assert json.loads(path.read_text(encoding="utf-8")) == {"new": True}
+
+
+def test_a_windows_replace_refused_for_a_moment_is_retried(tmp_path, monkeypatch):
+    from rpa_orkestrai import config
+
+    path, calls = tmp_path / "settings.json", []
+    original = Path.replace
+
+    def busy(self, target):
+        calls.append(target)
+        if len(calls) < 3:
+            raise PermissionError("Erişim reddedildi")
+        return original(self, target)
+
+    monkeypatch.setattr(config, "WINDOWS", True)
+    monkeypatch.setattr(config.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(Path, "replace", busy)
+    atomic_json(path, {"saved": True})
+    assert len(calls) == 3 and json.loads(path.read_text(encoding="utf-8")) == {"saved": True}
+    assert list(tmp_path.iterdir()) == [path]
