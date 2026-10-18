@@ -27,7 +27,7 @@ from ..config import atomic_json
 from ..errors import WorkflowError
 from ..models import HOUR_MINUTE, Model, now, uid
 from ..scheduler import next_occurrence, summary
-from .models import TERMINAL_STATUSES, AgentRunRequest, Identifier, validate_inputs
+from .models import TERMINAL_STATUSES, AgentRunRequest, Identifier, validate_inputs, visible
 from .runner import AgentServiceError
 
 MAX_AUTOMATIONS = 50
@@ -173,6 +173,8 @@ class Automation(AutomationInput):
     queue: list[dict[str, Any]] = Field(default_factory=list, max_length=QUEUE_LIMIT)
     seen_keys: list[str] = Field(default_factory=list, max_length=SEEN_LIMIT)
     mail_uid: int = Field(default=0, ge=0)
+    # The office (department) whose agents the automation serves; None in a firm without offices.
+    office_id: Identifier | None = None
     mail_validity: int = Field(default=0, ge=0)
     last_check_at: str | None = None
 
@@ -285,7 +287,16 @@ class AutomationService:
         return AutomationBook.model_validate_json(self.path.read_text(encoding="utf-8"))
 
     def _write(self, book: AutomationBook) -> None:
-        atomic_json(self.path, json.loads(book.model_dump_json()))
+        data = json.loads(book.model_dump_json())
+        for item in data.get("automations", []):
+            # A firm without offices keeps writing the file that earlier Studio versions read.
+            if item.get("office_id", "") is None:
+                item.pop("office_id")
+        atomic_json(self.path, data)
+
+    @staticmethod
+    def _sees(actor, item: Automation) -> bool:
+        return visible(actor, item.company_id, item.office_id, item.user_id)
 
     def _change(self, identity: str, company: int, edit) -> Automation:
         with self._lock:
@@ -393,7 +404,7 @@ class AutomationService:
             except KeyError:
                 connection_name = "Silinmiş bağlantı"
         data = item.model_dump(exclude={"known_files", "pending_files", "recent_starts", "company_id", "queue", "seen_keys",
-                                        "mail_uid", "mail_validity"})
+                                        "mail_uid", "mail_validity", "office_id"})
         data.update(summary=describe(item.trigger, workflow_name, connection_name), queue_count=len(item.queue),
                     target_name=target_name, waiting=item.id in self._waiting)
         return data
@@ -407,16 +418,17 @@ class AutomationService:
     def automations(self) -> list[dict]:
         actor = self.service._authorize()
         with self._lock:
-            return [self.view(item) for item in self._read().automations if item.company_id == actor.company_id]
+            return [self.view(item) for item in self._read().automations if self._sees(actor, item)]
 
     def create(self, body: AutomationInput) -> dict:
         actor = self.service._authorize("agents.manage")
         self._check_body(body, actor)
         with self._lock:
             book = self._read()
-            if sum(item.company_id == actor.company_id for item in book.automations) >= MAX_AUTOMATIONS:
+            if sum(self._sees(actor, item) for item in book.automations) >= MAX_AUTOMATIONS:
                 raise AgentServiceError(f"En fazla {MAX_AUTOMATIONS} otomasyon tanımlanabilir.", 409)
-        item = self._prepared(Automation(**body.model_dump(), company_id=actor.company_id, user_id=actor.user_id))
+        item = self._prepared(Automation(**body.model_dump(), company_id=actor.company_id, user_id=actor.user_id,
+                                         office_id=actor.office_id))
         with self._lock:
             book = self._read()
             book.automations.append(item)
@@ -428,10 +440,11 @@ class AutomationService:
         self._check_body(body, actor)
         with self._lock:
             previous = next((item for item in self._read().automations
-                             if item.id == identity and item.company_id == actor.company_id), None)
+                             if item.id == identity and self._sees(actor, item)), None)
         if previous is None:
             raise AgentServiceError("Otomasyon bulunamadı.", 404)
-        changed = Automation(**{**previous.model_dump(), **body.model_dump(), "updated_at": now()})
+        changed = Automation(**{**previous.model_dump(), **body.model_dump(), "updated_at": now(),
+                                "office_id": previous.office_id or actor.office_id})
         if changed.trigger != previous.trigger or changed.enabled != previous.enabled:
             changed = self._prepared(changed)
         return self.view(self._change(identity, actor.company_id, lambda item: changed))
@@ -440,7 +453,7 @@ class AutomationService:
         actor = self.service._authorize("agents.manage")
         with self._lock:
             book = self._read()
-            remaining = [item for item in book.automations if not (item.id == identity and item.company_id == actor.company_id)]
+            remaining = [item for item in book.automations if not (item.id == identity and self._sees(actor, item))]
             if len(remaining) == len(book.automations):
                 raise AgentServiceError("Otomasyon bulunamadı.", 404)
             book.automations = remaining
@@ -450,7 +463,7 @@ class AutomationService:
         actor = self.service._authorize("agents.manage")
         with self._lock:
             item = next((value for value in self._read().automations
-                         if value.id == identity and value.company_id == actor.company_id), None)
+                         if value.id == identity and self._sees(actor, value)), None)
         if item is None:
             raise AgentServiceError("Otomasyon bulunamadı.", 404)
         self._start(item, {"tetikleyici": "elle"}, manual=True)
@@ -583,7 +596,7 @@ class AutomationService:
             return  # No licensed session: nothing starts; due times are judged when one exists.
         moment = self.clock()
         with self._lock:
-            items = [item for item in self._read().automations if item.company_id == actor.company_id and item.enabled]
+            items = [item for item in self._read().automations if self._sees(actor, item) and item.enabled]
         events = []
         while self._events:
             events.append(self._events.popleft())

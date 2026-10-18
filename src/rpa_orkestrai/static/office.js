@@ -56,7 +56,8 @@ function seating(data) {
 }
 function safeData(value) {
   if (!value || !Array.isArray(value.agents) || !Array.isArray(value.departments)) throw new Error("Ofis durumu okunamadı.");
-  return { agents: value.agents.slice(0, 500), people: [], departments: value.departments.slice(0, 100), totals: value.totals || {} };
+  const office = typeof value.office_name === "string" ? value.office_name.slice(0, 120) : "";
+  return { agents: value.agents.slice(0, 500), people: [], departments: value.departments.slice(0, 100), totals: value.totals || {}, office };
 }
 
 export function mountOffice(container, options) {
@@ -64,7 +65,9 @@ export function mountOffice(container, options) {
   let shapeKey = "", lastData = null, selected = null, panelVersion = 0;
   const seenEvents = new Set();
   const title = node("div", undefined, "office-title");
-  title.append(node("p", "DİJİTAL EKİP", "agent-eyebrow"), node("h2", "Ofis"),
+  // A firm split into departments shows the account's own office; other departments' offices stay private.
+  const heading = node("h2", "Ofis");
+  title.append(node("p", "DİJİTAL EKİP", "agent-eyebrow"), heading,
     node("p", "Ajanlarınız ve çalışma arkadaşlarınız aynı ofiste", "muted"));
   const toolbar = node("div", undefined, "office-toolbar");
   const status = node("span", "Yükleniyor…", "office-mode-label"); status.setAttribute("role", "status");
@@ -209,6 +212,7 @@ export function mountOffice(container, options) {
       if (!alive) return;
       if (local.status === "rejected") throw local.reason;
       const data = safeData(local.value);
+      heading.textContent = data.office ? `${data.office} ofisi` : "Ofis";
       const humans = central.status === "fulfilled" && Array.isArray(central.value?.people) ? central.value.people.slice(0, 500) : null;
       data.people = humans || [];
       humanWarning.hidden = humans !== null; humanWarning.textContent = humans === null ? "İnsan çalışanların durumu alınamadı. Kurum bağlantısı yenilendiğinde tekrar gösterilecek." : "";

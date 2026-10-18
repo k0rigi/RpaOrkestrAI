@@ -40,6 +40,26 @@ Değişiklik açık uygulamaya en geç 10 dakika içinde (arka plan doğrulamas�
 
 Kullanımı hemen kesmek için kullanıcının MOD_RPA satırını sil, hesabı `Pasif` yap ya da şifresini değiştir (son ikisi oturumu da kapatır).
 
+## Ajan modülü (MOD_AJAN) ve departman ofisleri
+
+MOD_AJAN SQL ile değil, orkestrai deposundaki **Ajan lisansı yönetimi** iş akışıyla verilir. Önce `preflight`, sonucu temizse aynı girdilerle `apply` çalıştırılır. `reviewed_sha`, Deploy to Server ile yayımlanmış ve iş akışının çalıştığı commit ile aynı olmalıdır.
+
+Girdiler:
+
+- `company_id`, `user_id`, `expected_login` (e-postanın @ öncesi ya da tam e-posta), `starts_on`, `expires_on`.
+- `office_name`: departmanın ofis adı.
+- `approver_user_id`: ofisin yetkilisi. Kişi ofisin yetkilisiyse kendi kimliği yazılır. Üye eklenirken ofisin kayıtlı yetkilisi yazılır ve ofis önceden var olmalıdır.
+
+Kurallar:
+
+- Bir kişi tek ofistedir, bir yetkili tek ofisi yönetir. Ofis veya yetkili değiştirme otomatik yapılmaz.
+- Firmanın MOD_AJAN satırı değişmez. Yeni kişinin dönemi, firmanın MOD_AJAN ve MOD_RPA dönemlerinin içinde olmalıdır.
+- `PolitikaSurumu = 1` (tek onaycılı) firma, yalnız kayıtlı onaycısı için çalıştırıldığında ofise dönüşür. Onaycının mevcut lisans tarihleri aynen yazılır; görev ve onay geçmişi ile bugünkü ekip o ofise taşınır.
+- Kullanıcı kimliği bilinmiyorsa `preflight` herhangi bir kimlikle çalıştırılır. Hesap adı firmada bulunursa sonuçta `found_user_id` görünür; `apply` bu kimlik açıkça yazılarak yeniden çalıştırılır.
+- Ofislere ayrılmış firmada ofise bağlı olmayan hesap Ajanlar'ı göremez. Sorun incelerken önce kişinin ofis üyeliğine bak (`SYS_AjanOfisUyeleri`, `SYS_AjanOfisleri`).
+
+Firma, kullanıcı, ofis, yetkili ve bitiş tarihini kullanıcıdan açıkça teyit etmeden `apply` çalıştırma.
+
 ## Oturumlar (tek bilgisayar kuralı)
 
 Her giriş `SYS_RpaOturumlari` tablosuna bir satır açar ve hesabın başka bilgisayardaki oturumunu kapatır. Tabloyu API yazar; elle satır ekleme. İnceleme ve elle kapatma:

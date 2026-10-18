@@ -177,7 +177,7 @@ class CentralApprovalBackend:
     def decide(self, remote_id, approved):
         actor = self.client.actor()
         if not actor.can_approve:
-            raise CentralError("Riskli işlemi yalnız firmanın onay yetkilisi onaylayabilir.", 403)
+            raise CentralError("Riskli işlemi yalnız onay yetkilisi (ofislere ayrılmış firmada ofis yetkilisi) onaylayabilir.", 403)
         path = "/onaylar/" + record_id(remote_id)
         current = self.client.request("GET", path, expected_actor=actor).get("approval", {})
         if type(approved) is not bool or type(current.get("version")) is not int:

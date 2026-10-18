@@ -374,9 +374,12 @@
   function shell(view) {
     const header = element("header", null, "agent-page-head");
     const title = element("div");
+    // A firm split into departments: every office has its own agents and its own authority.
+    const office = view.session.office?.name;
+    if (office) title.append(element("p", `${office} ofisi`, "agent-eyebrow"));
     title.append(element("h1", "Ajanlar"), element("p", "Hedefi tanımlayın; izin verdiğiniz akışlarla ilerlemeyi izleyin.", "muted"));
     const user = view.session.actor?.name || "Oturum açık";
-    header.append(title, element("span", user, "agent-user"));
+    header.append(title, element("span", office && view.session.can_approve ? `${user} · Ofis yetkilisi` : user, "agent-user"));
     const tabs = element("nav", null, "agent-tabs");
     tabs.setAttribute("aria-label", "Ajan sayfaları");
     view.tabButtons = new Map();
@@ -707,7 +710,8 @@
     const grid = element("div", null, "agent-form-grid");
     const name = field("Ajan adı", agent.name);
     name.input.required = true; name.input.maxLength = 120;
-    const department = field("Departman", agent.department, "text", "Firmanızdaki departman adını yazın.");
+    const department = field("Departman", agent.department, "text", view.session.office
+      ? `Ajanın ${view.session.office.name} ofisindeki bölümünü yazın (ör. Faturalama).` : "Firmanızdaki departman adını yazın.");
     department.input.required = true; department.input.maxLength = 120;
     const list = identify(element("datalist"), "departments");
     for (const text of [...new Set(view.workflows.map((w) => w.department))]) {
@@ -1445,7 +1449,7 @@
           controls.append(edit);
         }
         card.append(controls);
-      } else card.append(element("p", "Bu işlemi yalnız firmanın onay yetkilisi onaylayabilir. Onay gelene kadar akış başlamaz.", "agent-notice"));
+      } else card.append(element("p", `Bu işlemi yalnız ${view.session.office ? "ofisinizin yetkilisi" : "firmanın onay yetkilisi"} onaylayabilir. Onay gelene kadar akış başlamaz.`, "agent-notice"));
       ui.pending.append(card);
     }
   }

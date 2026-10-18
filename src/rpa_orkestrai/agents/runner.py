@@ -39,6 +39,7 @@ from .models import (
     Playbook,
     validate_inputs,
     validate_json_value,
+    visible,
 )
 from .organization import BudgetExceeded, TeamBudget, validate_organization
 from .policy import prepare_workflow, workflow_fingerprint
@@ -199,13 +200,28 @@ class AgentService:
             agent = self.agent_store.agent(identity)
         except KeyError:
             raise AgentServiceError("Ajan bulunamadı.", 404) from None
-        if agent.company_id != actor.company_id:
+        if not self._sees_agent(actor, agent):
             raise AgentServiceError("Ajan bulunamadı.", 404)
         return agent
 
+    @staticmethod
+    def _sees_agent(actor: Actor, agent: Agent) -> bool:
+        return visible(actor, agent.company_id, agent.office_id, agent.user_id)
+
+    @staticmethod
+    def _sees_run(actor: Actor, run: AgentRun) -> bool:
+        return visible(actor, run.actor.company_id, run.office_id, run.actor.user_id)
+
+    @staticmethod
+    def _sees_task(actor: Actor, task: AgentTask) -> bool:
+        return visible(actor, task.company_id, task.office_id, task.created_by.user_id)
+
+    def _team_agents(self, actor: Actor) -> list[Agent]:
+        """The agents of the actor's team: the firm, or in a firm split into offices the actor's office."""
+        return [agent for agent in self.agent_store.agents() if self._sees_agent(actor, agent)]
+
     def agents(self) -> list[Agent]:
-        actor = self._authorize()
-        return [agent for agent in self.agent_store.agents() if agent.company_id == actor.company_id]
+        return self._team_agents(self._authorize())
 
     def get_agent(self, identity: str) -> Agent:
         return self._find_agent(identity, self._authorize())
@@ -297,7 +313,7 @@ class AgentService:
             validate_organization(body, actor, self.agent_store)
             revisions = self._grant_revisions(body, actor)
             result = Agent(**body.model_dump(), company_id=actor.company_id, user_id=actor.user_id,
-                           grant_revisions=revisions, permission_audit=self._permission_audit(body, actor, revisions),
+                           office_id=actor.office_id, grant_revisions=revisions, permission_audit=self._permission_audit(body, actor, revisions),
                            ability_audit=self._ability_audit(body, actor))
             return self.agent_store.save_agent(result)
 
@@ -310,7 +326,7 @@ class AgentService:
             revisions = self._grant_revisions(body, actor, previous)
             result = Agent(**body.model_dump(), id=previous.id, created_at=previous.created_at,
                            updated_at=now(), company_id=previous.company_id, user_id=previous.user_id,
-                           revision=previous.revision + 1,
+                           office_id=previous.office_id or actor.office_id, revision=previous.revision + 1,
                            grant_revisions=revisions,
                            permission_audit=self._permission_audit(body, actor, revisions, previous),
                            ability_audit=self._ability_audit(body, actor, previous))
@@ -324,8 +340,7 @@ class AgentService:
         actor = self._authorize("agents.manage")
         with self._lock:
             self._find_agent(identity, actor)
-            if any(agent.manager_id == identity for agent in self.agent_store.agents()
-                   if agent.company_id == actor.company_id):
+            if any(agent.manager_id == identity for agent in self._team_agents(actor)):
                 raise AgentServiceError("Önce bağlı departman ajanlarının yönetici bağlantısını kaldırın.", 409)
             for context in list(self._contexts.values()):
                 if context.agent.id == identity:
@@ -346,8 +361,7 @@ class AgentService:
     def notes(self) -> dict[str, list[AgentNote]]:
         actor = self._authorize()
         with self._lock:
-            return {agent.id: self._note_record(agent).notes for agent in self.agent_store.agents()
-                    if agent.company_id == actor.company_id}
+            return {agent.id: self._note_record(agent).notes for agent in self._team_agents(actor)}
 
     def _note_text(self, text: str) -> str:
         clean = " ".join(text.split())
@@ -472,8 +486,8 @@ class AgentService:
             except WorkflowError as exc:
                 raise AgentServiceError(str(exc)) from None
             return {"ok": True, "message": f"Arama çalışıyor: {len(results)} sonuç geldi.", "results": results}
-        for agent in self.agent_store.agents():
-            if agent.company_id != actor.company_id or not agent.provider_connection_id:
+        for agent in self._team_agents(actor):
+            if not agent.provider_connection_id:
                 continue
             try:
                 provider = self._provider_factory(agent.model_copy(deep=True))
@@ -573,9 +587,11 @@ class AgentService:
     def handoffs(self) -> list[dict]:
         """Polled every few seconds: titles and summaries were masked when the run was saved."""
         actor = self._authorize()
-        names = {agent.id: agent.name for agent in self.agent_store.agents() if agent.company_id == actor.company_id}
-        return [{**item, "agent_name": names.get(item["agent_id"], "Kaldırılmış ajan")}
-                for item in self.insights.handoffs(actor.company_id)][:20]
+        names = {agent.id: agent.name for agent in self._team_agents(actor)}
+        return [{**{key: value for key, value in item.items() if key not in {"company_id", "office_id", "user_id"}},
+                 "agent_name": names.get(item["agent_id"], "Kaldırılmış ajan")}
+                for item in self.insights.handoffs(actor.company_id)
+                if visible(actor, item["company_id"], item.get("office_id"), item.get("user_id", 0))][:20]
 
     def resolve_handoff(self, identity: str) -> AgentRun:
         actor = self._authorize()
@@ -649,9 +665,8 @@ class AgentService:
         if context.agent.role != "manager":
             raise WorkflowError("Yalnız yönetici ajan ekip araçlarını kullanabilir.")
         result = []
-        for agent in self.agent_store.agents():
-            if (agent.company_id != context.run.actor.company_id or agent.manager_id != context.agent.id
-                    or agent.role != "department"):
+        for agent in self._team_agents(context.run.actor):
+            if agent.manager_id != context.agent.id or agent.role != "department":
                 continue
             capabilities = []
             for grant in agent.workflows:
@@ -678,7 +693,7 @@ class AgentService:
                 child = self.agent_store.agent(arguments.agent_id)
             except (KeyError, ValueError):
                 raise WorkflowError("Görev devredilecek departman ajanı bulunamadı.") from None
-            if (child.company_id != context.run.actor.company_id or child.role != "department"
+            if (not self._sees_agent(context.run.actor, child) or child.role != "department"
                     or child.manager_id != context.agent.id or child.id == context.agent.id):
                 raise WorkflowError("Yönetici yalnız kendisine doğrudan bağlı departman ajanına görev devredebilir.")
             if len(self._contexts) >= 128:
@@ -815,7 +830,7 @@ class AgentService:
     def _enqueue(self, agent, body, actor, *, parent=None, priority="normal"):
         run = AgentRun(agent_id=agent.id, task=body.task, title=body.title, inputs=body.inputs,
                        actor=actor, agent_revision=agent.revision, task_id=uid(),
-                       parent_run_id=parent.run.id if parent else None)
+                       parent_run_id=parent.run.id if parent else None, office_id=actor.office_id)
         run.root_run_id = parent.run.root_run_id if parent else run.id
         deadline = time.monotonic() + agent.limits.max_seconds
         budget = parent.budget if parent else TeamBudget(agent.limits, deadline)
@@ -824,7 +839,7 @@ class AgentService:
                          assigned_agent_id=agent.id, assignee_id=agent.id, assignee_type="agent",
                          title=body.title or body.task[:200], instructions=body.task, run_id=run.id,
                          root_run_id=run.root_run_id, agent_name=agent.name, department=agent.department,
-                         priority=priority)
+                         priority=priority, office_id=actor.office_id)
         context = Context(agent=agent, run=run, redactor=self._new_redactor(), budget=budget, task=task,
                           deadline=min(deadline, budget.deadline))
         self._contexts[run.id] = context
@@ -951,8 +966,8 @@ class AgentService:
         except AgentServiceError:
             raise AgentCancelled("Lisans veya kullanıcı yetkisi sona erdiği için çalışma durduruldu.") from None
         original = context.run.actor
-        if (actor.user_id, actor.company_id, actor.session_id) != (
-                original.user_id, original.company_id, original.session_id):
+        if (actor.user_id, actor.company_id, actor.session_id, actor.office_id) != (
+                original.user_id, original.company_id, original.session_id, original.office_id):
             raise AgentCancelled("Kullanıcı oturumu değiştiği için çalışma durduruldu.")
         try:
             current = self.agent_store.agent(context.agent.id)
@@ -1192,7 +1207,7 @@ class AgentService:
             run = self.agent_store.run(identity)
         except KeyError:
             raise AgentServiceError("Ajan çalışması bulunamadı.", 404) from None
-        if run.actor.company_id != actor.company_id:
+        if not self._sees_run(actor, run):
             raise AgentServiceError("Ajan çalışması bulunamadı.", 404)
         return run
 
@@ -1203,14 +1218,14 @@ class AgentService:
         actor = self._authorize()
         if agent_id is not None:
             self._find_agent(agent_id, actor)
-        return [run for run in self.agent_store.runs() if run.actor.company_id == actor.company_id
+        return [run for run in self.agent_store.runs() if self._sees_run(actor, run)
                 and (agent_id is None or run.agent_id == agent_id)]
 
     def tasks(self, agent_id: str | None = None, status: str | None = None) -> list[AgentTask]:
         actor = self._authorize()
         if agent_id:
             self._find_agent(agent_id, actor)
-        return [task for task in self.agent_store.tasks() if task.company_id == actor.company_id
+        return [task for task in self.agent_store.tasks() if self._sees_task(actor, task)
                 and (not agent_id or task.assigned_agent_id == agent_id) and (not status or task.status == status)]
 
     def get_task(self, identity: str) -> AgentTask:
@@ -1219,7 +1234,7 @@ class AgentService:
             task = self.agent_store.task(identity)
         except KeyError:
             raise AgentServiceError("Görev bulunamadı.", 404) from None
-        if task.company_id != actor.company_id:
+        if not self._sees_task(actor, task):
             raise AgentServiceError("Görev bulunamadı.", 404)
         return task
 
@@ -1228,7 +1243,7 @@ class AgentService:
         actor = self._authorize("agents.manage")
         with self._lock:
             task = self.get_task(identity)
-            company = [item for item in self.agent_store.tasks() if item.company_id == actor.company_id]
+            company = [item for item in self.agent_store.tasks() if self._sees_task(actor, item)]
             doomed = {task.id: task}
             if task.parent_task_id is None:
                 doomed.update({item.id: item for item in company if item.root_run_id and item.root_run_id == task.root_run_id})
@@ -1250,16 +1265,14 @@ class AgentService:
         return self.delete_task(run.task_id)
 
     def team(self) -> dict:
-        actor = self._authorize()
-        agents = [agent for agent in self.agent_store.agents() if agent.company_id == actor.company_id]
+        agents = self._team_agents(self._authorize())
         return {"agents": [{"id": agent.id, "name": agent.name, "role": agent.role,
                             "department": agent.department, "manager_id": agent.manager_id} for agent in agents]}
 
     def queue(self) -> list[dict]:
         actor = self._authorize()
         with self._lock:
-            contexts = [context for context in self._contexts.values()
-                        if context.run.actor.company_id == actor.company_id]
+            contexts = [context for context in self._contexts.values() if self._sees_run(actor, context.run)]
             positions = {}
             result = []
             for context in contexts:

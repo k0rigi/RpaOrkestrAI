@@ -22,8 +22,9 @@ gösterilmez. Lisans her doğrulamada (en geç 10 dakikada bir, ya da **Lisansı
 doğrula** ile) yeniden okunur; yetki verildiğinde menü yeniden giriş gerekmeden
 görünür, kaldırıldığında açık Ajanlar ekranı kapanır. Bu adımı önceden içeren akışlar
 açılır, ancak lisans olmadan çalıştırılamaz. Kullanıcı ve firma kimliği istek gövdesinden
-alınmaz. Riskli işleri onaylama yetkisi sunucuda firmanın seçilmiş onaylayıcısının
-kalıcı hesap kimliğine bağlanır; kullanıcı adı kodda sabitlenmez.
+alınmaz. Riskli işleri onaylama yetkisi sunucuda firmanın seçilmiş onaylayıcısının,
+departman ofislerine ayrılmış firmada ise kullanıcının ofis yetkilisinin kalıcı hesap
+kimliğine bağlanır; kullanıcı adı kodda sabitlenmez.
 
 Studio oturumu kapatıldığında, lisans geçersizleştiğinde veya Durdur seçildiğinde
 ajan ve onun başlattığı akış durdurulur. Başka bir kullanıcının veya zamanlayıcının
@@ -162,6 +163,45 @@ kullanır; ayrıca API anahtarı girilmez. Diğer bulut sağlayıcılarına otom
 Birden fazla ajan aynı çalışma alanındaki bağlantı kayıtlarını paylaşabilir.
 İlk açılış ve eşzamanlı kayıt işlemleri sıraya alınır; yarım kalan dosya yazımı
 önceki geçerli kaydı bozmaz.
+
+## Departman ofisleri (0.9.34)
+
+Firma ajan ekibini departmanlara ayırabilir. Her departmanın bir **ofisi** ve bir
+**ofis yetkilisi** olur. Örneğin «Claim & İade Departmanı» ile «Lojistik Planlama ve
+Süreç Geliştirme Departmanı» iki ayrı ofistir; her birinin yetkilisi kendi ajanlarını
+kurar.
+
+- **Yetkili ne yapar:** kendi ofisinde ajan kurar ve düzenler, otomasyon tanımlar,
+  insan çalışanlara görev verir, riskli işlemleri onaylar. Onaysız çalıştırma ve
+  onaysız gönderme izinlerini de yalnız o verir. Ofisin üyesi kendisine verilen
+  görevleri ve kendi onay isteklerini görür.
+- **Ofisin içi:** tek ekipli düzenle aynıdır: bir yönetici ajan, ona bağlı departman
+  ajanları (ofisin bölümleri) ve ofisin çalışanları. Her ofiste en fazla bir yönetici
+  ajan bulunur.
+- **Ofisler birbirini görmez:** görevler, onaylar, çalışan listesi, Ofis görünümü,
+  performans ve Studio'daki ajan, çalışma, görev ve otomasyon kayıtları ofise göre
+  ayrılır. Başka ofisteki birine görev verilemez; başka ofisin onayı görülemez veya
+  verilemez.
+- **Görünüm:** ofis adı Ajanlar sayfasının başlığında, Ekip sekmesindeki çalışan
+  listesinde ve Ofis görünümünün başlığında yazar.
+- **Kim tanımlar:** ofis açma, ofise kişi ekleme ve yetkiliyi belirleme orkestrai.net
+  yönetimindedir (MOD_AJAN atamasıyla birlikte, bkz. [lisans](lisans.md)). Bir kişi
+  yalnız bir ofiste bulunur; Studio'dan ofis değiştirilmez.
+- **Erişim:** ofislere ayrılmış firmada bir ofise bağlı olmayan hesap Ajanlar'ı
+  göremez. Yetkilisinin hesabı pasifleşen veya kapatılan ofis kapanır; diğer ofisler
+  çalışmaya devam eder.
+- **Bilgisayar:** ajanlar ve yerel kayıtları Studio'nun çalıştığı bilgisayarda
+  saklanır. Her yetkili Studio'yu kendi bilgisayarında, kendi hesabıyla kullanır ve
+  model bağlantısını (API anahtarı) orada tanımlar ya da ortak modeli seçer. Aynı
+  bilgisayarı kullanan iki yetkili birbirinin ajanlarını görmez; akışlar ve Studio
+  bağlantıları ise bilgisayara aittir ve paylaşılır.
+- **Geçiş:** ofislerden önce kurulmuş ajanlar, görevler ve otomasyonlar onları kuran
+  kişinin ofisine geçer. Firmanın tek onaycılı düzeni ofise dönüştürülürken sunucudaki
+  görev ve onay geçmişi de aynı ofise taşınır.
+- **Taşınma:** kullanıcı başka ofise taşınırsa açık ajan çalışması durur ve eski
+  ofisteki bekleyen onay geçersizleşir.
+- **Uyumluluk:** ofisli kayıtlar (ajan, çalışma, görev, otomasyon) 0.9.34'ten eski
+  Studio sürümlerinde açılmaz. Ofislere ayrılmamış firmalarda dosyalar değişmez.
 
 ## Organizasyon ve insan görevleri
 
@@ -535,8 +575,10 @@ Ofis yalnız durum okur; işlem başlatmaz. Ajanlar kendi departmanlarında, ins
 çalışanlar ortak çalışan alanında gösterilir. İnsan hesaplarının departman bilgisi
 bulunmadığından ofis bu bilgiyi tahmin etmez. İnsanların durumları bildirdikleri
 görev kayıtlarından gelir; bilgisayarlarının çevrimiçi olduğunu veya o anda klavye
-kullandıklarını göstermez. Yönetici şirketindeki görev durumlarını, diğer çalışanlar
-kendi görev durumlarını görebilir; yetkisiz görevler için durum bilinmiyor olarak kalır.
+kullandıklarını göstermez. Yönetici şirketindeki (ofislere ayrılmış firmada kendi
+ofisindeki) görev durumlarını, diğer çalışanlar kendi görev durumlarını görebilir;
+yetkisiz görevler için durum bilinmiyor olarak kalır. Ofislere ayrılmış firmada başlık
+ofisin adını gösterir ve yalnız o ofisin ajanları ile çalışanları görünür.
 
 Ofis durum cevabı görev metni, müşteri adı, tutar, girdi veya model yanıtı içermez.
 Ajanın düşünmesi ve bir akış çalıştırması ayrı durum olarak aktarılır. Tamamlanan

@@ -27,10 +27,32 @@ def test_separate_signed_entitlement_and_only_designated_owner_can_approve(tmp_p
     assert set(json.loads((tmp_path / "license.json").read_text())) == {"install"}
 
 
+def test_office_authority_and_office_come_from_the_signed_entitlement(tmp_path):
+    server = FakeOrkestrai()
+    server.claims = {"ajan": entitlement(ofis_id="c" * 32, ofis_adi="Claim & İade Departmanı")}
+    licensing = service(tmp_path, server)
+    licensing.login("operator", "dogru")
+    actor = licensing.agent_actor()
+    assert actor.can_approve and (actor.office_id, actor.office_name) == ("c" * 32, "Claim & İade Departmanı")
+    # The office is never written into the records that carry the actor.
+    assert "office" not in json.dumps(actor.model_dump())
+    server.claims = {"ajan": entitlement(onayci_id=99, yetkiler=["agents.use"], ofis_id="d" * 32,
+                                         ofis_adi="Lojistik Planlama ve Süreç Geliştirme Departmanı")}
+    licensing.refresh()
+    member = licensing.agent_actor()
+    assert not member.can_approve and member.office_id == "d" * 32
+    server.claims = {"ajan": entitlement(ofis_id=None, ofis_adi=None)}
+    licensing.refresh()
+    assert licensing.agent_actor().office_id is None and licensing.agent_actor().office_name == ""
+
+
 @pytest.mark.parametrize("changes", [
     {"aktif": False}, {"aktif": "true"}, {"firma_id": 9}, {"kullanici_id": 9},
     {"onayci_id": 99}, {"oturum_id": ""}, {"bitis": "2000-01-01"}, {"bitis": "bozuk"},
     {"yetkiler": ["agents.admin"]}, {"yetkiler": [{"agents.approve": True}]},
+    {"ofis_id": "OFIS", "ofis_adi": "Ad"}, {"ofis_id": "c" * 32}, {"ofis_id": "c" * 32, "ofis_adi": ""},
+    {"ofis_id": "c" * 32, "ofis_adi": "x" * 121}, {"ofis_id": "c" * 32, "ofis_adi": "Satır\nkırık"},
+    {"ofis_id": 7, "ofis_adi": "Ad"},
 ])
 def test_invalid_agent_claims_never_enable_agents_or_break_rpa(tmp_path, changes):
     server = FakeOrkestrai()

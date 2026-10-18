@@ -105,3 +105,16 @@ def test_approval_card_names_the_requester(team):
     page.get_by_role("button", name="Onaylar", exact=True).click()
     page.get_by_text("İsteyen: " + ATTACK, exact=True).wait_for()
     assert page.locator("img").count() == 0
+
+
+def test_department_office_names_the_office_its_authority_and_its_people(team):
+    page, _, session, _, _ = team
+    session["office"] = {"id": "c" * 32, "name": "Claim & İade Departmanı"}
+    page.evaluate("""async () => { window.RpaAgents.unmount();
+      await window.RpaAgents.mount(document.getElementById('root'), window.agentOptions); }""")
+    page.get_by_text("Claim & İade Departmanı ofisi", exact=True).wait_for()
+    assert page.locator(".agent-user").inner_text() == "Çalışan · Ofis yetkilisi"
+    page.get_by_role("button", name="Organizasyon", exact=True).click()
+    page.get_by_text("Claim & İade Departmanı çalışanları", exact=True).wait_for()
+    page.get_by_text("Diğer departmanların ofisleri burada görünmez", exact=False).wait_for()
+    assert_unique_interactive_ids(page)

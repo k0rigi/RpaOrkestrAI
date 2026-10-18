@@ -22,7 +22,7 @@ from ..config import atomic_json
 from ..errors import WorkflowError
 from ..models import Model, now
 from .abilities import tool_names as ability_tools
-from .models import Identifier
+from .models import Identifier, visible
 from .providers import ProviderError
 from .runner import NOTES_GUIDE, AgentServiceError
 from .tools import (
@@ -173,7 +173,7 @@ class AgentChat:
         team = {agent.id: agent}
         if agent.role == "manager":
             team.update({item.id: item for item in self.service.agent_store.agents()
-                         if item.company_id == actor.company_id and item.manager_id == agent.id})
+                         if item.manager_id == agent.id and visible(actor, item.company_id, item.office_id, item.user_id)})
         return team
 
     def _work_summary(self, chat, arguments):

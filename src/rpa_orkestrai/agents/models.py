@@ -91,10 +91,26 @@ class Actor(Model):
     name: str = Field(default="", max_length=200)
     session_id: str = Field(min_length=1, max_length=200)
     permissions: tuple[str, ...] = Field(default_factory=tuple, max_length=100)
+    # The department (office) of a firm split into offices. It comes from the license at run time and is
+    # never written into run or task files: those records carry their own office_id.
+    office_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$", exclude=True)
+    office_name: str = Field(default="", max_length=120, exclude=True)
 
     @property
     def can_approve(self) -> bool:
         return "agents.approve" in self.permissions
+
+
+def visible(actor: Actor, company_id: int, office_id: str | None, owner_id: int) -> bool:
+    """Whether a local agent record belongs to the actor's team.
+
+    A firm without offices is one team. In a firm split into offices a record belongs to its office;
+    records from before offices move with the person who created them (the office authority)."""
+    if company_id != actor.company_id:
+        return False
+    if office_id is not None or actor.office_id is None:
+        return office_id == actor.office_id
+    return owner_id == actor.user_id
 
 
 class AgentLimits(Model):
@@ -286,6 +302,8 @@ class Agent(AgentInput):
     grant_revisions: dict[Identifier, Annotated[str, Field(max_length=128)]] = Field(default_factory=dict)
     permission_audit: list[PermissionChange] = Field(default_factory=list, max_length=1000)
     ability_audit: list[AbilityChange] = Field(default_factory=list, max_length=1000)
+    # The office (department) the agent works for; None in a firm without offices.
+    office_id: Identifier | None = None
 
 
 MAX_NOTES = 30
@@ -378,6 +396,7 @@ class AgentRun(AgentRunRequest):
     handoff: bool = False
     handoff_resolved_at: str | None = None
     handoff_resolved_by: str | None = Field(default=None, max_length=200)
+    office_id: Identifier | None = None
 
     @field_validator("result", "pending_question", "pending_approval", mode="before")
     @classmethod
@@ -418,6 +437,7 @@ class AgentTask(Model):
     error: str | None = Field(default=None, max_length=2000)
     summary: str = Field(default="", max_length=20_000)
     result: Any = None
+    office_id: Identifier | None = None
 
     @field_validator("result", mode="before")
     @classmethod

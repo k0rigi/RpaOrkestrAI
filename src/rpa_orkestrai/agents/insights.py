@@ -48,6 +48,7 @@ class RunInsights:
             agent.setdefault(run.playbook_id or NO_CARD, Counter())["handoffs"] += 1
             if not run.handoff_resolved_at:
                 self._handoffs[run.id] = {"run_id": run.id, "agent_id": run.agent_id, "company_id": run.actor.company_id,
+                                          "office_id": run.office_id, "user_id": run.actor.user_id,
                                           "title": run.title or run.task[:200], "finished_at": run.finished_at,
                                           "summary": run.summary[:500]}
 

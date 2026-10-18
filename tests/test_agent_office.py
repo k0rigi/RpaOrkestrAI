@@ -40,7 +40,7 @@ def test_office_snapshot_uses_explicit_safe_fields_and_company_scope(tmp_path):
     service = SimpleNamespace(agent_store=store, _authorize=lambda: actor, _new_redactor=lambda: Redactor(["gizli"]),
                               _contexts=contexts, _lock=threading.RLock())
     result = snapshot(service)
-    assert set(result) == {"agents", "departments", "totals"}
+    assert set(result) == {"agents", "departments", "totals", "office_name"}
     item = result["agents"][0]
     assert set(item) == {"id", "name", "department", "role", "status", "task_id", "task_label", "queue_count",
                          "kind", "manager_id", "run_id", "activity", "event"}
@@ -127,13 +127,29 @@ def test_empty_office_has_only_zero_totals(tmp_path):
     actor = Actor(user_id=1, company_id=1, session_id="session", permissions=("agents.use",))
     value = snapshot(SimpleNamespace(agent_store=AgentStore(tmp_path), _authorize=lambda: actor, _new_redactor=Redactor,
                                      _contexts={}, _lock=threading.RLock()))
-    assert value == {"agents": [], "departments": [], "totals": {"agents": 0, "queued": 0, "running": 0, "waiting": 0}}
+    assert value == {"agents": [], "departments": [], "office_name": "",
+                     "totals": {"agents": 0, "queued": 0, "running": 0, "waiting": 0}}
+
+
+def test_office_shows_only_the_departments_own_agents_and_its_name(tmp_path):
+    claims, logistics = "c" * 32, "d" * 32
+    actor = Actor(user_id=1, company_id=1, session_id="session", permissions=("agents.use", "agents.manage"),
+                  office_id=claims, office_name="Claim & İade Departmanı")
+    store = AgentStore(tmp_path)
+    ours = store.save_agent(Agent(name="İade ajanı", company_id=1, user_id=1, office_id=claims))
+    legacy = store.save_agent(Agent(name="Önceki ajan", company_id=1, user_id=1))
+    store.save_agent(Agent(name="Lojistik ajanı", company_id=1, user_id=5, office_id=logistics))
+    store.save_agent(Agent(name="Başkasının eski ajanı", company_id=1, user_id=5))
+    value = snapshot(SimpleNamespace(agent_store=store, _authorize=lambda: actor, _new_redactor=Redactor,
+                                     _contexts={}, _lock=threading.RLock()))
+    assert {item["id"] for item in value["agents"]} == {ours.id, legacy.id}
+    assert value["office_name"] == "Claim & İade Departmanı"
 
 
 @pytest.mark.parametrize("module", ["rpa", "agents"])
 def test_office_endpoint_is_behind_both_license_gates(agent_api, module):  # noqa: F811
     response = agent_api.client.get("/api/agents/office")
-    assert response.status_code == 200 and set(response.json()) == {"agents", "departments", "totals"}
+    assert response.status_code == 200 and set(response.json()) == {"agents", "departments", "totals", "office_name"}
     setattr(agent_api.licensing, module, False)
     assert agent_api.client.get("/api/agents/office").status_code == 403
 

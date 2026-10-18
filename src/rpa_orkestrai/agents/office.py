@@ -4,7 +4,7 @@ import re
 import time
 from collections import Counter
 
-from .models import TERMINAL_STATUSES
+from .models import TERMINAL_STATUSES, visible
 
 LABELS = {"idle": "Görev bekliyor", "queued": "Görev sırasında", "running": "Görev üzerinde çalışıyor",
           "waiting_user": "Kullanıcı yanıtını bekliyor", "waiting_approval": "İşlem onayını bekliyor",
@@ -68,7 +68,8 @@ def human_snapshot(value: dict) -> dict:
 def snapshot(service) -> dict:
     """Never serialize a model wholesale here: new model fields are private by default."""
     actor = service._authorize()
-    agents = [agent for agent in service.agent_store.agents() if agent.company_id == actor.company_id]
+    agents = [agent for agent in service.agent_store.agents()
+              if visible(actor, agent.company_id, agent.office_id, agent.user_id)]
     identities = {agent.id for agent in agents}
     # Polling must not repeatedly deserialize megabytes of historical messages/results.
     # Copy only active context metadata while the runtime owns its lock.
@@ -123,7 +124,7 @@ def snapshot(service) -> dict:
                           "status": state, "task_id": selected["task_id"] if selected else None,
                           "task_label": LABELS[state], "queue_count": sum(run["status"] == "queued" for run in active)})
     departments = Counter(item["department"] for item in summaries if item["role"] == "department")
-    return {"agents": summaries,
+    return {"agents": summaries, "office_name": actor.office_name if actor.office_id else "",
             "departments": [{"name": name, "agent_count": count} for name, count in sorted(departments.items())],
             "totals": {"agents": len(summaries), "queued": sum(item["queue_count"] for item in summaries),
                        "running": sum(item["status"] == "running" for item in summaries),

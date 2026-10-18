@@ -188,8 +188,15 @@ def _agent_claims(value: Any, claims: dict) -> dict:
         ends = value.get("bitis")
         if ends is not None:
             date.fromisoformat(ends)
+        # A firm split into departments names the account's office; the office authority is "onayci_id".
+        office, office_name = value.get("ofis_id"), value.get("ofis_adi")
+        if office is not None and (not isinstance(office, str) or not re.fullmatch(r"[a-f0-9]{32}", office)
+                                   or not isinstance(office_name, str) or not 1 <= len(office_name) <= 120
+                                   or any(ord(char) < 32 for char in office_name)):
+            return {}
         return {"user_id": user_id, "company_id": company_id, "owner_id": owner_id,
-                "session_id": session_id, "permissions": tuple(permissions), "ends_on": ends}
+                "session_id": session_id, "permissions": tuple(permissions), "ends_on": ends,
+                "office_id": office, "office_name": office_name if office else ""}
     except (KeyError, TypeError, ValueError):
         return {}
 
@@ -314,7 +321,8 @@ class LicenseService:
                 return None
             return Actor(user_id=extension["user_id"], company_id=extension["company_id"],
                          name=self._license.full_name or self._license.user,
-                         session_id=extension["session_id"], permissions=extension["permissions"])
+                         session_id=extension["session_id"], permissions=extension["permissions"],
+                         office_id=extension.get("office_id"), office_name=extension.get("office_name") or "")
 
     def agent_allowed(self) -> bool:
         return self.agent_actor() is not None

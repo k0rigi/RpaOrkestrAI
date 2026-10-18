@@ -158,17 +158,21 @@
       tree.append(row);
     }
     if (options.session.can_manage && options.openTab) tree.append(button("Ajanları düzenle", () => options.openTab("agents")));
-    humans.append(el("h3", "İnsan çalışanlar"), el("p", "Kurum hesapları yükleniyor…", "muted"));
+    const office = options.session.office?.name;
+    const people = office ? `${office} çalışanları` : "İnsan çalışanlar";
+    humans.append(el("h3", people), el("p", "Kurum hesapları yükleniyor…", "muted"));
     view.request("/api/agents/central/members").then((data) => {
       if (!view.alive) return;
-      humans.replaceChildren(el("h3", "İnsan çalışanlar"));
+      humans.replaceChildren(el("h3", people));
       const list = el("ul", undefined, "agent-people");
       for (const member of data.uyeler || []) {
-        list.append(el("li", `${member.ad_soyad}${member.onayci ? " · Onay yetkilisi" : ""}`));
+        list.append(el("li", `${member.ad_soyad}${member.onayci ? (office ? " · Ofis yetkilisi" : " · Onay yetkilisi") : ""}`));
       }
-      humans.append(list, el("p", "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır.", "agent-help"));
+      humans.append(list, el("p", office
+        ? "Bu liste ofisinize bağlı, ajan lisansı bulunan hesaplardan gelir. Diğer departmanların ofisleri burada görünmez. Ofise kişi ekleme ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır."
+        : "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır.", "agent-help"));
     }).catch((error) => {
-      if (view.alive) humans.replaceChildren(el("h3", "İnsan çalışanlar"), el("p", error.message, "agent-warning"));
+      if (view.alive) humans.replaceChildren(el("h3", people), el("p", error.message, "agent-warning"));
     });
     return view.dispose;
   }
@@ -373,7 +377,7 @@
           }), approved ? "primary" : "danger"));
         }
         detail.append(actions);
-      } else if (item.status === "pending") detail.append(el("p", "Kararı firmanın onay yetkilisi verebilir.", "muted"));
+      } else if (item.status === "pending") detail.append(el("p", options.session.office ? "Kararı ofisinizin yetkilisi verebilir." : "Kararı firmanın onay yetkilisi verebilir.", "muted"));
       detail.append(button("Ayrıntıyı kapat", () => { detail.hidden = true; detail.replaceChildren(); }));
     }
     let members = null;

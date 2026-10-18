@@ -1,9 +1,11 @@
-"""Tek yönetici, doğrudan departman ilişkileri ve ortak görev bütçesi."""
+"""Ekip (firma ya da ofis) başına tek yönetici, doğrudan departman ilişkileri ve ortak görev bütçesi."""
 
 from __future__ import annotations
 
 import threading
 import time
+
+from .models import visible
 
 
 class OrganizationError(ValueError):
@@ -15,16 +17,19 @@ class BudgetExceeded(ValueError):
 
 
 def validate_organization(body, actor, store, *, identity=None) -> None:
-    company = [agent for agent in store.agents() if agent.company_id == actor.company_id]
+    # A firm split into departments has one manager agent per office; other offices are not counted.
+    team = [agent for agent in store.agents() if visible(actor, agent.company_id, agent.office_id, agent.user_id)]
+    place = "ofiste" if actor.office_id else "firmada"
     if body.role == "manager":
-        if any(agent.role == "manager" and agent.id != identity for agent in company):
-            raise OrganizationError("Bir firmada yalnız bir yönetici ajan bulunabilir.")
-    elif identity and any(agent.manager_id == identity for agent in company):
+        if any(agent.role == "manager" and agent.id != identity for agent in team):
+            raise OrganizationError(f"Bir {place} yalnız bir yönetici ajan bulunabilir.")
+    elif identity and any(agent.manager_id == identity for agent in team):
         raise OrganizationError("Bağlı departmanlar varken yönetici ajan departmana dönüştürülemez.")
     if body.manager_id:
-        parent = next((agent for agent in company if agent.id == body.manager_id), None)
+        parent = next((agent for agent in team if agent.id == body.manager_id), None)
         if parent is None or parent.role != "manager" or parent.id == identity:
-            raise OrganizationError("Departman ajanı yalnız aynı firmanın yönetici ajanına bağlanabilir.")
+            raise OrganizationError(f"Departman ajanı yalnız aynı {'ofisin' if actor.office_id else 'firmanın'} "
+                                    "yönetici ajanına bağlanabilir.")
 
 
 class TeamBudget:
