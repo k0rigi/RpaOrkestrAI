@@ -97,6 +97,8 @@ class Actor(Model):
     office_name: str = Field(default="", max_length=120, exclude=True)
     # A person's own account (bireysel): one human in the team, so the human-team screens stay hidden.
     individual: bool = Field(default=False, exclude=True)
+    # Licensed but outside every office: the account first opens its own office.
+    can_create_office: bool = Field(default=False, exclude=True)
 
     @property
     def can_approve(self) -> bool:
@@ -110,8 +112,10 @@ def visible(actor: Actor, company_id: int, office_id: str | None, owner_id: int)
     records from before offices move with the person who created them (the office authority)."""
     if company_id != actor.company_id:
         return False
-    if office_id is not None or actor.office_id is None:
+    if office_id is not None:
         return office_id == actor.office_id
+    if actor.office_id is None and not actor.can_create_office:
+        return True  # A firm without offices is one team.
     return owner_id == actor.user_id
 
 

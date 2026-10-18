@@ -30,7 +30,7 @@ class AccountServer(FakeOrkestrai):
                 self.password = body["yeni_sifre"]
                 return Response(200, {"success": True, "message": "Şifreniz değiştirildi."})
             if body["kod"] != self.code:
-                return self.error(401, "KOD_HATALI", "E-posta veya yenileme kodu hatalı ya da kodun süresi dolmuş.")
+                return self.error(401, "KOD_HATALI", "Kullanıcı adı veya şifre kodu hatalı ya da kodun süresi dolmuş.")
             self.password, self.code = body["yeni_sifre"], None
             return Response(200, {"success": True, "message": "Şifreniz yenilendi."})
         if endpoint == "giris":
@@ -83,15 +83,25 @@ def test_password_change_needs_a_signed_in_account(tmp_path, server):
 def test_reset_code_sets_a_new_password_before_sign_in_and_works_once(tmp_path, server):
     licensing = service(tmp_path, server)
     assert "/api/license/reset" in OPEN_PATHS and "/api/license/password" not in OPEN_PATHS
-    with pytest.raises(LicenseError, match="yenileme kodu hatalı"):
+    with pytest.raises(LicenseError, match="şifre kodu hatalı"):
         licensing.reset_password("operator@ornek.com.tr", "YANL-ISKO-DXXX", "Yepyeni2027")
     assert licensing.status()["state"] == "login_required"
-    with pytest.raises(LicenseError, match="E-posta"):
-        licensing.reset_password("operator", "ABCD-EFGH-JKLM", "Yepyeni2027")
+    with pytest.raises(LicenseError, match="Kullanıcı adınızı"):
+        licensing.reset_password("  ", "ABCD-EFGH-JKLM", "Yepyeni2027")
     status = licensing.reset_password(" operator@ornek.com.tr ", "ABCD-EFGH-JKLM", "Yepyeni2027")
     assert status["state"] == "valid" and server.password == "Yepyeni2027"
     with pytest.raises(LicenseError):
         licensing.reset_password("operator@ornek.com.tr", "ABCD-EFGH-JKLM", "Baska2028")
+
+
+def test_an_account_without_an_email_address_sets_its_first_password_with_its_user_name(tmp_path, server):
+    licensing = service(tmp_path, server)
+    status = licensing.reset_password(" operator ", "abcd-efgh-jklm".upper(), "Yepyeni2027")
+    assert status["state"] == "valid" and server.password == "Yepyeni2027"
+    reset = [body for endpoint, body in server.requests if endpoint == "hesap/sifre-yenile"]
+    # "kullanici" takes a user name or an address; orkestrai.net matches the account itself.
+    assert reset == [{"kullanici": "operator", "kod": "ABCD-EFGH-JKLM", "yeni_sifre": "Yepyeni2027"}]
+    assert server.requests[-1][0] == "giris" and server.requests[-1][1]["kullanici"] == "operator"
 
 
 def test_waiting_application_message_from_orkestrai_is_shown_at_sign_in(tmp_path, server):
@@ -140,9 +150,9 @@ def test_personal_account_screens_reset_and_change_the_password(tmp_path, server
         playwright.expect(card.get_by_role("link", name="orkestrai.net/rpa")).to_have_attribute(
             "href", "https://orkestrai.net/rpa/#bireysel")
         card.locator('input[autocomplete="username"]').fill("operator@ornek.com.tr")
-        card.get_by_role("button", name="Şifre yenileme kodum var").click()
+        card.get_by_role("button", name="Şifre kodum var").click()
         reset = page.locator("dialog")
-        playwright.expect(reset.locator('input[type="email"]')).to_have_value("operator@ornek.com.tr")
+        playwright.expect(reset.locator('input[autocomplete="username"]')).to_have_value("operator@ornek.com.tr")
         reset.locator('input[autocomplete="one-time-code"]').fill("YANL-ISKO-DXXX")
         reset.locator('input[autocomplete="new-password"]').nth(0).fill("Yepyeni2027")
         reset.locator('input[autocomplete="new-password"]').nth(1).fill("Yepyeni2028")
@@ -150,7 +160,7 @@ def test_personal_account_screens_reset_and_change_the_password(tmp_path, server
         playwright.expect(reset.locator(".license-message")).to_contain_text("aynı değil")
         reset.locator('input[autocomplete="new-password"]').nth(1).fill("Yepyeni2027")
         reset.get_by_role("button", name="Şifreyi yenile ve giriş yap").click()
-        playwright.expect(reset.locator(".license-message")).to_contain_text("yenileme kodu hatalı")
+        playwright.expect(reset.locator(".license-message")).to_contain_text("şifre kodu hatalı")
         reset.locator('input[autocomplete="one-time-code"]').fill("ABCD-EFGH-JKLM")
         reset.get_by_role("button", name="Şifreyi yenile ve giriş yap").click()
         playwright.expect(page.locator(".license-screen")).to_have_count(0)

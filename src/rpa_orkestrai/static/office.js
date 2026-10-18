@@ -60,9 +60,91 @@ function safeData(value) {
   return { agents: value.agents.slice(0, 500), people: [], departments: value.departments.slice(0, 100), totals: value.totals || {}, office };
 }
 
+// The person's own office model: a GLB kept on this computer only. Agents keep the office's own seats.
+const MODEL_LIMIT = 100_000_000;
+const PLACEMENT = { scale: 1, rotation: 0, offset_x: 0, offset_y: 0, offset_z: 0, cut_height: 0, hide_room: true };
+const PLACEMENT_RANGES = { scale: [.01, 100], offset_x: [-500, 500], offset_y: [-50, 50], offset_z: [-500, 500], cut_height: [0, 100] };
+// Older exporters (e.g. SimLab) write the retired specular-glossiness materials; they are shown as matte standard ones.
+function specularGlossiness(THREE) {
+  return (parser) => ({ name: "KHR_materials_pbrSpecularGlossiness", extendMaterialParams(index, params) {
+    const value = parser.json.materials?.[index]?.extensions?.KHR_materials_pbrSpecularGlossiness;
+    if (!value) return Promise.resolve();
+    const diffuse = Array.isArray(value.diffuseFactor) ? value.diffuseFactor : [1, 1, 1, 1];
+    params.color.setRGB(diffuse[0] ?? 1, diffuse[1] ?? 1, diffuse[2] ?? 1, THREE.LinearSRGBColorSpace);
+    params.opacity = diffuse[3] ?? 1; params.metalness = 0;
+    params.roughness = Math.min(1, Math.max(.35, 1 - (typeof value.glossinessFactor === "number" ? value.glossinessFactor : 1)));
+    return value.diffuseTexture ? parser.assignTexture(params, "map", value.diffuseTexture, THREE.SRGBColorSpace) : Promise.resolve();
+  } });
+}
+// Thousands of exported parts become one mesh per material, so turning the office stays smooth.
+function bake(THREE, mergeGeometries, root) {
+  const getters = ["getX", "getY", "getZ", "getW"], names = ["position", "normal", "uv", "uv1", "color"];
+  const groups = new Map(), matrix = new THREE.Matrix4(), group = new THREE.Group(), materials = new Set();
+  function copy(source, transform) {
+    const geometry = new THREE.BufferGeometry();
+    for (const name of names) {
+      const attribute = source.getAttribute(name);
+      if (!attribute) continue;
+      const size = attribute.itemSize, values = new Float32Array(attribute.count * size);
+      for (let i = 0; i < attribute.count; i++) for (let c = 0; c < size; c++) values[i * size + c] = attribute[getters[c]](i);
+      geometry.setAttribute(name, new THREE.BufferAttribute(values, size));
+    }
+    const index = new Uint32Array(source.index ? source.index.count : geometry.getAttribute("position").count);
+    for (let i = 0; i < index.length; i++) index[i] = source.index ? source.index.getX(i) : i;
+    // A mirrored part turns inside out once its mirror is baked into the vertices; keep the triangles facing out.
+    if (transform.determinant() < 0) for (let i = 0; i + 2 < index.length; i += 3) [index[i + 1], index[i + 2]] = [index[i + 2], index[i + 1]];
+    geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+    return geometry.applyMatrix4(transform);
+  }
+  root.updateMatrixWorld(true);
+  root.traverseVisible((object) => {
+    if (!object.isMesh || Array.isArray(object.material) || !object.geometry?.getAttribute("position")) return;
+    const copies = object.isInstancedMesh ? Math.min(object.count, 10000) : 1;
+    for (let i = 0; i < copies; i++) {
+      if (object.isInstancedMesh) { object.getMatrixAt(i, matrix); matrix.premultiply(object.matrixWorld); } else matrix.copy(object.matrixWorld);
+      const geometry = copy(object.geometry, matrix);
+      const key = `${object.material.uuid}|${Object.entries(geometry.attributes).map(([name, value]) => name + value.itemSize).sort().join(",")}`;
+      if (!groups.has(key)) groups.set(key, { material: object.material, parts: [] });
+      groups.get(key).parts.push(geometry);
+    }
+  });
+  root.traverse((object) => object.geometry?.dispose());
+  const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6);
+  for (const { material, parts } of groups.values()) {
+    material.clippingPlanes = [plane]; material.clipShadows = true; materials.add(material);
+    const merged = parts.length > 1 ? mergeGeometries(parts, false) : parts[0];
+    for (const geometry of merged ? [merged] : parts) {
+      const mesh = new THREE.Mesh(geometry, material); mesh.receiveShadow = true; group.add(mesh);
+    }
+    if (merged && parts.length > 1) parts.forEach((part) => part.dispose());
+  }
+  const box = new THREE.Box3().setFromObject(group);
+  if (box.isEmpty()) throw new Error("Modelde görüntülenecek bir şekil bulunamadı.");
+  const extent = Math.max(...box.getSize(new THREE.Vector3()).toArray());
+  // glTF lengths are metres; a model far too large for a building was exported in centimetres or millimetres.
+  const unit = extent > 3000 ? .001 : extent > 600 ? .01 : 1;
+  return { group, box, unit, plane, dispose() {
+    group.children.forEach((mesh) => mesh.geometry.dispose());
+    for (const material of materials) {
+      Object.values(material).forEach((value) => { if (value?.isTexture) value.dispose(); });
+      material.dispose();
+    }
+  } };
+}
+// Exported for the browser tests that open sample models; the page itself only uses mountOffice.
+export async function openModel(THREE, buffer) {
+  const [{ GLTFLoader }, { mergeGeometries }] = await Promise.all([import("three/addons/loaders/GLTFLoader.js"),
+    import("three/addons/utils/BufferGeometryUtils.js")]);
+  const loader = new GLTFLoader(); loader.register(specularGlossiness(THREE));
+  return bake(THREE, mergeGeometries, (await loader.parseAsync(buffer, "")).scene);
+}
+
 export function mountOffice(container, options) {
   let alive = true, mode = "3d", model = null, timer = null, pending = false, scene = null, generation = 0;
   let shapeKey = "", lastData = null, selected = null, panelVersion = 0;
+  let modelInfo = null, modelState = { id: null, promise: null, value: null }, modelNotice = "", placeTimer = null;
+  let placement = { ...PLACEMENT };
   const seenEvents = new Set();
   const title = node("div", undefined, "office-title");
   // A firm split into departments shows the account's own office; other departments' offices stay private.
@@ -76,7 +158,12 @@ export function mountOffice(container, options) {
   for (const [key, text] of [["3d", "3D görünüm"], ["2d", "2D plan"], ["list", "Liste"]]) {
     const item = button(text, () => switchMode(key)); buttons.set(key, item); controls.append(item);
   }
-  const reset = button("Kamerayı sıfırla", () => scene?.reset()); controls.append(reset); toolbar.append(status, controls);
+  const reset = button("Kamerayı sıfırla", () => scene?.reset());
+  const modelButton = button("Ofis modeli", () => toggleModel(modelPanel.hidden));
+  const modelPanel = node("section", undefined, "office-model"); modelPanel.id = `rpa-office-model-${++serial}`; modelPanel.hidden = true;
+  modelPanel.setAttribute("aria-label", "Kendi ofis modeliniz");
+  modelButton.setAttribute("aria-expanded", "false"); modelButton.setAttribute("aria-controls", modelPanel.id);
+  controls.append(reset, modelButton); toolbar.append(status, controls);
   const frame = node("div", undefined, "office-frame"), view = node("div", undefined, "office-view");
   view.append(node("p", "Ofis hazırlanıyor…", "office-loading"));
   const preview = node("span", "CANLI OFİS", "office-preview");
@@ -92,7 +179,135 @@ export function mountOffice(container, options) {
   feed.setAttribute("aria-label", "Son iletişimler");
   feed.append(node("h3", "Son iletişimler"), feedList);
   const feedSeen = new Set(), feedItems = [];
-  container.replaceChildren(title, toolbar, layout, summary, feed, humanWarning, note, list); container.classList.add("office-root");
+  container.replaceChildren(title, toolbar, modelPanel, layout, summary, feed, humanWarning, note, list); container.classList.add("office-root");
+
+  function modelMessage(text, error = false) {
+    const line = modelPanel.querySelector(".office-model-status");
+    if (line) { line.textContent = text; line.classList.toggle("agent-warning", error); }
+  }
+  function toggleModel(open) {
+    modelPanel.hidden = !open; modelButton.setAttribute("aria-expanded", String(open));
+    if (!open) return;
+    drawModel();
+    options.api("/api/agents/office/model").then((info) => {
+      if (!alive) return;
+      const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id;
+      modelInfo = info;
+      if (changed) { placement = { ...PLACEMENT, ...info.placement }; drawModel(); }
+    }).catch((error) => { if (alive) modelMessage(error.message, true); });
+  }
+  function labelled(label, input) {
+    input.id = `rpa-office-model-field-${++serial}`;
+    const wrapper = node("div", undefined, "agent-field"), caption = node("label", label); caption.htmlFor = input.id;
+    wrapper.append(caption, input); return wrapper;
+  }
+  function amount(value, [min, max], step) {
+    const input = node("input"); input.type = "number"; input.min = String(min); input.max = String(max); input.step = String(step);
+    input.value = String(value); return input;
+  }
+  function drawModel() {
+    if (modelPanel.hidden) return;
+    const info = modelInfo, line = node("p", "", "agent-help office-model-status"); line.setAttribute("role", "status");
+    const pick = button(info?.present ? "Modeli değiştir" : "Model seç (.glb)", choose), actions = node("div", undefined, "agent-actions");
+    const parts = [node("h3", "Kendi ofis modeliniz"), node("p", "Bilgisayarınızdaki bir .glb dosyasını (en fazla 100 MB) 3D ofise yerleştirin. Model yalnız bu bilgisayarda ve bu ofis için saklanır, sunucuya gönderilmez. Ajanlar ve masalar ofisin kendi düzeninde kalır; model metre ölçüsüyle okunur.", "agent-help")];
+    if (!info) { modelPanel.replaceChildren(...parts, node("p", "Model bilgisi yükleniyor…", "muted"), line); return; }
+    if (!info.present) { actions.append(pick); modelPanel.replaceChildren(...parts, actions, line); return; }
+    const value = { ...PLACEMENT, ...placement }, turn = node("select");
+    const scale = amount(Math.round(value.scale * 100), [1, 10000], 5);
+    for (const degrees of [0, 90, 180, 270]) { const option = node("option", `${degrees}°`); option.value = String(degrees); turn.append(option); }
+    turn.value = String(value.rotation);
+    const x = amount(value.offset_x, PLACEMENT_RANGES.offset_x, .5), z = amount(value.offset_z, PLACEMENT_RANGES.offset_z, .5);
+    const y = amount(value.offset_y, PLACEMENT_RANGES.offset_y, .1), cut = amount(value.cut_height, PLACEMENT_RANGES.cut_height, .1);
+    const room = node("input"); room.type = "checkbox"; room.checked = value.hide_room; room.id = `rpa-office-model-field-${++serial}`;
+    const roomLabel = node("label", undefined, "office-model-check"); roomLabel.htmlFor = room.id;
+    roomLabel.append(room, node("span", "Hazır ofisin zeminini ve duvarlarını gizle"));
+    const grid = node("div", undefined, "office-model-grid");
+    grid.append(labelled("Ölçek (%)", scale), labelled("Yön", turn), labelled("Sağa / sola (m)", x), labelled("İleri / geri (m)", z),
+      labelled("Yükseklik (m)", y), labelled("Tavan kesiti (m, 0 = kapalı)", cut));
+    const changed = () => {
+      const next = { scale: Number(scale.value) / 100, rotation: Number(turn.value), offset_x: Number(x.value), offset_y: Number(y.value),
+        offset_z: Number(z.value), cut_height: Number(cut.value), hide_room: room.checked };
+      const invalid = [scale, x, y, z, cut].some((item) => item.value.trim() === "")
+        || Object.entries(PLACEMENT_RANGES).some(([key, [min, max]]) => !Number.isFinite(next[key]) || next[key] < min || next[key] > max);
+      if (invalid) { modelMessage("Değerleri izin verilen aralıkta girin.", true); return; }
+      placement = next; scene?.place(next); modelMessage("");
+      clearTimeout(placeTimer); placeTimer = setTimeout(() => savePlacement(next), 600);
+    };
+    for (const item of [scale, x, z, y, cut]) item.addEventListener("input", changed);
+    turn.addEventListener("change", changed); room.addEventListener("change", changed);
+    actions.append(pick, button("Yerleşimi sıfırla", () => {
+      placement = { ...PLACEMENT }; drawModel(); scene?.place(placement); clearTimeout(placeTimer); savePlacement(placement);
+    }), button("Varsayılan ofise dön", removeModel));
+    const size = info.size < 1_000_000 ? `${Math.max(1, Math.round(info.size / 1000))} KB`
+      : `${(info.size / 1_000_000).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} MB`;
+    modelPanel.replaceChildren(...parts, node("p", `${info.name} · ${size}`, "office-model-name"), grid, roomLabel, actions, line);
+  }
+  async function savePlacement(next) {
+    try {
+      const saved = await options.api("/api/agents/office/model/placement", { method: "PUT", body: JSON.stringify(next) });
+      if (alive && modelInfo?.id === saved.id) { modelInfo = saved; modelMessage("Yerleşim bu bilgisayara kaydedildi."); }
+    } catch (error) { if (alive) modelMessage(error.message, true); }
+  }
+  function choose() {
+    const input = node("input"); input.type = "file"; input.accept = ".glb,model/gltf-binary";
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file || !alive) return;
+      if (!/\.glb$/i.test(file.name)) { modelMessage("Yalnız .glb dosyası içe aktarılabilir. Modeli dokularıyla birlikte tek bir .glb olarak dışa aktarın.", true); return; }
+      if (file.size > MODEL_LIMIT) { modelMessage("Model en fazla 100 MB olabilir. Dokuları küçültüp veya ayrıntıyı azaltıp yeniden dışa aktarın.", true); return; }
+      modelPanel.querySelectorAll("button, input, select").forEach((item) => { item.disabled = true; });
+      modelMessage("Model içe aktarılıyor…");
+      try {
+        const info = await options.api("/api/agents/office/model", { method: "PUT", body: file,
+          headers: { "Content-Type": "model/gltf-binary", "X-Model-Name": encodeURIComponent(file.name) } });
+        if (!alive) return;
+        clearTimeout(placeTimer); modelInfo = info; placement = { ...PLACEMENT, ...info.placement }; drawModel();
+        modelMessage("Model içe aktarıldı; 3D ofis hazırlanıyor…");
+        await switchMode("3d");
+        if (alive && !modelNotice) modelMessage("Model 3D ofise yerleştirildi. Yerini aşağıdaki ayarlarla düzeltebilirsiniz.");
+      } catch (error) {
+        if (alive) { drawModel(); modelMessage(error.message, true); }
+      }
+    });
+    input.click();
+  }
+  async function removeModel() {
+    const question = "İçe aktarılan model bu bilgisayardan silinsin mi? 3D ofis hazır görünümle açılır.";
+    const confirmed = options.confirmDialog ? await options.confirmDialog("Varsayılan ofise dön", question, "Modeli sil", true)
+      : window.confirm(question);
+    if (!confirmed || !alive) return;
+    try {
+      clearTimeout(placeTimer);
+      await options.api("/api/agents/office/model", { method: "DELETE" });
+      if (!alive) return;
+      modelInfo = { present: false, placement: { ...PLACEMENT } }; placement = { ...PLACEMENT }; drawModel();
+      if (mode === "3d") await switchMode("3d"); else releaseModel();
+      modelMessage("Varsayılan ofise dönüldü.");
+    } catch (error) { if (alive) modelMessage(error.message, true); }
+  }
+  // The model is read once and reused while agents come and go; only a new import reads the file again.
+  async function officeModel(THREE) {
+    const info = await options.api("/api/agents/office/model");
+    if (!alive) return null;
+    const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id;
+    modelInfo = info;
+    if (changed) { placement = { ...PLACEMENT, ...info.placement }; drawModel(); }
+    if (!info.present) { releaseModel(); return null; }
+    if (modelState.id !== info.id) {
+      releaseModel();
+      const id = info.id, promise = fetch("/api/agents/office/model/file", { cache: "no-store" }).then((response) => {
+        if (!response.ok) throw new Error("Ofis modeli okunamadı.");
+        return response.arrayBuffer();
+      }).then((buffer) => openModel(THREE, buffer));
+      modelState = { id, promise, value: null };
+      promise.then((value) => { if (alive && modelState.id === id) modelState.value = value; else value.dispose(); },
+        () => { if (modelState.id === id) modelState = { id: null, promise: null, value: null }; });
+    }
+    return modelState.promise;
+  }
+  function releaseModel() {
+    const old = modelState; modelState = { id: null, promise: null, value: null }; old.value?.dispose();
+  }
 
   function updateList(data) {
     const focused = list.contains(document.activeElement) ? document.activeElement.dataset.person : null;
@@ -200,8 +415,14 @@ export function mountOffice(container, options) {
       model ||= Promise.all([import("three"), import("three/addons/controls/OrbitControls.js")]);
       const [THREE, { OrbitControls }] = await model;
       if (!alive || generation !== version || mode !== "3d") return;
-      scene = createScene(THREE, OrbitControls, view, lastData, fallback, selectPerson, seenEvents);
-      status.textContent = "3D ofis · yerel görünüm"; scene.pause(document.hidden);
+      let own = null; modelNotice = "";
+      try { own = await officeModel(THREE); }
+      catch (error) { modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
+      if (!alive || generation !== version || mode !== "3d") return;
+      scene = createScene(THREE, OrbitControls, view, lastData, fallback, selectPerson, seenEvents, own, placement);
+      status.textContent = modelNotice || (own ? "3D ofis · kendi modeliniz" : "3D ofis · yerel görünüm");
+      if (modelNotice) modelMessage(modelNotice, true);
+      scene.pause(document.hidden);
     } catch { if (alive && generation === version) fallback("3D bu cihazda açılamadı; 2D plan gösteriliyor."); }
   }
   async function refresh() {
@@ -233,8 +454,8 @@ export function mountOffice(container, options) {
   function visibility() { clearTimeout(timer); scene?.pause(document.hidden); if (!document.hidden) refresh(); }
   document.addEventListener("visibilitychange", visibility); refresh();
   return () => {
-    alive = false; panelVersion++; generation++; clearTimeout(timer); scene?.dispose(); scene = null;
-    document.removeEventListener("visibilitychange", visibility); container.classList.remove("office-root");
+    alive = false; panelVersion++; generation++; clearTimeout(timer); clearTimeout(placeTimer); scene?.dispose(); scene = null;
+    releaseModel(); document.removeEventListener("visibilitychange", visibility); container.classList.remove("office-root");
   };
 }
 
@@ -277,7 +498,7 @@ function renderPlan(host, data, selectPerson) {
   if (focused) [...host.querySelectorAll("[data-person]")].find((item) => item.dataset.person === focused)?.focus({ preventScroll: true });
 }
 
-function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, seenEvents) {
+function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, seenEvents, own = null, placement = PLACEMENT) {
   let disposed = false, paused = document.hidden, raf = null, animationTimer = null, slow = 0, frames = 0;
   const paint = [], labels = [], materials = new Set(), geometries = new Set(), characters = new Map(), flights = [];
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "low-power" });
@@ -343,10 +564,12 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
   }
   const areas = rooms(data), length = Math.max(18, ...areas.map((r) => r.z + r.depth / 2 + 9)), centerZ = length / 2 - 9;
   controls.maxDistance = Math.max(58, length * 2.8);
-  box(28.5, .46, length + .6, edgeMat, 0, -.3, centerZ); box(28, .16, length, floorMat, 0, .015, centerZ);
-  box(28, 2.9, .24, wallMat, 0, 1.45, -8.8); box(.24, 2.9, length, wallMat, -13.9, 1.45, centerZ);
-  for (let x = -12; x <= 12; x += 2) box(.012, .014, length, edgeMat, x, .103, centerZ);
-  for (let z = -8; z <= length - 9; z += 2) box(28, .014, .012, edgeMat, 0, .103, z);
+  // The generated floor and walls; an imported office model may take their place.
+  const shell = new THREE.Group(); scene.add(shell);
+  box(28.5, .46, length + .6, edgeMat, 0, -.3, centerZ, shell); box(28, .16, length, floorMat, 0, .015, centerZ, shell);
+  box(28, 2.9, .24, wallMat, 0, 1.45, -8.8, shell); box(.24, 2.9, length, wallMat, -13.9, 1.45, centerZ, shell);
+  for (let x = -12; x <= 12; x += 2) box(.012, .014, length, edgeMat, x, .103, centerZ, shell);
+  for (let z = -8; z <= length - 9; z += 2) box(28, .014, .012, edgeMat, 0, .103, z, shell);
   for (const room of areas) {
     box(7.8, .035, room.depth, zoneMat, room.x, .13, room.z);
     box(7.8, .045, .075, trimMat, room.x, .16, room.z - room.depth / 2);
@@ -374,6 +597,25 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
   box(.12, 1.0, .12, metalMat, 3.15, .5, 5.5);
   mesh(new THREE.SphereGeometry(.45, 18, 12), plantMat, 3.15, 1.35, 5.5);
   label("Araştırma köşesi", -3.15, 2.75, 5.5);
+  // The imported model is scenery only: agents keep the office's own seats, states and labels.
+  let imported = null;
+  if (own) {
+    renderer.localClippingEnabled = true;
+    const inner = own.group.clone(), outer = new THREE.Group(), middle = own.box.getCenter(new THREE.Vector3());
+    inner.position.set(-middle.x, -own.box.min.y, -middle.z); outer.add(inner); scene.add(outer);
+    imported = { outer, size: own.box.getSize(new THREE.Vector3()), extent: 0 };
+  }
+  function place(value) {
+    if (!imported) return;
+    const settings = { ...PLACEMENT, ...value }, scale = own.unit * settings.scale;
+    imported.outer.scale.setScalar(scale); imported.outer.rotation.y = settings.rotation * Math.PI / 180;
+    imported.outer.position.set(settings.offset_x, settings.offset_y, centerZ + settings.offset_z);
+    own.plane.constant = settings.cut_height > 0 ? settings.cut_height : 1e6;
+    shell.visible = !settings.hide_room;
+    imported.extent = Math.max(imported.size.x, imported.size.z) * scale;
+    controls.maxDistance = Math.max(58, length * 2.8, imported.extent * 1.8);
+    request();
+  }
 
   function character(seat) {
     const { person, x, z } = seat, root = new THREE.Group(); scene.add(root); root.position.set(x, .05, z + .95);
@@ -543,7 +785,11 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
       item.node.hidden = p.z < -1 || p.z > 1;
     }
     frames++; slow = frames > 3 && performance.now() - start > 100 ? slow + 1 : 0;
-    if (slow >= 6) { fallback("Bu cihazda daha akıcı görüntü için 2D plana geçildi."); return; }
+    if (slow >= 6) {
+      fallback(imported ? "Ofis modeli bu cihazda ağır kaldı; 2D plan gösteriliyor. Daha sade bir model deneyin veya varsayılan ofise dönün."
+        : "Bu cihazda daha akıcı görüntü için 2D plana geçildi.");
+      return;
+    }
     if (active) animationTimer = setTimeout(() => { animationTimer = null; request(); }, 42);
   }
   function request() {
@@ -556,7 +802,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); request();
   }
   function reset() {
-    const scale = Math.max(1, length / 22); camera.position.set(23 * scale, 24 * scale, centerZ + 29 * scale);
+    const scale = Math.max(1, length / 22, (imported?.extent || 0) / 30); camera.position.set(23 * scale, 24 * scale, centerZ + 29 * scale);
     controls.target.set(0, 0, centerZ); controls.update(); request();
   }
   function lost(event) { event.preventDefault(); fallback("3D görüntü kesildi; 2D plan gösteriliyor."); }
@@ -574,8 +820,8 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
   controls.addEventListener("change", request);
   const observer = new ResizeObserver(resize); observer.observe(host);
   const themes = new MutationObserver(theme); themes.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  motion(); reset(); resize(); theme(); update(data);
-  return { reset, update, pause(value) {
+  place(placement); motion(); reset(); resize(); theme(); update(data);
+  return { reset, update, place, pause(value) {
     paused = value; if (paused) { cancelAnimationFrame(raf); raf = null; clearTimeout(animationTimer); animationTimer = null; } else request();
   }, dispose() {
     if (disposed) return; disposed = true; cancelAnimationFrame(raf); clearTimeout(animationTimer);

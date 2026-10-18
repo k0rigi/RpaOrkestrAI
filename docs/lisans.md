@@ -69,7 +69,16 @@ Yetki değişikliği açık uygulamalara **en geç 10 dakika içinde** yansır. 
 
 **Ajanlar** bölümü ayrı satılan bir modüldür. Görünmesi için MOD_RPA'ya ek olarak hem firmada hem kullanıcı hesabında **MOD_AJAN** tanımlı ve süresi dolmamış olmalıdır. Atama orkestrai deposundaki **Ajan lisansı yönetimi** iş akışıyla (önce `preflight`, sonra `apply`) yapılır; tabloya elle satır eklenmez. MOD_AJAN'ı olmayan hesapta 0.9.24 ve sonrası Ajanlar menüsünü, Ayarlar'daki yapay zekâ bağlantılarını ve **Yapay zekâya sor** adımını göstermez; 0.9.23 menüyü gösterse de ajan uçları sunucu ve Studio tarafından kapalıdır. Yetki değişikliği MOD_RPA gibi en geç 10 dakika içinde, **Lisansı şimdi doğrula** ile hemen yansır; yeniden giriş gerekmez.
 
-**Departman ofisleri (0.9.34):** Firma ajan ekibini departmanlara ayırabilir. MOD_AJAN atanırken kişinin **ofisi** (departmanı) ve ofisin **yetkilisi** de yazılır: ofis yoksa yalnız yetkilisiyle açılır, üye eklenirken ofisin kayıtlı yetkilisi belirtilir. Ajan yönetme ve onaylama yetkisi ofis yetkilisindedir ve yalnız kendi ofisini kapsar. Firmanın MOD_AJAN tarihi değişmez; sonraki kişilerin dönemi firmanın MOD_AJAN ve MOD_RPA dönemleri içinde olmalıdır. Tek onaycılı mevcut düzen, kayıtlı onaycısı için çalıştırıldığında görev ve onay geçmişi ve bugünkü ekibiyle adı verilen ofise dönüşür. Ön kontrol, kullanıcı adı firmada bulunup kimliği farklı yazıldıysa bulunan kullanıcı kimliğini bildirir. Ofislere ayrılmış firmada ofise bağlı olmayan hesap Ajanlar'ı göremez. Ayrıntılar: [Ajanlar](ajanlar.md#departman-ofisleri-0934).
+**Departman ofisleri (0.9.34):** Firma ajan ekibini departmanlara ayırabilir. MOD_AJAN atanırken kişinin **ofisi** (departmanı) ve ofisin **yetkilisi** de yazılır: ofis yoksa yalnız yetkilisiyle açılır, üye eklenirken ofisin kayıtlı yetkilisi belirtilir. Ajan yönetme ve onaylama yetkisi ofis yetkilisindedir ve yalnız kendi ofisini kapsar. Firmanın MOD_AJAN tarihi değişmez; sonraki kişilerin dönemi firmanın MOD_AJAN ve MOD_RPA dönemleri içinde olmalıdır. Tek onaycılı mevcut düzen, kayıtlı onaycısı için çalıştırıldığında görev ve onay geçmişi ve bugünkü ekibiyle adı verilen ofise dönüşür. Ön kontrol, kullanıcı adı firmada bulunup kimliği farklı yazıldıysa bulunan kullanıcı kimliğini bildirir. Ayrıntılar: [Ajanlar](ajanlar.md#departman-ofisleri-0934).
+
+**Ofisi kullanıcı kurar (0.9.36):** RPA ve Ajanlar lisansı olan, henüz bir ofiste bulunmayan hesap Studio'da Ajanlar'ı ilk açtığında kendi ofisini kurar ve yetkilisi olur. Yetkili, firmada ofisi olmayan lisanslı çalışanları **Ofisim** sekmesinden ofisine ekler. Yönetimin işi lisansı vermektir; ofis açmak için iş akışı gerekmez. Ofisi olmayan hesap ofis kurana kadar ajan çalıştırmaz. Ayrıntılar: [Kendi ofisinizi kurmak](ajanlar.md#kendi-ofisinizi-kurmak-0936).
+
+**Firmaya kullanıcı açma (0.9.36):** orkestrai deposundaki **RpaOrkestrAI kullanıcı yönetimi** iş akışı (önce `preflight`, sonra `apply`) mevcut bir firmaya yeni hesap açar.
+
+- Hesaba MOD_RPA, istenirse MOD_AJAN satırları yazılır. Dönem firmanın modül dönemini aşamaz; firmanın kendi satırları değişmez.
+- Giriş adı bir kullanıcı adı veya e-posta olabilir; firmada aynı giriş adı varsa işlem yapılmaz.
+- Hesabın şifresi yoktur. İlk şifre için 7 gün geçerli, tek kullanımlık bir **şifre kodu** üretilir; kodu kullanıcıya siz iletirsiniz.
+- Kullanıcı Studio giriş ekranında **Şifre kodum var** ile kullanıcı adını, kodu ve kendi şifresini yazar (0.9.36 ve sonrası; 0.9.35 bu ekranda yalnız e-posta kabul eder).
 
 Bir kullanıcının kullanımını hemen kesmek için MOD_RPA satırını silin, hesabını `Pasif` yapın ya da şifresini değiştirin. Son iki durumda oturum da kapanır ve yeniden giriş gerekir.
 
@@ -86,13 +95,13 @@ RpaOrkestrAI firmalara olduğu gibi kişilere de satılır. Bireysel hesap, yaln
 3. **Onay:** ödemeyi gördüğünüzde `orkestrai.net/rpa-yonetim.html` sayfasında başvuruya başlangıç ve bitiş tarihi ile paketi verip **Ödeme alındı, hesabı aç** deyin. Tek işlemde şunlar açılır:
    - tek kullanıcılı firma ve `Personel` rolünde hesap;
    - firma ve hesap için MOD_RPA satırları;
-   - Ajanlar seçildiyse MOD_AJAN satırları ve kişinin kendi onaycısı olduğu ajan ekibi.
+   - Ajanlar seçildiyse MOD_AJAN satırları. Ajan ekibi onayda açılmaz; kişi Studio'da Ajanlar'ı ilk açtığında kendi ofisini kurar (0.9.36).
 
    Kişi Studio'ya başvuruda belirlediği şifreyle girer.
 4. **Süre ve Ajanlar:** aynı sayfada süreyi uzatır, Ajanlar'ı ekler ya da kaldırırsınız. Firma ve hesap satırı her zaman birlikte değişir.
 5. **Unutulan şifre:** sayfadaki **Şifre yenileme kodu üret** tek kullanımlık bir kod verir. Kodu kişiye siz iletirsiniz.
    - Kod 24 saat geçerlidir. Yeni kod üretilince öncekisi geçersiz olur.
-   - Kişi Studio giriş ekranında **Şifre yenileme kodum var** ile yeni şifresini belirler.
+   - Kişi Studio giriş ekranında **Şifre kodum var** ile kullanıcı adını veya e-postasını, kodu ve yeni şifresini yazar (0.9.35'te düğmenin adı **Şifre yenileme kodum var**'dır).
    - 15 dakikada hesap başına 10, adres başına 30 hatalı deneme kabul edilir.
 
 Sayfa ve uçları yalnız veritabanında hâlâ etkin `Admin` rolündeki hesabın orkestrai.net oturumuyla çalışır; firma hesaplarına dokunmaz.

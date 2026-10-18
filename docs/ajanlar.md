@@ -184,12 +184,13 @@ kurar.
   verilemez.
 - **Görünüm:** ofis adı Ajanlar sayfasının başlığında, Ekip sekmesindeki çalışan
   listesinde ve Ofis görünümünün başlığında yazar.
-- **Kim tanımlar:** ofis açma, ofise kişi ekleme ve yetkiliyi belirleme orkestrai.net
-  yönetimindedir (MOD_AJAN atamasıyla birlikte, bkz. [lisans](lisans.md)). Bir kişi
-  yalnız bir ofiste bulunur; Studio'dan ofis değiştirilmez.
-- **Erişim:** ofislere ayrılmış firmada bir ofise bağlı olmayan hesap Ajanlar'ı
-  göremez. Yetkilisinin hesabı pasifleşen veya kapatılan ofis kapanır; diğer ofisler
-  çalışmaya devam eder.
+- **Kim kurar:** 0.9.36'dan itibaren ofisi kullanıcı kendisi kurar (bkz.
+  [Kendi ofisinizi kurmak](#kendi-ofisinizi-kurmak-0936)). orkestrai.net yönetimi
+  yalnız RPA ve Ajanlar lisansını verir. Bir kişi yalnız bir ofiste bulunur.
+- **Erişim:** bir ofise bağlı olmayan hesap önce kendi ofisini kurar veya bir ofis
+  yetkilisinin onu eklemesini bekler; o zamana kadar ajan çalıştırmaz ve ofislerin
+  kayıtlarını görmez. Yetkilisinin hesabı pasifleşen veya kapatılan ofis kapanır;
+  diğer ofisler çalışmaya devam eder.
 - **Bilgisayar:** ajanlar ve yerel kayıtları Studio'nun çalıştığı bilgisayarda
   saklanır. Her yetkili Studio'yu kendi bilgisayarında, kendi hesabıyla kullanır ve
   model bağlantısını (API anahtarı) orada tanımlar ya da ortak modeli seçer. Aynı
@@ -203,9 +204,38 @@ kurar.
 - **Uyumluluk:** ofisli kayıtlar (ajan, çalışma, görev, otomasyon) 0.9.34'ten eski
   Studio sürümlerinde açılmaz. Ofislere ayrılmamış firmalarda dosyalar değişmez.
 
+### Kendi ofisinizi kurmak (0.9.36)
+
+RPA ve Ajanlar lisansı olan, henüz bir ofiste bulunmayan her hesap Ajanlar sayfasını
+ilk açtığında **Ofisinizi kurun** ekranını görür. Bu kural firma hesaplarında da
+bireysel hesaplarda da aynıdır.
+
+1. **Ofis adı** yazın (2–120 karakter, firmanızda başka bir ofisin adı olmamalı;
+   ör. «Lojistik Planlama Departmanı») ve **Ofisi kur**'a basın.
+2. Ofisi kuran kişi ofisin **yetkilisi** olur: ajan kurma, otomasyon, görev verme ve
+   onay yetkileri hemen gelir. Her hesap yalnız bir ofis kurabilir ve tek ofiste
+   bulunur. Bir firmada en fazla 50 ofis açılabilir.
+3. Başka birinin ofisine katılacaksanız bu ekranda bekleyin. Ofis yetkilisi sizi
+   eklediğinde ekran en geç bir dakika içinde o ofise geçer.
+
+Ajanlar sayfasındaki **Ofisim** sekmesi ofisin bilgilerini gösterir:
+
+- **Yetkili:** ofisin adını değiştirir; firmada ofisi olmayan, RPA ve Ajanlar
+  lisanslı çalışanları listeden seçip ofise ekler; bir üyeyi **Ofisten çıkar** ile
+  çıkarır. Çıkarılan kişinin ofisteki görev ve onay geçmişi ofiste kalır.
+- **Üye:** **Ofisten ayrıl** ile ayrılabilir; sonra kendi ofisini kurabilir.
+- Yeni lisans vermek orkestrai.net yönetimindedir; kendi ofisini kurmuş bir çalışan
+  başka bir ofise eklenmez.
+- Değişiklik açık Studio'lara en geç 10 dakika içinde yansır. Ofisi kurmak ve
+  ofisten ayrılmak o bilgisayarda hemen geçerli olur.
+- Ofislerden önce kurulmuş ajan ve otomasyonlar, onları kuran kişi kendi ofisini
+  kurduğunda o ofise geçer. Ofisi olmayan hesap başkalarının eski kayıtlarını görmez.
+
 ## Bireysel hesapta ajanlar (0.9.35)
 
 Bireysel hesapta (bkz. [lisans](lisans.md#bireysel-hesaplar-0935)) Ajanlar ek modüldür ve ekip tek kişidir.
+0.9.36'dan itibaren bireysel hesap da Ajanlar'ı ilk açtığında kendi ofisini kurar
+(bkz. [Kendi ofisinizi kurmak](#kendi-ofisinizi-kurmak-0936)); ofiste tek kişidir.
 
 - Kişi kendi ajanlarının yöneticisi ve onaycısıdır: riskli işlemleri o onaylar, onaysız çalıştırma izinlerini de o verir.
 - İnsan görevleri (**Görevler** sekmesi) ve **Organizasyon** sekmesindeki çalışan listesi gösterilmez.
@@ -558,8 +588,8 @@ silinmez. Temizleme eklendiğinde açık görev ve bekleyen onaylar korunmalıd�
 
 ## Ofis
 
-Three.js 0.160.0 ve OrbitControls, MIT lisanslarıyla uygulamaya dahildir. CDN,
-uzak model, doku veya yazı tipi yüklenmez. Açık/koyu temada kamera döndürülebilir,
+Three.js 0.160.0, OrbitControls, GLTFLoader ve BufferGeometryUtils, MIT
+lisanslarıyla uygulamaya dahildir. CDN, uzak model, doku veya yazı tipi yüklenmez. Açık/koyu temada kamera döndürülebilir,
 yakınlaştırılabilir; pencere gizlenince çizim durur. WebGL yoksa veya çizim yavaşsa
 2D plana geçilir; aynı durum bilgileri liste görünümünde de bulunur.
 
@@ -594,6 +624,36 @@ Ajanın düşünmesi ve bir akış çalıştırması ayrı durum olarak aktarıl
 bellekte kalır; performans sayacı tutulmaz. Ayrıntılar yalnız kişi seçildiğinde
 yetkili kayıtlardan okunur. İnsan hizmetine ulaşılamazsa durum bilgisi yenilenmiş
 gibi gösterilmez; yerel ajan görünümü çalışmaya devam eder.
+### Kendi 3D ofis modeliniz (0.9.36)
+
+Hazır ofis yerine kendi binanızın veya ofisinizin 3D modelini kullanabilirsiniz.
+Ofis görünümünde **Ofis modeli** düğmesine basın ve **Model seç (.glb)** ile
+bilgisayarınızdaki dosyayı seçin.
+
+- **Dosya:** tek parça `.glb` (glTF 2.0 ikili), en fazla 100 MB. Dokular dosyanın
+  içine gömülü olmalıdır; dış dosyaya (`.bin`, doku) bağlı modeller reddedilir.
+  Draco sıkıştırması ve zorunlu meshopt / KTX2 sıkıştırması desteklenmez; modeli
+  sıkıştırmasız dışa aktarın. Eski «specular-glossiness» malzemeli modeller mat
+  standart malzemeyle gösterilir.
+- **Nerede saklanır:** model yalnız bu bilgisayarda, çalışma alanındaki
+  `data/office_models` klasöründe ve yalnız o ofis için saklanır. Sunucuya
+  gönderilmez; aynı bilgisayardaki başka bir ofis veya firma görmez. Ofisin her
+  bilgisayarı modeli kendisi içe aktarır.
+- **Yerleşim:** model görünümdür; ajanlar, masalar ve durumlar ofisin kendi
+  düzeninde kalır. Ölçüler metre kabul edilir; santimetre veya milimetreyle dışa
+  aktarıldığı anlaşılan çok büyük modeller metreye çevrilir. Model ofisin ortasına ve
+  zemine oturtulur. **Ölçek (%)**, **Yön** (0°, 90°, 180°, 270°), **Sağa / sola**,
+  **İleri / geri** ve **Yükseklik** (metre) ile yerini düzeltin. **Tavan kesiti**
+  verilen yüksekliğin üstünü gizler; tavanı veya üst katları olan modelde içerisi
+  görünür (0 = kapalı). **Hazır ofisin zeminini ve duvarlarını gizle** modelin kendi
+  zemininin görünmesini sağlar. Ayarlar hemen uygulanır ve bu bilgisayara kaydedilir.
+- **Değiştirme ve silme:** **Modeli değiştir** yeni dosyayı varsayılan yerleşimle
+  açar. **Yerleşimi sıfırla** ayarları geri alır. **Varsayılan ofise dön** modeli bu
+  bilgisayardan siler.
+- **Performans:** binlerce parçalı modeller açılırken malzemeye göre birleştirilir.
+  Model cihazda yavaş çizilirse ofis 2D plana geçer; daha sade bir model kullanın.
+  Model açılamazsa hazır ofis gösterilir ve nedeni yazılır.
+
 Yerel Chromium testleri geçse bile gerçek macOS WKWebView ve Windows WebView2
 kontrolleri ayrıca yapılmalıdır. Paket derlemesi `--self-test-office` ile gerçek
 pencere motorunu ve en az bir WebGL çizimini doğrular; yalnız 2D yedeğin çalışması

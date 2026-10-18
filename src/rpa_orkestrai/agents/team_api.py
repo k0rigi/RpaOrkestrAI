@@ -37,6 +37,14 @@ class TaskDeletion(Model):
     expected_version: int = Field(ge=1, strict=True)
 
 
+class OfficeName(Model):
+    name: str = Field(min_length=2, max_length=120)
+
+
+class OfficeMember(Model):
+    user_id: int = Field(ge=1, le=2147483647, strict=True)
+
+
 class Decision(Model):
     approved: bool = Field(strict=True)
 
@@ -79,6 +87,49 @@ def router(service, client, approval_backend):
 
         # Explicit projection prevents future central fields from leaking into the public scene.
         return call(human_snapshot, call(request, "GET", "/ofis"))
+
+    def signed_again():
+        # Opening or leaving an office changes the account's signed agent rights; ask for them at once.
+        try:
+            client.licensing.refresh()
+        except Exception:  # noqa: BLE001 - The regular renewal brings the new rights a few minutes later.
+            pass
+
+    @result.get("/my-office")
+    def my_office():
+        answer = call(request, "GET", "/ofisim")
+        office = answer.get("office") if isinstance(answer, dict) else None
+        actor = client.licensing.agent_actor()
+        # An office authority placed this account in an office, or took it out, after the last licence check.
+        if actor is not None and (office.get("id") if isinstance(office, dict) else None) != actor.office_id:
+            signed_again()
+        return answer
+
+    @result.post("/my-office", status_code=201)
+    def create_office(body: OfficeName):
+        answer = call(request, "POST", "/ofisim", body.model_dump())
+        signed_again()
+        return answer
+
+    @result.post("/my-office/name")
+    def rename_office(body: OfficeName):
+        return call(request, "POST", "/ofisim/ad", body.model_dump(), permission="agents.manage")
+
+    @result.post("/my-office/members")
+    def add_office_member(body: OfficeMember):
+        return call(request, "POST", "/ofisim/uyeler", body.model_dump(), permission="agents.manage")
+
+    @result.post("/my-office/members/{user_id}/remove")
+    def remove_office_member(user_id: int):
+        if not 1 <= user_id <= 2147483647:
+            raise HTTPException(422, "Çalışan kimliği geçersiz.")
+        return call(request, "POST", f"/ofisim/uyeler/{user_id}/cikar", {}, permission="agents.manage")
+
+    @result.post("/my-office/leave")
+    def leave_office():
+        answer = call(request, "POST", "/ofisim/ayril", {})
+        signed_again()
+        return answer
 
     @result.get("/tasks")
     def tasks():

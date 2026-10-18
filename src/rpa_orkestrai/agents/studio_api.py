@@ -5,14 +5,18 @@ from __future__ import annotations
 import threading
 import time
 from typing import Literal
+from urllib.parse import unquote
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import Field, SecretStr
+from starlette.concurrency import run_in_threadpool
 
 from ..errors import WorkflowError
 from ..models import Model, now, uid
 from .contracts import infer_contract
 from .models import ProviderConnection
+from .office_model import OfficeModelError, OfficeModels, Placement
 from .policy import inspect_workflow
 from .provider_adapters import LocalModelError
 from .providers import ProviderError
@@ -62,13 +66,52 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
         return {"actor": {"user_id": identity.user_id, "company_id": identity.company_id, "name": identity.name},
                 "can_manage": "agents.manage" in identity.permissions, "can_approve": identity.can_approve,
                 "office": {"id": identity.office_id, "name": identity.office_name} if identity.office_id else None,
-                "individual": identity.individual}
+                "individual": identity.individual, "can_create_office": identity.can_create_office}
 
     @result.get("/office")
     def office():
         from .office import snapshot
 
         return call(snapshot, service)
+
+    # The account's own 3D office model stays on this computer (data/office_models).
+    models = OfficeModels(service.settings.data_dir)
+    missing = "Bu ofis için içe aktarılmış bir 3D model yok."
+
+    @result.get("/office/model")
+    def office_model():
+        return models.describe(actor())
+
+    @result.get("/office/model/file")
+    def office_model_file():
+        try:
+            path = models.file(actor())
+        except KeyError:
+            raise HTTPException(404, missing) from None
+        return FileResponse(path, media_type="model/gltf-binary")
+
+    @result.put("/office/model")
+    async def import_office_model(request: Request):
+        identity = actor()
+        data = await request.body()
+        try:
+            return await run_in_threadpool(models.save, identity, data, unquote(request.headers.get("x-model-name", "")))
+        except OfficeModelError as exc:
+            raise HTTPException(422, str(exc)) from None
+        except OSError:
+            raise HTTPException(507, "Model bu bilgisayara kaydedilemedi. Disk alanını ve çalışma klasörü izinlerini kontrol edin.") from None
+
+    @result.put("/office/model/placement")
+    def place_office_model(body: Placement):
+        try:
+            return models.place(actor(), body)
+        except KeyError:
+            raise HTTPException(404, missing) from None
+
+    @result.delete("/office/model", status_code=204)
+    def delete_office_model():
+        models.delete(actor())
+        return Response(status_code=204)
 
     @result.get("/workflows")
     def workflows():

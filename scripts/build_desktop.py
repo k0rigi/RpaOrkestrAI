@@ -15,7 +15,8 @@ def office_assets() -> Path:
     """The entire static tree is bundled, including licensed Three.js ES modules."""
     folder = ROOT / "src" / "rpa_orkestrai" / "static"
     for name in ("office.js", "office.css", "native-office-check.js", "vendor/three/three.module.js",
-                 "vendor/three/addons/controls/OrbitControls.js", "vendor/three/LICENSE",
+                 "vendor/three/addons/controls/OrbitControls.js", "vendor/three/addons/loaders/GLTFLoader.js",
+                 "vendor/three/addons/utils/BufferGeometryUtils.js", "vendor/three/LICENSE",
                  "vendor/three/manifest.json", "vendor/three/KAYNAK.md"):
         if not (folder / name).is_file():
             raise SystemExit(f"Yerel ofis kaynağı pakete eklenemiyor: {name}")

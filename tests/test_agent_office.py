@@ -195,7 +195,8 @@ def test_windows_checkout_preserves_upstream_vendor_bytes(tmp_path):
     _check_office_assets(root)
 
 
-@pytest.mark.parametrize("name", ["three.module.js", "addons/controls/OrbitControls.js", "LICENSE"])
+@pytest.mark.parametrize("name", ["three.module.js", "addons/controls/OrbitControls.js", "addons/loaders/GLTFLoader.js",
+                                  "addons/utils/BufferGeometryUtils.js", "LICENSE"])
 def test_office_integrity_rejects_changed_line_endings(tmp_path, name):
     root = Path(__file__).resolve().parents[1] / "src" / "rpa_orkestrai" / "static"
     vendor = tmp_path / "vendor" / "three"
@@ -212,6 +213,7 @@ def test_office_integrity_rejects_changed_line_endings(tmp_path, name):
 
 
 @pytest.mark.parametrize("name", ["vendor/three/three.module.js", "vendor/three/addons/controls/OrbitControls.js",
+                                  "vendor/three/addons/loaders/GLTFLoader.js", "vendor/three/addons/utils/BufferGeometryUtils.js",
                                   "vendor/three/LICENSE", "office.js", "native-office-check.js"])
 def test_packaged_office_check_detects_missing_or_changed_files(tmp_path, name):
     root = Path(__file__).resolve().parents[1] / "src" / "rpa_orkestrai" / "static"

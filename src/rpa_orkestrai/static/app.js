@@ -7833,8 +7833,9 @@
     ]);
   }
   function resetDialog(username) {
-    const email = textInput(username?.includes("@") ? username : "", "ad@ornek.com", "email");
-    email.autocomplete = "username";
+    const login = textInput(username || "", "Kullanıcı adı veya ad@ornek.com");
+    login.autocomplete = "username";
+    login.autocapitalize = "none";
     const code = textInput("", "XXXX-XXXX-XXXX");
     code.autocomplete = "one-time-code";
     code.autocapitalize = "characters";
@@ -7843,20 +7844,20 @@
     const repeat = textInput("", "", "password");
     repeat.autocomplete = "new-password";
     let show = () => {};
-    dialog("Şifre yenileme kodu", (body) => {
-      body.append(node("p", "small muted", "Bireysel hesabınızın şifresini unuttuysanız orkestrai.net size tek kullanımlık bir kod verir. Kod 24 saat geçerlidir. Firma hesaplarında şifre için firma yöneticinize başvurun."));
-      show = passwordForm(body, [["E-posta", email], ["Yenileme kodu", code], ["Yeni şifre", fresh, "En az 8 karakter; harf ve rakam içersin."],
+    dialog("Şifre kodu", (body) => {
+      body.append(node("p", "small muted", "orkestrai.net, yeni açılan hesabınızın ilk şifresi veya unuttuğunuz şifre için size tek kullanımlık bir şifre kodu verir. Kodu, kullanıcı adınızla veya e-posta adresinizle birlikte yazın ve kendi şifrenizi belirleyin. Kodun geçerlilik süresi kodla birlikte bildirilir."));
+      show = passwordForm(body, [["Kullanıcı adı veya e-posta", login], ["Şifre kodu", code], ["Yeni şifre", fresh, "En az 8 karakter; harf ve rakam içersin."],
         ["Yeni şifre (tekrar)", repeat]]);
-      queueMicrotask(() => (email.value ? code : email).focus());
+      queueMicrotask(() => (login.value ? code : login).focus());
     }, [
       { label: "Vazgeç", fn: (d) => d.close() },
       { label: "Şifreyi yenile ve giriş yap", variant: "primary", fn: async (d) => {
-        const problem = !email.value.includes("@") ? "E-posta adresinizin tamamını yazın."
-          : code.value.trim().length < 8 ? "Yenileme kodunu yazın." : passwordProblem(fresh.value, repeat.value);
+        const problem = !login.value.trim() ? "Kullanıcı adınızı veya e-posta adresinizi yazın."
+          : code.value.trim().length < 8 ? "Şifre kodunu yazın." : passwordProblem(fresh.value, repeat.value);
         if (problem) return show(problem);
         try {
           const result = await api("/api/license/reset", {
-            method: "POST", body: JSON.stringify({ email: email.value.trim(), code: code.value.trim(), password: fresh.value }) });
+            method: "POST", body: JSON.stringify({ login: login.value.trim(), code: code.value.trim(), password: fresh.value }) });
           d.close();
           if (result.state === "valid") return boot();
           showLicenseGate(result);
@@ -8063,7 +8064,7 @@
     const help = node("p", "license-footnote", "Firma hesabınızın işlemleri için firma yöneticinize başvurun. Bireysel kullanım için ");
     help.append(externalLink("orkestrai.net/rpa", RENEWAL_PAGE), " sayfasından başvurabilirsiniz.");
     help.querySelector("a").className = "";
-    const reset = button("Şifre yenileme kodum var", "key", () => resetDialog(username.value.trim()));
+    const reset = button("Şifre kodum var", "key", () => resetDialog(username.value.trim()));
     reset.classList.add("ghost");
     card.append(form, reset, help);
     queueMicrotask(() => (username.value ? password : username).focus());

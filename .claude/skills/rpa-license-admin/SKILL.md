@@ -56,18 +56,28 @@ Kurallar:
 - Firmanın MOD_AJAN satırı değişmez. Yeni kişinin dönemi, firmanın MOD_AJAN ve MOD_RPA dönemlerinin içinde olmalıdır.
 - `PolitikaSurumu = 1` (tek onaycılı) firma, yalnız kayıtlı onaycısı için çalıştırıldığında ofise dönüşür. Onaycının mevcut lisans tarihleri aynen yazılır; görev ve onay geçmişi ile bugünkü ekip o ofise taşınır.
 - Kullanıcı kimliği bilinmiyorsa `preflight` herhangi bir kimlikle çalıştırılır. Hesap adı firmada bulunursa sonuçta `found_user_id` görünür; `apply` bu kimlik açıkça yazılarak yeniden çalıştırılır.
-- Ofislere ayrılmış firmada ofise bağlı olmayan hesap Ajanlar'ı göremez. Sorun incelerken önce kişinin ofis üyeliğine bak (`SYS_AjanOfisUyeleri`, `SYS_AjanOfisleri`).
+- 0.9.36'dan itibaren ofisi kullanıcı kurar: ofislere ayrılmış (veya organizasyon kaydı olmayan) firmada ofisi olmayan lisanslı hesap, Studio'da Ajanlar'ı açınca kendi ofisini kurar (lisans iddiası `ofis_kurabilir`). Yetkili, ofisi olmayan lisanslı çalışanları Ofisim sekmesinden ekler. Bu iş akışı artık yalnız toplu geçiş veya yetkili kendisi yapamadığında gerekir. Sorun incelerken önce kişinin ofis üyeliğine bak (`SYS_AjanOfisUyeleri`, `SYS_AjanOfisleri`).
 
 Firma, kullanıcı, ofis, yetkili ve bitiş tarihini kullanıcıdan açıkça teyit etmeden `apply` çalıştırma.
 
+## Firmaya kullanıcı açma
+
+Mevcut bir firmaya yeni hesap, orkestrai deposundaki **RpaOrkestrAI kullanıcı yönetimi** iş akışıyla (`rpa-user-management.yml`) açılır; SSH kullanılmaz. Önce `preflight`, sonucu temizse aynı girdilerle `apply`. `reviewed_sha` yukarıdaki gibi yayımlanmış commit olmalıdır.
+
+- Girdiler: `company_id`, `login` (kullanıcı adı veya e-posta; firmada aynı ad veya @ öncesi varsa reddedilir), `full_name`, `starts_on`, `expires_on`, `agents` (`true` ise MOD_AJAN da yazılır).
+- Hesap `Personel` rolünde ve kullanılamaz bir şifreyle açılır; MOD_RPA (ve MOD_AJAN) yalnız hesap satırına yazılır. Dönem firmanın modül dönemleri içinde olmalıdır; firmanın satırları değişmez. Ofis atanmaz.
+- `apply` sonucu 7 gün geçerli tek kullanımlık bir şifre kodu verir. Kod Actions günlüğünde de görünür (depo gizlidir); kullanıcıya güvenli kanaldan ilet ve sohbette veya dosyada bırakma. Kullanıcı Studio 0.9.36+ giriş ekranında **Şifre kodum var** ile kullanıcı adını, kodu ve kendi şifresini yazar.
+
+Firma, giriş adı, görünen ad, dönem ve Ajanlar seçimini kullanıcıdan açıkça teyit etmeden `apply` çalıştırma.
+
 ## Bireysel hesaplar
 
-Kişiler `orkestrai.net/rpa/#bireysel` formundan başvurur (`SYS_RpaBasvurulari`, durum `bekliyor`). Başvuru lisans vermez. Ödemeyi platform yöneticisi (Admin) `orkestrai.net/rpa-yonetim.html` sayfasında onaylar: tek kullanıcılı firma, `Personel` hesabı, MOD_RPA firma+hesap satırları ve Ajanlar seçildiyse MOD_AJAN satırları ile ajan ekibi birlikte açılır.
+Kişiler `orkestrai.net/rpa/#bireysel` formundan başvurur (`SYS_RpaBasvurulari`, durum `bekliyor`). Başvuru lisans vermez. Ödemeyi platform yöneticisi (Admin) `orkestrai.net/rpa-yonetim.html` sayfasında onaylar: tek kullanıcılı firma, `Personel` hesabı, MOD_RPA firma+hesap satırları ve Ajanlar seçildiyse MOD_AJAN satırları birlikte açılır. Ajan ekibi onayda açılmaz; kişi Studio'da kendi ofisini kurar.
 
 Aynı sayfada şunlar yapılır:
 - süre uzatma;
 - Ajanlar'ı ekleme veya kaldırma;
-- tek kullanımlık şifre yenileme kodu (24 saat geçerli; kişi Studio'da "Şifre yenileme kodum var" ile kullanır).
+- tek kullanımlık şifre yenileme kodu (24 saat geçerli; kişi Studio'da "Şifre kodum var" ile, 0.9.35'te "Şifre yenileme kodum var" ile kullanır).
 
 Uçlar `/api/rpa/yonetim/...` altındadır ve yalnız veritabanında etkin Admin rolündeki web oturumuyla çalışır; firma hesaplarına dokunmaz. Bireysel hesap, `SYS_RpaBasvurulari` içinde `Durum = 'onaylandi'` ve `FirmaID` ile tanınır.
 

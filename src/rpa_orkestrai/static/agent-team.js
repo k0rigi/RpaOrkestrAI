@@ -44,8 +44,8 @@
   }
   function state(status) { return el("span", labels[status] || "Bilinmiyor", "agent-status"); }
   const finished = new Set(["succeeded", "failed", "cancelled"]);
-  async function confirmed(options, title, message) {
-    if (options.confirmDialog) return options.confirmDialog(title, message, "Sil", true);
+  async function confirmed(options, title, message, label = "Sil") {
+    if (options.confirmDialog) return options.confirmDialog(title, message, label, true);
     return window.confirm(`${title}\n\n${message}`);
   }
   function time(value) { return value ? new Date(value).toLocaleString("tr-TR") : "—"; }
@@ -174,7 +174,7 @@
         list.append(el("li", `${member.ad_soyad}${member.onayci ? (office ? " · Ofis yetkilisi" : " · Onay yetkilisi") : ""}`));
       }
       humans.append(list, el("p", office
-        ? "Bu liste ofisinize bağlı, ajan lisansı bulunan hesaplardan gelir. Diğer departmanların ofisleri burada görünmez. Ofise kişi ekleme ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır."
+        ? "Bu liste ofisinize bağlı, ajan lisansı bulunan hesaplardan gelir. Diğer departmanların ofisleri burada görünmez. Ofis yetkilisi lisanslı çalışanları Ofisim sekmesinden ofise ekler; lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır."
         : "Bu liste ayrı ajan lisansı bulunan kurum hesaplarından gelir. Hesap oluşturma ve lisans atama kurum yönetiminde yapılır. İnsan çalışanlara Görevler sekmesinden iş atanır.", "agent-help"));
     }).catch((error) => {
       if (view.alive) humans.replaceChildren(el("h3", people), el("p", error.message, "agent-warning"));
@@ -412,6 +412,78 @@
     });
     return view.dispose;
   }
+  // The office of the account: its authority names it and places licensed colleagues; a member may leave.
+  function mountMyOffice(container, options) {
+    const view = setup(container, options);
+    const draw = (data) => {
+      if (!view.alive) return;
+      const office = data.office;
+      if (!office) {
+        container.replaceChildren(el("h2", "Ofisim"), el("p", "Bu hesap bir ofise bağlı değil.", "muted"));
+        return;
+      }
+      const head = el("div", undefined, "agent-toolbar");
+      head.append(el("h2", office.name));
+      // A personal account is a team of one: there are no colleagues to place in its office.
+      const individual = Boolean(options.session.individual);
+      const intro = el("p", !office.is_authority ? "Bu ofisin üyesisiniz. Ajanları ve onayları ofisin yetkilisi yönetir."
+        : individual ? "Bu ofisin yetkilisisiniz: ajanları kurar ve riskli işlemleri onaylarsınız."
+          : "Bu ofisin yetkilisisiniz: ajanları kurar, riskli işlemleri onaylar ve çalışanları ofise yerleştirirsiniz.", "muted");
+      const people = el("ul", undefined, "agent-people");
+      for (const member of data.members || []) {
+        const row = el("li", `${member.name}${member.authority ? " · Ofis yetkilisi" : ""}`);
+        if (office.is_authority && !member.authority) {
+          row.append(" ", button("Ofisten çıkar", () => view.act(async () => {
+            if (!(await confirmed(options, "Ofisten çıkar", `${member.name} bu ofisten çıkarılsın mı? Ofisteki görev geçmişi ofiste kalır.`, "Çıkar"))) return;
+            await view.request(`/api/agents/central/my-office/members/${member.user_id}/remove`, "POST", {});
+            options.toast(`${member.name} ofisten çıkarıldı.`);
+            await load();
+          }), "small"));
+        }
+        people.append(row);
+      }
+      const parts = [head, intro, el("h3", "Ofisteki çalışanlar"), people];
+      if (office.is_authority) {
+        const rename = input("Ofis adı", office.name);
+        rename.field.maxLength = 120;
+        parts.push(rename.wrapper, button("Adı kaydet", () => view.act(async () => {
+          await view.request("/api/agents/central/my-office/name", "POST", { name: rename.field.value.trim().replace(/\s+/g, " ") });
+          options.toast("Ofis adı kaydedildi. Yeni ad birkaç dakika içinde tüm ekranlarda görünür.");
+          await load();
+        })));
+        if (!individual) {
+          parts.push(el("h3", "Ofise çalışan ekle"));
+          if ((data.candidates || []).length) {
+            const choice = dropdown("Ofisi olmayan lisanslı çalışan", data.candidates.map((item) => [String(item.user_id), item.name]));
+            parts.push(choice.wrapper, button("Ofise ekle", () => view.act(async () => {
+              const picked = data.candidates.find((item) => String(item.user_id) === choice.field.value);
+              await view.request("/api/agents/central/my-office/members", "POST", { user_id: Number(choice.field.value) });
+              options.toast(`${picked?.name || "Çalışan"} ofise eklendi.`);
+              await load();
+            }), "primary"));
+          } else {
+            parts.push(el("p", "Ofisi olmayan, RPA ve Ajanlar lisanslı çalışan yok. Yeni çalışanlara lisans orkestrai.net yönetiminden verilir; kendi ofisini kuran çalışan buraya gelmez.", "agent-help"));
+          }
+        }
+      } else {
+        parts.push(button("Ofisten ayrıl", () => view.act(async () => {
+          if (!(await confirmed(options, "Ofisten ayrıl", "Bu ofisten ayrılırsanız ofisin görevlerini ve onaylarını görmezsiniz. İsterseniz sonra kendi ofisinizi kurabilirsiniz.", "Ayrıl"))) return;
+          await view.request("/api/agents/central/my-office/leave", "POST", {});
+          options.toast("Ofisten ayrıldınız.");
+          options.reload?.();
+        })));
+      }
+      const page = el("section", undefined, "agent-my-office");
+      page.append(...parts);
+      container.replaceChildren(page);
+    };
+    const load = async () => draw(await view.request("/api/agents/central/my-office"));
+    container.replaceChildren(el("h2", "Ofisim"), el("p", "Ofis bilgisi yükleniyor…", "muted"));
+    load().catch((error) => { if (view.alive) container.replaceChildren(el("h2", "Ofisim"), el("p", error.message, "agent-warning")); });
+    return view.dispose;
+  }
+
+  window.RpaAgents.registerTab({ id: "my-office", label: "Ofisim", mount: mountMyOffice, hidden: (session) => !session?.office });
   window.RpaAgents.registerTab({ id: "organization", label: "Organizasyon", mount: mountOrganization });
   // Human tasks need colleagues; a person's own account has none.
   window.RpaAgents.registerTab({ id: "tasks", label: "Görevler", mount: mountTasks, hidden: (session) => Boolean(session?.individual) });

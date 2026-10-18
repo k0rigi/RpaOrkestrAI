@@ -20,7 +20,8 @@ def _check_office_assets(static_root: Path | None = None) -> None:
     """Check actual frozen resources; never fetch a missing vendor file from a CDN."""
     root = static_root or Path(__file__).parent / "static"
     vendor = root / "vendor" / "three"
-    required = {"three.module.js", "addons/controls/OrbitControls.js", "LICENSE"}
+    required = {"three.module.js", "addons/controls/OrbitControls.js", "addons/loaders/GLTFLoader.js",
+                "addons/utils/BufferGeometryUtils.js", "LICENSE"}
     try:
         manifest = json.loads((vendor / "manifest.json").read_text(encoding="utf-8"))
         if manifest.get("version") != "0.160.0" or set(manifest.get("files", {})) != required:

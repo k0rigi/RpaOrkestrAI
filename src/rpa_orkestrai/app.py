@@ -132,6 +132,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     from .agents.central import CentralApprovalBackend, CentralClient
     from .agents.connections import ProviderConnectionStore
     from .agents.metrics_api import router as agent_metrics_router
+    from .agents.office_model import MODEL_LIMIT as OFFICE_MODEL_LIMIT
     from .agents.providers import ProviderError
     from .agents.runner import AgentService
     from .agents.shared_provider import SharedProvider
@@ -240,7 +241,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             and request.headers.get("sec-fetch-mode") == "navigate"
         ):
             return JSONResponse({"detail": "Harici tarayıcı isteği engellendi."}, status_code=403)
-        limit = IMPORT_LIMIT if request.url.path == "/api/workflows/import" else REQUEST_LIMIT
+        limit = (IMPORT_LIMIT if request.url.path == "/api/workflows/import"
+                 else OFFICE_MODEL_LIMIT if request.method == "PUT" and request.url.path == "/api/agents/office/model"
+                 else REQUEST_LIMIT)
         too_large = JSONResponse({"detail": f"İstek en fazla {limit // 1_000_000} MB olabilir."}, status_code=413)
         try:
             content_length = int(request.headers.get("content-length", "0"))
@@ -269,7 +272,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'sha256-dkIVxJOkhk+dsLekdBE1wjlHzMelv+mUnkUYQRC39To='; "
             "style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+            # The 3D office reads the textures of an imported model from in-memory blob addresses.
+            "img-src 'self' data: blob:; connect-src 'self' blob:; frame-ancestors 'none'; "
             "base-uri 'none'; form-action 'self'"
         )
         if request.url.path.startswith("/api/"):
@@ -336,7 +340,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     @app.post("/api/license/reset")
     def license_reset(body: PasswordResetRequest):
         try:
-            licensing.reset_password(body.email, body.code, body.password)
+            licensing.reset_password(body.login, body.code, body.password)
         except LicenseUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except LicenseError as exc:

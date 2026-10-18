@@ -49,12 +49,15 @@
       const data = { agents: [{ id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name: "Kontrol ajanı", role: "manager",
         department: "Genel", status: "idle", task_id: null, task_label: "Görev bekliyor", queue_count: 0 }],
         departments: [{name: "Kontrol alanı", agent_count: 1}], totals: {agents: 1, queued: 0, running: 0, waiting: 0} };
+      // Opening the office only reads: the scene, the people and whether this computer has an own model.
+      const reads = ["/api/agents/office", "/api/agents/central/office", "/api/agents/office/model"];
       const options = { api: async (path, request = {}) => {
         calls++;
-        if ((request.method || "GET") !== "GET" || !["/api/agents/office", "/api/agents/central/office"].includes(path)) {
+        if ((request.method || "GET") !== "GET" || !reads.includes(path)) {
           writes++; throw new Error("Ofis kontrolünde salt okunur sınır aşıldı.");
         }
         if (path === "/api/agents/central/office") return {success: true, people: []};
+        if (path === "/api/agents/office/model") return {present: false, placement: {}};
         return structuredClone(data);
       } };
       const root = document.getElementById("native-office-root");

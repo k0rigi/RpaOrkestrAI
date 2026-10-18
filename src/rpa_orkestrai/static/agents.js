@@ -317,6 +317,7 @@
     active.alive = false;
     clearTimeout(active.timer);
     clearTimeout(active.attentionTimer);
+    clearTimeout(active.officeTimer);
     document.removeEventListener("visibilitychange", active.visibility);
     active.extensionCleanup?.();
     active = null;
@@ -360,6 +361,7 @@
       ]);
       if (!view.alive) return;
       [view.session, view.agents, view.connections, view.workflows, view.notes, view.studioConnections] = values;
+      if (view.session.can_create_office) return officeSetup(view, container, options);
       shell(view);
       showTab(view, view.tabButtons.has(options.initialTab) ? options.initialTab : "agents");
       pollAttention(view);
@@ -369,6 +371,46 @@
       notice.append(action("Yeniden dene", () => mount(container, options)));
       container.replaceChildren(notice);
     }
+  }
+
+  // A licensed account outside every office opens its own office first; it becomes the office's authority.
+  function officeSetup(view, container, options) {
+    const page = element("section", null, "agent-office-setup");
+    const name = document.createElement("input");
+    name.type = "text"; name.maxLength = 120; name.className = "field-input"; name.id = "agent-office-name";
+    name.placeholder = "ör. Satın Alma Departmanı";
+    const label = element("label", "Ofis adı", "field-label"); label.htmlFor = name.id;
+    const message = element("p", "", "agent-help"); message.setAttribute("role", "status");
+    const create = action("Ofisi kur", async () => {
+      const value = name.value.trim().replace(/\s+/g, " ");
+      if (value.length < 2) { message.textContent = "Ofisinize en az 2 karakterlik bir ad verin."; name.focus(); return; }
+      create.disabled = true; message.textContent = "Ofis kuruluyor…";
+      try {
+        await view.request("/api/agents/central/my-office", "POST", { name: value });
+        mount(container, options);
+      } catch (error) {
+        message.textContent = error.message; create.disabled = false;
+      }
+    }, "primary");
+    name.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); create.click(); } });
+    // An office authority may add this account meanwhile; the page then opens that office by itself.
+    const watch = async () => {
+      if (!view.alive) return;
+      try {
+        if (!document.hidden && (await view.request("/api/agents/central/my-office")).office && view.alive) {
+          mount(container, options);
+          return;
+        }
+      } catch { /* The next check tries again; the form stays usable. */ }
+      if (view.alive) view.officeTimer = setTimeout(watch, 30000);
+    };
+    view.officeTimer = setTimeout(watch, 30000);
+    page.append(element("p", "AJANLAR", "agent-eyebrow"), element("h1", "Ofisinizi kurun"),
+      element("p", "Ajanlarınız ofisinizde çalışır. Ofisi siz kurarsınız ve yetkilisi siz olursunuz: yönetici ve departman ajanlarını kurar, riskli işlemleri onaylarsınız. İsterseniz ofisi olmayan lisanslı çalışma arkadaşlarınızı ofisinize eklersiniz.", "muted"),
+      label, name, create, message,
+      element("p", "Her hesap yalnız bir ofiste bulunur. Başka birinin ofisine katılacaksanız o ofisin yetkilisinin sizi eklemesini bekleyin; eklendiğinizde bu ekran en geç bir dakika içinde kendiliğinden kalkar.", "agent-help"));
+    view.container.replaceChildren(page);
+    queueMicrotask(() => name.focus());
   }
 
   function shell(view) {
@@ -458,7 +500,9 @@
       const result = extensions.get(tab).mount(view.pane, { ...view.options, session: view.session,
         agents: view.agents, connections: view.connections, workflows: view.workflows,
         openAgentRun: (identity) => openRun(view, identity),
-        openTab: (name) => { if (view.tabButtons.has(name)) showTab(view, name); } });
+        openTab: (name) => { if (view.tabButtons.has(name)) showTab(view, name); },
+        // Leaving an office changes the account's rights: the whole page is drawn again.
+        reload: () => mount(view.container, view.options) });
       if (typeof result === "function") view.extensionCleanup = result;
       else if (result?.then) result.then((cleanup) => {
         if (!view.alive || view.tab !== tab) cleanup?.();

@@ -201,9 +201,11 @@ def _agent_claims(value: Any, claims: dict) -> dict:
                                    or not isinstance(office_name, str) or not 1 <= len(office_name) <= 120
                                    or any(ord(char) < 32 for char in office_name)):
             return {}
+        # A licensed account outside every office may open its own office (ofis_kurabilir).
         return {"user_id": user_id, "company_id": company_id, "owner_id": owner_id,
                 "session_id": session_id, "permissions": tuple(permissions), "ends_on": ends,
-                "office_id": office, "office_name": office_name if office else ""}
+                "office_id": office, "office_name": office_name if office else "",
+                "can_create_office": office is None and value.get("ofis_kurabilir") is True}
     except (KeyError, TypeError, ValueError):
         return {}
 
@@ -332,7 +334,8 @@ class LicenseService:
                          name=self._license.full_name or self._license.user,
                          session_id=extension["session_id"], permissions=extension["permissions"],
                          office_id=extension.get("office_id"), office_name=extension.get("office_name") or "",
-                         individual=self._license.account_type == "bireysel")
+                         individual=self._license.account_type == "bireysel",
+                         can_create_office=extension.get("can_create_office") is True)
 
     def agent_allowed(self) -> bool:
         return self.agent_actor() is not None
@@ -504,19 +507,20 @@ class LicenseService:
             raise LicenseError(str(exc)) from exc
         return self.login(user, password)
 
-    def reset_password(self, email: str, code: str, password: str) -> dict:
-        """A one-time code from the platform administrator sets a new password, then signs in."""
+    def reset_password(self, login: str, code: str, password: str) -> dict:
+        """A one-time code from orkestrai.net sets a new (or the first) password, then signs in."""
         password = self._new_password(password)
-        if (not isinstance(email, str) or "@" not in email or len(email.strip()) > 150
+        if (not isinstance(login, str) or not login.strip() or len(login.strip()) > 150
                 or not isinstance(code, str) or not 8 <= len(code.strip()) <= 32):
-            raise LicenseError("E-posta adresinizi ve yenileme kodunu yazın.")
-        email = email.strip()
+            raise LicenseError("Kullanıcı adınızı veya e-posta adresinizi ve şifre kodunu yazın.")
+        login = login.strip()
         try:
-            self._post("sifre-yenile", {"eposta": email, "kod": code.strip(), "yeni_sifre": password},
+            # The account may have no e-mail address: "kullanici" takes a user name or an address.
+            self._post("sifre-yenile", {"kullanici": login, "kod": code.strip(), "yeni_sifre": password},
                        base=self._account_api)
         except LicenseDenied as exc:
             raise LicenseError(str(exc)) from exc
-        return self.login(email, password)
+        return self.login(login, password)
 
     def logout(self) -> dict:
         with self._refresh_lock:
