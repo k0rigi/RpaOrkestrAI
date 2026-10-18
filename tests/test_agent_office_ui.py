@@ -305,8 +305,12 @@ def test_human_connection_failure_clears_stale_people_without_breaking_agent_sce
     page = start()
     page.locator('.office-person-label[data-person="human-18"]').click()
     page.locator(".office-detail").get_by_text("Kişisel görev", exact=True).wait_for()
+    # Rebuilding the scene for the new population never leaves the office without its 3D view, not even for a frame.
+    page.evaluate("""() => { const view = document.querySelector('.office-view'); window.officeBlank = 0;
+      new MutationObserver(() => { if (!view.querySelector('canvas')) window.officeBlank++; }).observe(view, {childList: true}); }""")
     data["_human_error"] = True
     page.locator('.office-person-label[data-person="human-18"]').wait_for(state="hidden")
+    assert page.evaluate("window.officeBlank") == 0
     assert page.locator('.office-view[data-mode="3d"] canvas').count() == 1
     assert page.locator(".office-person-label").count() == 5
     assert page.locator(".office-detail").is_hidden()
@@ -526,11 +530,13 @@ def test_the_sample_office_places_everyone_on_its_own_points(office_browser):
         page.screenshot(path=str(Path(target) / "ornek-ofis.png"), full_page=True)
     interactive_ids(page)
     # The same places on the next start: the mapping is kept.
-    before = dict(data["_places"])
+    before, asked = dict(data["_places"]), len(calls)
     page.get_by_role("button", name="2D plan", exact=True).click()
     page.locator(".office-plan-path").first.wait_for(state="attached")
     assert page.locator(".office-plan-path").count() == len(data["_model"]["layout"]["edges"])
     assert page.locator(".office-plan-person").count() == 7 and data["_places"] == before
+    # Switching the view neither reads the layout again nor rewrites anybody's place.
+    assert not [path for _, path, _ in calls[asked:] if path.startswith("/api/agents/office/model")]
     assert set(page.locator(".office-plan-area").all_text_contents()) == labels
     if target:
         page.screenshot(path=str(Path(target) / "ornek-ofis-2d.png"), full_page=True)

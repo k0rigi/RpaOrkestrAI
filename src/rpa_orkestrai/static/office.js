@@ -190,7 +190,8 @@ export function mountOffice(container, options) {
   let alive = true, mode = "3d", model = null, timer = null, pending = false, scene = null, generation = 0;
   let shapeKey = "", lastData = null, selected = null, panelVersion = 0, humansLoaded = false;
   let modelInfo = null, modelState = { id: null, promise: null, value: null }, modelNotice = "", placeTimer = null;
-  let placement = { ...PLACEMENT }, layoutState = null;
+  // The layout and everybody's place are read again only when the people or the model change, never for a view switch.
+  let placement = { ...PLACEMENT }, layoutState = null, layoutStale = true, layoutReading = null, layoutSerial = 0;
   const session = options.session || null;
   const seenEvents = new Set();
   const title = node("div", undefined, "office-title");
@@ -305,7 +306,7 @@ export function mountOffice(container, options) {
       if (!alive) return;
       clearTimeout(placeTimer); modelInfo = info; placement = { ...PLACEMENT, ...info.placement }; drawModel();
       modelMessage("Model içe aktarıldı; 3D ofis hazırlanıyor…");
-      await switchMode("3d");
+      layoutStale = true; await switchMode("3d");
       if (alive && !modelNotice) modelMessage(layoutState?.places?.full ? "Model yerleştirildi; ofis kapasitesi dolu, yerleşemeyenler listede."
         : "Model yerleştirildi; ajanlar çalışma noktalarında.");
     } catch (error) {
@@ -337,22 +338,33 @@ export function mountOffice(container, options) {
       await options.api("/api/agents/office/model", { method: "DELETE" });
       if (!alive) return;
       modelInfo = { present: false, placement: { ...PLACEMENT } }; placement = { ...PLACEMENT }; drawModel();
-      if (mode !== "list") await switchMode(mode); else releaseModel();
+      layoutStale = true; await switchMode(mode);
       modelMessage("Varsayılan ofise dönüldü.");
     } catch (error) { if (alive) modelMessage(error.message, true); }
   }
   // The layout of the imported model and everybody's persistent point on it.
   async function officeLayout() {
+    const serial = ++layoutSerial;
     const info = await options.api("/api/agents/office/model");
-    if (!alive) return null;
+    if (!alive || serial !== layoutSerial) return layoutState;
     const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id || Boolean(modelInfo?.rejected) !== Boolean(info.rejected);
     modelInfo = info;
     if (changed) { placement = { ...PLACEMENT, ...info.placement }; drawModel(); }
     if (!info.present || !info.layout) { releaseModel(); layoutState = null; return null; }
     const places = await options.api("/api/agents/office/model/assignments", { method: "POST",
       body: JSON.stringify({ occupants: occupants(lastData), humans_complete: humansLoaded }) });
+    if (!alive || serial !== layoutSerial) return layoutState;
     layoutState = { id: info.id, layout: info.layout, places };
     return layoutState;
+  }
+  // Starts a read when the people or the model changed; a view switch meanwhile waits for the same read.
+  function readLayout() {
+    if (!layoutStale) return layoutReading;
+    layoutStale = false; modelNotice = "";
+    const reading = layoutReading = officeLayout().catch((error) => {
+      layoutState = null; modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`;
+    }).then(() => { if (layoutReading === reading) layoutReading = null; });
+    return reading;
   }
   // The model is read once and reused while agents come and go; only a new import reads the file again.
   function officeModel(THREE) {
@@ -381,7 +393,7 @@ export function mountOffice(container, options) {
   function placeOf(person) {
     const point = layoutState?.places?.places?.[person.id];
     if (!layoutState) return "";
-    if (!point) return " · Yer yok (ofis kapasitesi dolu)";
+    if (!point) return layoutStale || layoutReading ? "" : " · Yer yok (ofis kapasitesi dolu)";
     const kind = layoutState.layout.points[point]?.kind;
     return ` · ${PLACE_NAMES[kind] || "Nokta"} ${point.replace(/^RPA_[A-Z]+_/, "")}`;
   }
@@ -615,22 +627,24 @@ export function mountOffice(container, options) {
     frame.hidden = mode === "list"; reset.hidden = mode !== "3d"; legend.hidden = mode !== "3d";
     list.classList.toggle("office-list-primary", mode === "list");
   }
+  function dropScene() { const previous = scene; scene = null; previous?.dispose(); }
   async function switchMode(next) {
     if (!alive || !lastData) return;
-    mode = next; scene?.dispose(); scene = null;
-    const version = ++generation; updateMode();
-    if (mode === "list") { view.replaceChildren(); status.textContent = "Erişilebilir liste görünümü"; return; }
-    modelNotice = "";
-    let office = null;
-    try { office = await officeLayout(); }
-    catch (error) { layoutState = null; modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
-    if (!alive || generation !== version || mode !== next) return;
+    mode = next; const version = ++generation; updateMode();
+    // The current 3D scene stays on screen, paused on its last frame, until the next view is ready: people coming
+    // and going never blank the office while the layout is read, and nothing draws a model being released.
+    scene?.pause(true);
+    if (mode === "list") { dropScene(); view.replaceChildren(); status.textContent = "Erişilebilir liste görünümü"; }
+    else if (mode === "3d" && !scene) view.replaceChildren(node("p", "3D ofis hazırlanıyor…", "office-loading"));
+    const reading = readLayout();
+    if (reading) { await reading; if (!alive || generation !== version || mode !== next) return; }
+    const office = layoutState;
     showCapacity(); updateList(lastData);
+    if (mode === "list") return;
     if (mode === "2d") {
-      drawPlan(lastData); status.textContent = modelNotice || (office ? "2D ofis planı · kendi modeliniz" : "2D ofis planı");
+      dropScene(); drawPlan(lastData); status.textContent = modelNotice || (office ? "2D ofis planı · kendi modeliniz" : "2D ofis planı");
       return;
     }
-    view.replaceChildren(node("p", "3D ofis hazırlanıyor…", "office-loading"));
     try {
       model ||= Promise.all([import("three"), import("three/addons/controls/OrbitControls.js")]);
       const [THREE, { OrbitControls }] = await model;
@@ -641,6 +655,7 @@ export function mountOffice(container, options) {
         catch (error) { layoutState = null; showCapacity(); modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
       }
       if (!alive || generation !== version || mode !== "3d") return;
+      dropScene();  // In the same task as the new scene: no frame without an office.
       scene = createScene(THREE, OrbitControls, view, lastData, fallback, selectPerson, seenEvents,
         own && layoutState ? { model: own, layout: layoutState.layout, places: layoutState.places, placement } : null);
       status.textContent = modelNotice || (own && layoutState ? "3D ofis · kendi modeliniz" : "3D ofis · yerel görünüm");
@@ -661,6 +676,10 @@ export function mountOffice(container, options) {
       const humans = central.status === "fulfilled" && Array.isArray(central.value?.people) ? central.value.people.slice(0, 500) : null;
       data.people = humans || []; humansLoaded = humans !== null;
       humanWarning.hidden = humans !== null; humanWarning.textContent = humans === null ? "İnsan çalışanların durumu alınamadı. Kurum bağlantısı yenilendiğinde tekrar gösterilecek." : "";
+      // A new population needs new places; until they are read, a newcomer's place is unknown rather than "full".
+      const key = JSON.stringify([data.departments, population(data).map((p) => [p.id, p.kind, p.role, p.department])]);
+      const reshaped = shapeKey !== key;
+      if (reshaped) { shapeKey = key; layoutStale = true; }
       lastData = data; updateList(data); updateFeed(data);
       if (selected) {
         const person = population(data).find((item) => item.id === selected);
@@ -668,8 +687,7 @@ export function mountOffice(container, options) {
         else if (person.kind === "human" && !person.can_view_tasks && panel.querySelector(".office-detail-body")) selectPerson(person.id);
         else if (panel.querySelector(".office-detail-live")) panel.querySelector(".office-detail-live").textContent = `${stateName(person)} · ${person.task_label || "Görev bekliyor"}`;
       }
-      const key = JSON.stringify([data.departments, population(data).map((p) => [p.id, p.kind, p.role, p.department])]);
-      if (shapeKey !== key) { shapeKey = key; await switchMode(mode); }
+      if (reshaped) await switchMode(mode);
       else if (mode === "2d") drawPlan(data);
       else scene?.update(data);
     } catch (error) { if (alive) { closePanel(); status.textContent = error?.message || "Ofis bilgisi güncellenemedi."; } }
