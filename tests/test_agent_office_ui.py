@@ -433,7 +433,6 @@ def test_researching_agent_walks_to_the_research_corner_and_manager_hands_over_t
     populated(data)
     manager, researcher, worker = data["agents"][0], data["agents"][1], data["agents"][2]
     researcher.update(activity="researching", status="running")
-    manager.update(event={"id": "9" * 32, "kind": "delegated", "to_agent_id": worker["id"]})
     page = start()
     label = page.locator(f'.office-person-label[data-person="{researcher["id"]}"]')
     assert label.get_attribute("data-activity") == "researching"
@@ -441,6 +440,9 @@ def test_researching_agent_walks_to_the_research_corner_and_manager_hands_over_t
     assert label.locator(".office-person-bubble").inner_text() == "⌕"
     assert "İnternette araştırıyor" in page.locator(".office-list").inner_text()
     assert page.get_by_text("Araştırma köşesi", exact=True).count() == 1
+    # The hand-over balloon lasts three seconds; the event arrives with a refresh while the test already waits,
+    # so a slow machine cannot miss it.
+    manager.update(event={"id": "9" * 32, "kind": "delegated", "to_agent_id": worker["id"]})
     manager_label = page.locator(f'.office-person-label[data-person="{manager["id"]}"]')
     manager_label.locator(".office-person-speech").get_by_text("Görev", exact=True).wait_for()
     if os.environ.get("RPA_OFFICE_SHOT"):
