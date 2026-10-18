@@ -1584,8 +1584,63 @@
     const search = element("section", null, "agent-form agent-search");
     search.append(element("h2", "Web araması"), element("p", "İnterneti açılan ajanların arama yaparken kullandığı hizmet. Sayfa okuma için "
       + "hizmet gerekmez; ajanın internet izni ajan formundan verilir.", "muted"), element("p", "Yükleniyor…", "agent-help"));
-    view.pane.replaceChildren(toolbar, cards, search);
+    // The person's own reach: questions and approvals on Telegram while away from the computer.
+    const reach = element("section", null, "agent-form agent-telegram");
+    reach.append(element("h2", "Telegram'dan soru ve onay"), element("p", "Yükleniyor…", "agent-help"));
+    view.pane.replaceChildren(toolbar, cards, search, reach);
     renderSearch(view, search);
+    renderTelegram(view, reach);
+  }
+  async function renderTelegram(view, box) {
+    let settings;
+    try { settings = await view.request("/api/agents/telegram"); } catch (error) {
+      box.lastElementChild.textContent = error.message; return;
+    }
+    if (!view.alive || !box.isConnected) return;
+    const intro = element("p", "Bilgisayar başında değilken ajanlar size Telegram'dan sorsun; yanıtı ve onay kararını oradan verin. "
+      + "Studio açık ve internete bağlı olmalıdır. Yalnız aşağıdaki özel sohbetten gelen yanıtlar kabul edilir. Soru ve onay "
+      + "metinleri, kayıtlı gizli değerler maskelenerek Telegram'a gider.", "muted");
+    if (!settings.connections.length) {
+      box.replaceChildren(box.firstElementChild, intro, element("p", "Önce Studio Ayarlar → Bağlantılar bölümünde bir Telegram (bot) "
+        + "bağlantısı oluşturun: @BotFather'dan bot anahtarı alın, kendi hesabınızla bota /start yazın ve sohbet kimliğinizi "
+        + "bağlantıya ekleyin.", "agent-help"));
+      return;
+    }
+    const chosen = settings.connection_id || settings.connections[0].id;
+    const connection = select("Telegram bağlantısı", settings.connections.map((item) => [item.id, item.name]), chosen);
+    const chat = field("Sohbet kimliğiniz", settings.chat_id || settings.connections.find((item) => item.id === chosen)?.chat_id || "", "text",
+      "Bota /start yazdığınız kendi özel sohbetinizin sayısal kimliği. Grup veya kanal kabul edilmez.");
+    chat.input.inputMode = "numeric"; chat.input.maxLength = 20;
+    connection.input.addEventListener("change", () => {
+      const item = settings.connections.find((entry) => entry.id === connection.input.value);
+      if (item?.chat_id && !chat.input.value) chat.input.value = item.chat_id;
+    });
+    const questions = toggle("Ajan sorularını Telegram'a gönder; yanıtım oradan gelsin", settings.questions);
+    const approvals = toggle("Onay isteklerini Onayla / Reddet düğmeleriyle gönder", settings.approvals);
+    const note = element("p", view.session.can_approve ? "Onay düğmesi yalnız onay yetkilisi olduğunuz ofislerin isteklerinde gelir; "
+      + "girdileri düzenlemek için Studio'daki onay kartı kullanılır." : "Onay yetkiniz olmadığından onay istekleri size gönderilmez.", "agent-help");
+    const status = element("p", settings.configured ? "Telegram bağlantısı açık." : "Henüz kapalı.", "agent-help");
+    status.setAttribute("role", "status");
+    const body = () => ({ connection_id: connection.input.value, chat_id: chat.input.value.trim(),
+      questions: questions.input.checked, approvals: approvals.input.checked });
+    const controls = element("div", null, "agent-actions");
+    const save = action("Kaydet ve aç", () => view.busy(save, async () => {
+      await view.request("/api/agents/telegram", "PUT", body());
+      if (view.alive) { view.options.toast("Telegram'dan soru ve onay açıldı."); renderTelegram(view, box); }
+    }), "primary");
+    const test = action("Deneme mesajı gönder", () => view.busy(test, async () => {
+      await view.request("/api/agents/telegram/test", "POST", body());
+      if (view.alive) view.options.toast("Deneme mesajı gönderildi; Telegram'ı kontrol edin.");
+    }));
+    controls.append(save, test);
+    if (settings.configured) {
+      const off = action("Kapat", () => view.busy(off, async () => {
+        await view.request("/api/agents/telegram", "DELETE");
+        if (view.alive) { view.options.toast("Telegram'dan soru ve onay kapatıldı."); renderTelegram(view, box); }
+      }));
+      controls.append(off);
+    }
+    box.replaceChildren(box.firstElementChild, intro, connection.wrapper, chat.wrapper, questions.wrapper, approvals.wrapper, note, controls, status);
   }
   const searchProviders = [
     ["none", "Kapalı"], ["tavily", "Tavily · ayda 1.000 ücretsiz arama, kart gerekmez (önerilen)"],

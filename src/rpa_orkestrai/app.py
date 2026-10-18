@@ -138,6 +138,8 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     from .agents.shared_provider import SharedProvider
     from .agents.studio_api import router as agent_studio_router
     from .agents.team_api import router as agent_team_router
+    from .agents.telegram_api import router as telegram_router
+    from .agents.telegram_bridge import TelegramBridge
     from .agents.web import SearchSettings
     from .agents.workflow_ai import WorkflowAIService
 
@@ -177,6 +179,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
                           secret_source=agent_secrets, approval_backend=agent_approvals, search_settings=agent_search)
     automations = AutomationService(agents, settings.data_dir, manager=manager, dispatch=dispatch, connections=connections)
     agents.automation_source = automations.automations
+    # Questions and approvals reach the person on Telegram when they set it up; answers come back from there.
+    telegram = TelegramBridge(agents, lambda: connections)
+    agents.notifier = telegram
     manager.finished_listeners.append(automations.workflow_finished)
 
     def license_locked(reason):
@@ -199,6 +204,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
             finally:
                 automations.stop()
                 scheduler.stop()
+                telegram.close()
                 agents.close()
                 dispatch.close()
                 licensing.stop()
@@ -214,6 +220,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     app.state.scheduler = scheduler
     app.state.agents, app.state.dispatch = agents, dispatch
     app.state.automations = automations
+    app.state.telegram = telegram
     app.state.agent_connections = agent_connections
     app.state.agent_central = agent_central
     app.include_router(agent_studio_router(agents, agent_connections, shared_client=agent_central))
@@ -221,6 +228,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     app.include_router(agent_metrics_router(agents, agent_connections))
     # Static automation paths precede the dynamic /api/agents/{agent_id} routes.
     app.include_router(automation_router(automations))
+    app.include_router(telegram_router(agents, telegram))
     app.include_router(agent_router(agents))
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"])
 

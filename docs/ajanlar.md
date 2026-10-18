@@ -258,6 +258,53 @@ Bir yetkili birden fazla departmanı yönetebilir; her departmanın kendi ofisi 
 - **Uyumluluk:** birden fazla ofis 0.9.37 gerektirir. 0.9.36 ve önceki sürümler
   yalnız ilk ofisi gösterir.
 
+### Ofisler arası iletişim (0.9.38)
+
+Birden fazla ofisi yöneten yetkilinin ofisleri birbirine iş gönderebilir. Gönderim yalnız yöneticiler
+aracılığıyla yapılır.
+
+- Yönetici ajan, **list_offices** ile yönettiğiniz diğer ofisleri ve yöneticilerini görür. **contact_office** ile
+  o ofisin yönetici ajanına görev verir veya soru sorar.
+- Karşı ofisin yöneticisi işi kendi departmanlarına dağıtabilir. Belirsizlikte isteyen yöneticiye geri soru
+  sorar. Sonucu bitirdiğinde istek yapan yönetici sonucu alır ve kendi işini tamamlar.
+- Departman ajanları başka ofisle doğrudan konuşmaz. İşi alan yönetici de onu üçüncü bir ofise aktaramaz.
+- Gönderilen iş karşı ofiste o ofisin kaydı olarak çalışır. Görevler, riskli işlem onayları ve süre sınırları
+  o ofise aittir. Bütçe (tur ve görev sınırları) isteyen yöneticinin işinden düşer.
+- Yalnız aynı yetkilinin yönettiği ofisler arasında çalışır. Üyeler ve başka yetkililerin ofisleri bu araçları
+  görmez. Hedef ofiste yönetici ajan yoksa iş gönderilmez ve neden yazılır.
+- 3D ofiste gönderen yöneticide "Diğer ofise", alan yöneticide "Diğer ofisten" balonu görünür. Son iletişimler
+  listesi yalnız ofisin adını ve mesajın türünü yazar; işin içeriği ofis görünümüne taşınmaz.
+
+### Telegram'dan soru ve onay (0.9.38)
+
+Bilgisayar başında değilken ajanlar size Telegram'dan ulaşabilir. Kurulum için:
+
+1. @BotFather'dan bir bot oluşturun.
+2. Bot anahtarını Studio **Ayarlar → Bağlantılar**'da bir Telegram (bot) bağlantısına kaydedin.
+3. Kendi Telegram hesabınızla bota `/start` yazın ve sohbet kimliğinizi bağlantıya ekleyin.
+4. **Ajanlar → Bağlantılar → Telegram'dan soru ve onay** bölümünde bağlantıyı ve sohbet kimliğinizi seçip
+   **Kaydet ve aç**'a basın. **Deneme mesajı gönder** ile kontrol edebilirsiniz.
+
+Nasıl çalışır:
+
+- **Sorular:** bir ajan size soru sorduğunda soru Telegram'a gelir. Seçenekler düğmedir; yazılı yanıt için
+  mesajı **Yanıtla** ile seçip yazın. Tek soru açıkken düz mesaj da o soruya yanıt sayılır.
+- **Onaylar:** onay yetkiliyseniz riskli işlem istekleri; akış, neden ve girdileriyle birlikte **Onayla /
+  Reddet** düğmeleriyle gelir. Karar, Studio'daki kararla aynı denetimlerden geçer (oturum, ofis, merkezi
+  onay). Girdileri düzenlemek için Studio'daki onay kartı kullanılır.
+- **Güvenlik:**
+  - Yalnız kayıtlı **özel sohbetinizden** gelen yanıt ve düğme kabul edilir; grup ve kanal kabul edilmez.
+  - Soru Studio'da yanıtlanırsa veya süresi dolarsa Telegram mesajı "Kapandı" olarak güncellenir; geç yanıt
+    reddedilir.
+  - Mesajlarda kayıtlı gizli değerler maskelenir. Soru ve onay metinleri (iş bilgisi) Telegram'a gider.
+- **Gereksinim:** Studio açık ve internete bağlı olmalıdır. Studio yanıtları kendisi çeker (getUpdates);
+  dışarıdan erişilebilir bir adres gerekmez. Botta webhook tanımlıysa yanıtlar okunamaz; bu iş için ayrı bir
+  bot kullanın.
+- **Ücret:** Telegram ücretsizdir. Telefonla arama bu sürümde yoktur; ücretli bir sağlayıcı gerektirir ve
+  ancak onayınızla kurulur.
+- Ayar kişiseldir: aynı bilgisayardaki başka hesap kendi ayarını yapar. Diğer ofislerinizdeki soru ve onaylar da
+  gelir ve kendi ofislerinde yanıtlanır.
+
 ## Bireysel hesapta ajanlar (0.9.35)
 
 Bireysel hesapta (bkz. [lisans](lisans.md#bireysel-hesaplar-0935)) Ajanlar ek modüldür ve ekip tek kişidir.
@@ -651,35 +698,46 @@ Ajanın düşünmesi ve bir akış çalıştırması ayrı durum olarak aktarıl
 bellekte kalır; performans sayacı tutulmaz. Ayrıntılar yalnız kişi seçildiğinde
 yetkili kayıtlardan okunur. İnsan hizmetine ulaşılamazsa durum bilgisi yenilenmiş
 gibi gösterilmez; yerel ajan görünümü çalışmaya devam eder.
-### Kendi 3D ofis modeliniz (0.9.36)
+### Kendi 3D ofis modeliniz (0.9.38: yerleşim sözleşmesi)
 
-Hazır ofis yerine kendi binanızın veya ofisinizin 3D modelini kullanabilirsiniz.
-Ofis görünümünde **Ofis modeli** düğmesine basın ve **Model seç (.glb)** ile
-bilgisayarınızdaki dosyayı seçin.
+Hazır ofis yerine kendi binanızın veya ofisinizin 3D modelini kullanabilirsiniz. Model, **RPA ofis yerleşim
+sözleşmesine** uymalıdır. Ajanların çalışacağı, bekleyeceği ve yürüyeceği yerler modelin içinde adlandırılmış
+noktalarla açıkça tanımlanır. Kurallar, hata listesi, Blender adımları ve model hazırlatırken kullanılacak
+yönerge: [Ofis modeli](ofis-modeli.md).
 
-- **Dosya:** tek parça `.glb` (glTF 2.0 ikili), en fazla 100 MB. Dokular dosyanın
-  içine gömülü olmalıdır; dış dosyaya (`.bin`, doku) bağlı modeller reddedilir.
-  Draco sıkıştırması ve zorunlu meshopt / KTX2 sıkıştırması desteklenmez; modeli
-  sıkıştırmasız dışa aktarın. Eski «specular-glossiness» malzemeli modeller mat
-  standart malzemeyle gösterilir.
-- **Nerede saklanır:** model yalnız bu bilgisayarda, çalışma alanındaki
-  `data/office_models` klasöründe ve yalnız o ofis için saklanır. Sunucuya
-  gönderilmez; aynı bilgisayardaki başka bir ofis veya firma görmez. Ofisin her
-  bilgisayarı modeli kendisi içe aktarır.
-- **Yerleşim:** model görünümdür; ajanlar, masalar ve durumlar ofisin kendi
-  düzeninde kalır. Ölçüler metre kabul edilir; santimetre veya milimetreyle dışa
-  aktarıldığı anlaşılan çok büyük modeller metreye çevrilir. Model ofisin ortasına ve
-  zemine oturtulur. **Ölçek (%)**, **Yön** (0°, 90°, 180°, 270°), **Sağa / sola**,
-  **İleri / geri** ve **Yükseklik** (metre) ile yerini düzeltin. **Tavan kesiti**
-  verilen yüksekliğin üstünü gizler; tavanı veya üst katları olan modelde içerisi
-  görünür (0 = kapalı). **Hazır ofisin zeminini ve duvarlarını gizle** modelin kendi
-  zemininin görünmesini sağlar. Ayarlar hemen uygulanır ve bu bilgisayara kaydedilir.
-- **Değiştirme ve silme:** **Modeli değiştir** yeni dosyayı varsayılan yerleşimle
-  açar. **Yerleşimi sıfırla** ayarları geri alır. **Varsayılan ofise dön** modeli bu
-  bilgisayardan siler.
-- **Performans:** binlerce parçalı modeller açılırken malzemeye göre birleştirilir.
-  Model cihazda yavaş çizilirse ofis 2D plana geçer; daha sade bir model kullanın.
-  Model açılamazsa hazır ofis gösterilir ve nedeni yazılır.
+- **İçe aktarma:** Ofis görünümünde **Ofis modeli → Model seç (.glb)**. Sözleşmeye uymayan model reddedilir ve
+  eksikler madde madde yazılır. **Örnek ofisi kullan** sözleşmeye uyan hazır bir ofis açar: sekiz masalı
+  çalışma alanı, cam yönetici odası, bekleme alanı ve araştırma köşesi.
+- **Yerleşim:** ajanlar ve ofisin çalışanları modelin çalışma noktalarına, sonra bekleme noktalarına kalıcı
+  olarak yerleşir. Noktalar dolunca kişi yalnız listede görünür ve "Ofis kapasitesi dolu" yazar; karakterler üst
+  üste binmez. Tabloda herkesin noktası görünür (ör. "Çalışma noktası 003").
+- **Oturma ve yürüme:** oturma referansı olan masada karakter gerçek oturma pozuyla oturur. Yürüyüş (yöneticiye
+  soru, sonuç teslimi, araştırma, görev devri) yalnız modelin yol ağında yapılır. Buluşma veya araştırma noktası
+  tanımlı değilse karakter yerinde kalır ve balonu görünür.
+- **Görünüm:** model ofisin kendi odası olur; hazır oda, masa veya etiket üretilmez. Yalnız modeldeki alan
+  etiketleri gösterilir. **Tavan kesiti** verilen yüksekliğin üstünü gizler (0 = kapalı); 2D plan modelin
+  noktalarından, yollarından ve etiketlerinden çizilir.
+- **Nerede saklanır:** model, ayarı ve yerleşim eşlemesi yalnız bu bilgisayarda, çalışma alanındaki
+  `data/office_models` klasöründe ve o ofis için saklanır. Sunucuya gönderilmez.
+- **Önceki sürümler:** 0.9.36–0.9.37 ölçek ve konum ayarlarıyla dekor olarak yerleştirilen, sözleşmesiz modeller
+  artık kullanılmaz; panel nedenlerini yazar. Yeni model içe aktarın, örnek ofisi kullanın veya eski modeli silin.
+- **Performans:** binlerce parçalı modeller açılırken malzemeye göre birleştirilir. Model cihazda yavaş çizilirse
+  ofis 2D plana geçer.
+
+### 3D ofisten yönetmek (0.9.38)
+
+Ofis görünümünde bir çalışana tıklayınca açılan panel, diğer Studio ekranlarıyla aynı yetkilerle işlem yapar.
+Bir düğmeye basılmadıkça hiçbir şey yapılmaz.
+
+- **Ajan:** **Görev ver** ajana yeni bir görev başlatır. Yöneticiye verilen görev departmanlara dağıtılabilir.
+  **Soru sor**, ajanla kısa bir sohbet açar; ajan iş başlatmaz, bildiklerinden yanıtlar.
+- **Bekleyen soru:** ajan sizden yanıt bekliyorsa soru ve seçenekleri panelde görünür; seçenekle veya yazarak
+  yanıtlarsınız.
+- **Bekleyen onay:** onay yetkiliyseniz akışın adı, neden ve girdiler görünür. **Onayla** veya **Reddet**
+  ile karar verirsiniz. Girdileri düzenlemek için onay kartına gidilir.
+- **İnsan çalışan:** ajan yönetme yetkiniz varsa **Görev ata** ile başlık, yapılacak iş ve öncelik yazıp görev
+  atarsınız.
+- **Yöneticiye yaz:** araç çubuğundaki düğme, yönetici ajanın panelini soru formuyla açar.
 
 Yerel Chromium testleri geçse bile gerçek macOS WKWebView ve Windows WebView2
 kontrolleri ayrıca yapılmalıdır. Paket derlemesi `--self-test-office` ile gerçek

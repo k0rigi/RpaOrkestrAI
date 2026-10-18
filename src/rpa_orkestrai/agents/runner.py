@@ -87,6 +87,14 @@ MANAGER_GUIDE = (
     "görevin girdilerine ekle. Departman ajanı soru sorarsa answer_department ile yanıtla; bilmediğin konuyu "
     "uydurma, önce ask_user ile kullanıcıya sor ve yanıtı ilet."
 )
+OFFICES_GUIDE = (
+    "\nBaşka ofisler: aynı yetkilinin diğer ofislerine yalnız list_offices ve contact_office ile o ofisin yönetici "
+    "ajanı üzerinden ulaşırsın; o ofisin departmanlarıyla doğrudan konuşmazsın. Sonucu wait_tasks ile bekle."
+)
+REQUESTED_GUIDE = (
+    "\nBu iş başka bir ofisin yöneticisinden geldi. İşi kendi departmanlarına dağıtabilirsin; belirsizlikte ask_manager "
+    "ile o yöneticiye sor. Sonucu finish özetinde açıkça ver; soruysa yanıtını özet olarak yaz."
+)
 DELEGATED_GUIDE = (
     "\nBu görevi yöneticin verdi. Belirsizlikte önce ask_manager ile yöneticine sor; yönetici gerekirse "
     "kullanıcıya iletir. Diğer departman ajanlarıyla doğrudan iletişimin yoktur."
@@ -148,6 +156,8 @@ class Context:
     playbook: Playbook | None = None
     knowledge_searches: int = 0
     provider: Any = None
+    # Set when another office's manager sent this manager its work: {"from_office": name, "from_run": id}.
+    office_request: dict | None = None
     document_reads: int = 0
     email_reads: int = 0
     sends: int = 0
@@ -180,6 +190,8 @@ class AgentService:
         self._lock = threading.RLock()
         self._contexts: dict[str, Context] = {}
         self._closed = False
+        # Reaches the person outside Studio (Telegram); it queues and never blocks or stops a run.
+        self.notifier = None
         self.agent_store.recover_runs()
         self._queue_wake = threading.Event()
         self._queue_thread = threading.Thread(target=self._schedule_loop, name="rpa-agent-queue", daemon=True)
@@ -685,9 +697,58 @@ class AgentService:
                            "queued": queued})
         return context.redactor.sanitize(result)
 
+    def _other_offices(self, context):
+        """The other offices the account runs as their authority; each is reached only through its manager."""
+        actor = context.run.actor
+        if "agents.manage" not in actor.permissions:
+            return []
+        result = []
+        for office, name, authority in actor.offices:
+            if office == context.run.office_id or not authority:
+                continue
+            managers = [agent for agent in self.agent_store.agents()
+                        if agent.company_id == actor.company_id and agent.office_id == office and agent.role == "manager"]
+            result.append({"office": name, "manager": managers[0].name if managers else None,
+                           "reachable": bool(managers)})
+        return result
+
+    def _contact_office(self, context, arguments):
+        self._check(context)
+        if context.agent.role != "manager" or context.office_request is not None:
+            raise WorkflowError("Diğer ofise yalnız kendi ofisinin yönetici ajanı, kendi işi için ulaşabilir.")
+        actor = context.run.actor
+        wanted = arguments.office.strip().casefold()
+        target = next((item for item in actor.offices if item[2] and item[0] != context.run.office_id
+                       and (item[1].casefold() == wanted or item[0] == arguments.office.strip())), None)
+        if target is None or "agents.manage" not in actor.permissions:
+            raise WorkflowError("Bu adla yönettiğiniz başka bir ofis yok; list_offices ile ofisleri görün.")
+        office_actor = actor.in_office(target[0])
+        managers = [agent for agent in self.agent_store.agents()
+                    if agent.company_id == actor.company_id and agent.office_id == target[0] and agent.role == "manager"]
+        if office_actor is None or not managers:
+            raise WorkflowError(f"{target[1]} ofisinde yönetici ajan yok; önce o ofiste bir yönetici ajan kurun.")
+        here = actor.office_name or "diğer"
+        lead = ("Soru" if arguments.kind == "question" else "Görev") + f" ({here} ofisinin yöneticisinden):\n"
+        with self._lock:
+            if len(self._contexts) >= 128:
+                raise WorkflowError("Görev kuyruğu dolu; önce açık görevlerin tamamlanmasını bekleyin.")
+            context.budget.add_task()
+            run = self._enqueue(managers[0], AgentRunRequest(task=lead + arguments.message,
+                                                             title=f"{here} ofisinden: {arguments.title}"[:200]),
+                                office_actor, parent=context)
+            child = self._contexts[run.id]
+            child.office_request = {"from_office": here, "from_run": context.run.id}
+            context.run.delegated_task_ids.append(run.task_id)
+            self._event(context, "office_request", "Diğer ofisin yöneticisine iş gönderildi.",
+                        {"task_id": run.task_id, "run_id": run.id, "office": target[1], "kind": arguments.kind})
+            self._notify(child, "office_request_received", "Diğer ofisin yöneticisinden iş geldi.",
+                         {"office": here, "kind": arguments.kind})
+            return {"task_id": run.task_id, "run_id": run.id, "office": target[1], "status": run.status}
+
     def _delegate(self, context, arguments):
         self._check(context)
-        if context.agent.role != "manager" or context.run.parent_run_id is not None:
+        # A manager working on another office's request may hand it on to its own departments.
+        if context.agent.role != "manager" or (context.run.parent_run_id is not None and context.office_request is None):
             raise WorkflowError("Görev devri yalnız kök yönetici ajandan bir departman ajanına yapılabilir.")
         with self._lock:
             try:
@@ -749,7 +810,7 @@ class AgentService:
         return context.redactor.sanitize(pending)
 
     def _ask_manager(self, context, question, options):
-        if context.agent.role != "department" or context.run.parent_run_id is None:
+        if context.run.parent_run_id is None or (context.agent.role != "department" and context.office_request is None):
             raise WorkflowError("Yöneticiye yalnız yöneticinin devrettiği görevde soru sorulabilir; ask_user kullanın.")
         deadline = min(context.deadline, time.monotonic() + context.agent.limits.question_timeout_seconds)
         pending = {"id": uid(), "question": question, "options": options}
@@ -781,6 +842,24 @@ class AgentService:
             with self._lock:
                 context.manager_question = None
                 self._save(context)
+
+    def _outward(self, kind, context, payload):
+        notifier = self.notifier
+        if notifier is None:
+            return
+        try:
+            notifier.notify(kind, context, payload)
+        except Exception:  # noqa: BLE001 - A message channel never changes how the run proceeds.
+            pass
+
+    def _actor_for(self, actor, office):
+        """The same account acting for the office of a run; a decision from outside names that office."""
+        if office is None:
+            return actor
+        other = actor.in_office(office)
+        if other is None:
+            raise AgentServiceError("Bu ofise erişiminiz kalmadı.", 403)
+        return other
 
     def _notify(self, other, kind, message, data):
         """Record a team message on the other run; its audit limit must not stop the sender."""
@@ -998,6 +1077,9 @@ class AgentService:
             raise AgentStopped("Model adı kayıtlı bir gizli değer içeremez.")
         guide = (MANAGER_GUIDE if context.agent.role == "manager" else
                  DELEGATED_GUIDE if context.run.parent_run_id is not None else "")
+        if context.agent.role == "manager":
+            guide += (REQUESTED_GUIDE if context.office_request is not None
+                      else OFFICES_GUIDE if self._other_offices(context) else "")
         notes = NOTES_GUIDE + "\n".join(f"- {text}" for text in context.notes) if context.notes else ""
         web = context.agent.web_access != "off"
         cards = ""
@@ -1016,10 +1098,13 @@ class AgentService:
         task = self._clean_mapping(context, {"task": context.run.task, "inputs": context.run.inputs})
         first = [{"role": "system", "content": system},
                  {"role": "user", "content": json.dumps({"untrusted_data": task}, ensure_ascii=False)}]
+        offices = (context.agent.role == "manager" and context.office_request is None
+                   and bool(self._other_offices(context)))
         definitions = tool_definitions(context.agent.role, delegated=context.run.parent_run_id is not None,
                                        web=context.agent.web_access != "off",
                                        knowledge=bool(context.agent.knowledge_sources),
-                                       playbooks=bool(context.agent.playbooks), abilities=abilities)
+                                       playbooks=bool(context.agent.playbooks), abilities=abilities,
+                                       offices=offices, requested=context.office_request is not None)
         requested = allowance if allowance is not None else context.agent.limits.max_tokens - context.run.total_tokens
         desired = min(requested, limits.max_output_tokens) if limits else requested
         removed = 0
@@ -1326,8 +1411,8 @@ class AgentService:
             raise AgentServiceError("Çalışma artık kullanıcı yanıtı beklemiyor.", 409)
         return context
 
-    def answer(self, identity: str, question_id: str, answer: Any) -> AgentRun:
-        actor = self._authorize()
+    def answer(self, identity: str, question_id: str, answer: Any, *, office: str | None = None) -> AgentRun:
+        actor = self._actor_for(self._authorize(), office)
         validate_json_value(answer)
         with self._lock:
             context = self._pending_context(identity, actor)
@@ -1346,8 +1431,9 @@ class AgentService:
             context.wake.set()
             return self._view(context)
 
-    def approve(self, identity: str, approval_id: str, approved: bool, inputs: dict | None = None) -> AgentRun:
-        actor = self._authorize(None)
+    def approve(self, identity: str, approval_id: str, approved: bool, inputs: dict | None = None, *,
+                office: str | None = None) -> AgentRun:
+        actor = self._actor_for(self._authorize(None), office)
         if not actor.can_approve:
             raise AgentServiceError("Riskli işlemi yalnız onay yetkilisi onaylayabilir veya reddedebilir.", 403)
         if type(approved) is not bool:
@@ -1470,6 +1556,7 @@ class AgentService:
             context.run.pending_question = pending
             context.run.status = "waiting_user"
             self._event(context, "question", "Kullanıcı yanıtı bekleniyor.", pending)
+        self._outward("question", context, pending)
         try:
             while True:
                 self._check(context)
@@ -1486,6 +1573,7 @@ class AgentService:
                 context.run.pending_question = None
                 context.run.status = "running"
                 self._save(context)
+            self._outward("closed", context, {"id": pending["id"]})
 
     def _wait_approval(self, context, prepared, reason, reprepare=None):
         deadline = min(context.deadline, time.monotonic() + context.agent.limits.approval_timeout_seconds)
@@ -1517,6 +1605,7 @@ class AgentService:
             context.run.pending_approval = pending
             context.run.status = "waiting_approval"
             self._event(context, "approval_requested", "Riskli akış için kullanıcı onayı bekleniyor.", pending)
+        self._outward("approval", context, pending)
         try:
             next_poll = 0.0
             while True:
@@ -1570,6 +1659,7 @@ class AgentService:
                 context.run.pending_approval = None
                 context.run.status = "running"
                 self._save(context)
+            self._outward("closed", context, {"id": pending["id"]})
             if approval["decision"] is not True:
                 self._cancel_remote_approval(context)
 

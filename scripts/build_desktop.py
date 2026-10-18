@@ -17,7 +17,7 @@ def office_assets() -> Path:
     for name in ("office.js", "office.css", "native-office-check.js", "vendor/three/three.module.js",
                  "vendor/three/addons/controls/OrbitControls.js", "vendor/three/addons/loaders/GLTFLoader.js",
                  "vendor/three/addons/utils/BufferGeometryUtils.js", "vendor/three/LICENSE",
-                 "vendor/three/manifest.json", "vendor/three/KAYNAK.md"):
+                 "vendor/three/manifest.json", "vendor/three/KAYNAK.md", "office-models/ornek-ofis.glb"):
         if not (folder / name).is_file():
             raise SystemExit(f"Yerel ofis kaynağı pakete eklenemiyor: {name}")
     return folder

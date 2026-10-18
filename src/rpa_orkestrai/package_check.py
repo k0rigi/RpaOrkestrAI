@@ -37,6 +37,12 @@ def _check_office_assets(static_root: Path | None = None) -> None:
         for name in ("office.js", "office.css", "agents.js", "agents.css", "native-office-check.js"):
             if not (root / name).is_file():
                 raise ValueError
+        # The bundled sample office must follow the layout contract it demonstrates.
+        if static_root is None:
+            from .agents.office_model import SAMPLE, inspect_glb
+
+            if inspect_glb(SAMPLE.read_bytes())["layout"]["capacity"]["work"] < 1:
+                raise ValueError
     except (OSError, KeyError, TypeError, ValueError):
         raise RuntimeError("Paket içindeki yerel ofis kaynakları, Three.js sürümü veya lisansı doğrulanamadı.") from None
 

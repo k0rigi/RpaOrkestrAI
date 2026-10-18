@@ -17,11 +17,15 @@ def remember_completion(service, context) -> None:
     with service._lock:
         recent = {key: value for key, value in getattr(service, "_office_recent", {}).items()
                   if instant - value["at"] < 60}
+        request = getattr(context, "office_request", None)
         recent[(context.run.actor.company_id, context.agent.id)] = {
             "at": instant, "agent_id": context.agent.id, "status": context.run.status,
             "task_id": context.run.task_id, "run_id": context.run.id,
-            "event": ({"id": context.run.id, "kind": "completed", "to_agent_id": context.agent.manager_id}
-                      if context.run.status == "succeeded" else None),
+            # Work another office sent is handed back to that office; only its name travels.
+            "event": (None if context.run.status != "succeeded" else
+                      {"id": context.run.id, "kind": "office_answered", "to_agent_id": None,
+                       "to_office": request["from_office"]} if request else
+                      {"id": context.run.id, "kind": "completed", "to_agent_id": context.agent.manager_id}),
         }
         service._office_recent = dict(sorted(recent.items(), key=lambda item: item[1]["at"])[-500:])
 
@@ -83,7 +87,8 @@ def snapshot(service) -> dict:
             events = context.run.events[-50:]
             # Only the kind and the counterpart travel to the office; question/answer texts stay in the run.
             message = next((event for event in reversed(events)
-                            if event.kind in {"task_delegated", "department_answered"}), None)
+                            if event.kind in {"task_delegated", "department_answered", "office_request",
+                                              "office_request_received"}), None)
             recent_event = events[-1].kind if events else ""
             asking = _open_question(context)
             parent = service._contexts.get(context.run.parent_run_id) if context.run.parent_run_id else None
@@ -95,6 +100,10 @@ def snapshot(service) -> dict:
                         "queued" if recent_event == "queue" else "thinking") if state == "running" else state
             if asking and parent is not None:
                 event = {"id": asking["id"], "kind": "question", "to_agent_id": parent.agent.id}
+            elif message is not None and message.kind.startswith("office_"):
+                # Another office of the same authority: only its name travels, never the work itself.
+                event = {"id": message.id, "to_agent_id": None, "to_office": str(message.data.get("office") or "")[:120],
+                         "kind": "office_request" if message.kind == "office_request" else "office_received"}
             elif message is not None:
                 event = {"id": message.id, "kind": "delegated" if message.kind == "task_delegated" else "answered",
                          "to_agent_id": message.data.get("agent_id")}
@@ -114,7 +123,7 @@ def snapshot(service) -> dict:
         selected = selected or recent.get((actor.company_id, agent.id))
         state = selected["status"] if selected and selected["status"] in LABELS else "idle"
         event = selected.get("event") if selected else None
-        if event and event["to_agent_id"] not in identities:
+        if event and event["to_agent_id"] not in identities and not event.get("to_office"):
             event = None
         summaries.append({"id": agent.id, "name": redactor.text(agent.name)[:120],
                           "department": redactor.text(agent.department)[:120], "role": agent.role,

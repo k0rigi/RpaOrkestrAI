@@ -60,10 +60,18 @@ function safeData(value) {
   return { agents: value.agents.slice(0, 500), people: [], departments: value.departments.slice(0, 100), totals: value.totals || {}, office };
 }
 
-// The person's own office model: a GLB kept on this computer only. Agents keep the office's own seats.
+// The person's own office model: a GLB that follows the RPA layout contract, kept on this computer only.
 const MODEL_LIMIT = 100_000_000;
-const PLACEMENT = { scale: 1, rotation: 0, offset_x: 0, offset_y: 0, offset_z: 0, cut_height: 0, hide_room: true };
-const PLACEMENT_RANGES = { scale: [.01, 100], offset_x: [-500, 500], offset_y: [-50, 50], offset_z: [-500, 500], cut_height: [0, 100] };
+const PLACEMENT = { cut_height: 0 };
+const CUT_RANGE = [0, 100];
+// The generated figures face -Z; a layout point's local +Z is the direction the person faces, so they turn by π.
+const CHARACTER_FORWARD = Math.PI;
+// The figure's soles lie this far above its origin; a layout point marks the sole level.
+const SOLE = .19;
+// Seated pose: the thighs' lower side above the origin, the shin length and how far the pelvis sits forward.
+const THIGH_UNDERSIDE = .66, SHIN = .24, SEAT_FORWARD = .12;
+const WALK_SPEED = 1.4;
+const PLACE_NAMES = { work: "Çalışma noktası", wait: "Bekleme noktası", manager: "Yönetici noktası" };
 // Older exporters (e.g. SimLab) write the retired specular-glossiness materials; they are shown as matte standard ones.
 function specularGlossiness(THREE) {
   return (parser) => ({ name: "KHR_materials_pbrSpecularGlossiness", extendMaterialParams(index, params) {
@@ -121,10 +129,7 @@ function bake(THREE, mergeGeometries, root) {
   }
   const box = new THREE.Box3().setFromObject(group);
   if (box.isEmpty()) throw new Error("Modelde görüntülenecek bir şekil bulunamadı.");
-  const extent = Math.max(...box.getSize(new THREE.Vector3()).toArray());
-  // glTF lengths are metres; a model far too large for a building was exported in centimetres or millimetres.
-  const unit = extent > 3000 ? .001 : extent > 600 ? .01 : 1;
-  return { group, box, unit, plane, dispose() {
+  return { group, box, plane, dispose() {
     group.children.forEach((mesh) => mesh.geometry.dispose());
     for (const material of materials) {
       Object.values(material).forEach((value) => { if (value?.isTexture) value.dispose(); });
@@ -139,12 +144,54 @@ export async function openModel(THREE, buffer) {
   const loader = new GLTFLoader(); loader.register(specularGlossiness(THREE));
   return bake(THREE, mergeGeometries, (await loader.parseAsync(buffer, "")).scene);
 }
+// The shortest walk on the model's path network; only the links the model declares are walkable.
+export function shortestPath(layout, from, to) {
+  if (!layout.points[from] || !layout.points[to]) return null;
+  if (from === to) return [from];
+  const neighbours = new Map();
+  for (const [first, second] of layout.edges) {
+    if (!neighbours.has(first)) neighbours.set(first, []);
+    if (!neighbours.has(second)) neighbours.set(second, []);
+    neighbours.get(first).push(second); neighbours.get(second).push(first);
+  }
+  const at = (name) => layout.points[name].position;
+  const distance = (a, b) => Math.hypot(at(a)[0] - at(b)[0], at(a)[1] - at(b)[1], at(a)[2] - at(b)[2]);
+  const best = new Map([[from, 0]]), previous = new Map(), open = new Set([from]);
+  while (open.size) {
+    let current = null;
+    for (const name of open) if (current === null || best.get(name) < best.get(current)) current = name;
+    open.delete(current);
+    if (current === to) break;
+    for (const next of neighbours.get(current) || []) {
+      const cost = best.get(current) + distance(current, next);
+      if (!best.has(next) || cost < best.get(next)) { best.set(next, cost); previous.set(next, current); open.add(next); }
+    }
+  }
+  if (!best.has(to)) return null;
+  const result = [to];
+  while (result[0] !== from) result.unshift(previous.get(result[0]));
+  return result;
+}
+function occupants(data) {
+  return population(data).map((person) => ({ id: person.id, role: person.kind === "human" ? "human" : person.role === "manager" ? "manager" : "department",
+    department: String(person.department || "").slice(0, 120) }));
+}
+function requestId() {
+  const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+function field(label, control) {
+  control.id = `rpa-office-field-${++serial}`;
+  const wrapper = node("div", undefined, "agent-field"), caption = node("label", label); caption.htmlFor = control.id;
+  wrapper.append(caption, control); return wrapper;
+}
 
 export function mountOffice(container, options) {
   let alive = true, mode = "3d", model = null, timer = null, pending = false, scene = null, generation = 0;
-  let shapeKey = "", lastData = null, selected = null, panelVersion = 0;
+  let shapeKey = "", lastData = null, selected = null, panelVersion = 0, humansLoaded = false;
   let modelInfo = null, modelState = { id: null, promise: null, value: null }, modelNotice = "", placeTimer = null;
-  let placement = { ...PLACEMENT };
+  let placement = { ...PLACEMENT }, layoutState = null;
+  const session = options.session || null;
   const seenEvents = new Set();
   const title = node("div", undefined, "office-title");
   // A firm split into departments shows the account's own office; other departments' offices stay private.
@@ -159,19 +206,27 @@ export function mountOffice(container, options) {
     const item = button(text, () => switchMode(key)); buttons.set(key, item); controls.append(item);
   }
   const reset = button("Kamerayı sıfırla", () => scene?.reset());
+  // The head of the office is one click away: the manager agent's panel opens on its question form.
+  const managerButton = button("Yöneticiye yaz", () => {
+    const manager = lastData?.agents.find((item) => item.role === "manager");
+    if (manager) selectPerson(manager.id, "chat");
+  });
+  managerButton.hidden = true;
   const modelButton = button("Ofis modeli", () => toggleModel(modelPanel.hidden));
   const modelPanel = node("section", undefined, "office-model"); modelPanel.id = `rpa-office-model-${++serial}`; modelPanel.hidden = true;
   modelPanel.setAttribute("aria-label", "Kendi ofis modeliniz");
   modelButton.setAttribute("aria-expanded", "false"); modelButton.setAttribute("aria-controls", modelPanel.id);
-  controls.append(reset, modelButton); toolbar.append(status, controls);
+  controls.append(reset, managerButton, modelButton); toolbar.append(status, controls);
   const frame = node("div", undefined, "office-frame"), view = node("div", undefined, "office-view");
   view.append(node("p", "Ofis hazırlanıyor…", "office-loading"));
   const preview = node("span", "CANLI OFİS", "office-preview");
-  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı · Balonlar: Görev, Soru, Yanıt, Sonuç, Araştırıyor", "office-legend");
-  frame.append(view, preview, legend);
+  const legend = node("p", "Sürükleyin: döndür · Tekerlek: yakınlaştır · Karaktere tıklayın: ayrıntı ve işlemler · Balonlar: Görev, Soru, Yanıt, Sonuç, Araştırıyor", "office-legend");
+  const capacity = node("p", "", "office-capacity"); capacity.hidden = true; capacity.setAttribute("role", "status");
+  frame.append(view, preview, capacity, legend);
   const panel = node("aside", undefined, "office-detail"); panel.hidden = true; panel.setAttribute("aria-label", "Çalışan ayrıntısı");
   const layout = node("div", undefined, "office-layout"); layout.append(frame, panel);
-  const note = node("p", "Bu görünüm yalnız bilgi gösterir. Departman ajanları birbirleriyle doğrudan konuşmaz; görev, soru ve sonuçlar yönetici üzerinden akar. Balonlarda yalnız mesajın türü görünür, içeriği ofise taşınmaz; ayrıntı için bir çalışan seçin.", "agent-help");
+  const note = node("p", session ? "Bir çalışana tıklayıp görev verebilir, ajana soru sorabilir, bekleyen soruyu yanıtlayabilir ve onay yetkiniz varsa onay verebilirsiniz. Departman ajanları birbirleriyle doğrudan konuşmaz; görev, soru ve sonuçlar yönetici üzerinden akar. Balonlarda yalnız mesajın türü görünür."
+    : "Departman ajanları birbirleriyle doğrudan konuşmaz; görev, soru ve sonuçlar yönetici üzerinden akar. Balonlarda yalnız mesajın türü görünür, içeriği ofise taşınmaz; ayrıntı için bir çalışan seçin.", "agent-help");
   const humanWarning = node("p", "", "agent-warning office-human-warning"); humanWarning.hidden = true; humanWarning.setAttribute("role", "status");
   const summary = node("p", "", "office-summary"), list = node("div", undefined, "office-list");
   // The feed repeats only who addressed whom and the message type, exactly as the balloons do.
@@ -181,6 +236,7 @@ export function mountOffice(container, options) {
   const feedSeen = new Set(), feedItems = [];
   container.replaceChildren(title, toolbar, modelPanel, layout, summary, feed, humanWarning, note, list); container.classList.add("office-root");
 
+  // ----- the office model ----------------------------------------------------------------------
   function modelMessage(text, error = false) {
     const line = modelPanel.querySelector(".office-model-status");
     if (line) { line.textContent = text; line.classList.toggle("agent-warning", error); }
@@ -191,85 +247,85 @@ export function mountOffice(container, options) {
     drawModel();
     options.api("/api/agents/office/model").then((info) => {
       if (!alive) return;
-      const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id;
+      const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id || Boolean(modelInfo?.rejected) !== Boolean(info.rejected);
       modelInfo = info;
       if (changed) { placement = { ...PLACEMENT, ...info.placement }; drawModel(); }
     }).catch((error) => { if (alive) modelMessage(error.message, true); });
   }
-  function labelled(label, input) {
-    input.id = `rpa-office-model-field-${++serial}`;
-    const wrapper = node("div", undefined, "agent-field"), caption = node("label", label); caption.htmlFor = input.id;
-    wrapper.append(caption, input); return wrapper;
-  }
-  function amount(value, [min, max], step) {
-    const input = node("input"); input.type = "number"; input.min = String(min); input.max = String(max); input.step = String(step);
-    input.value = String(value); return input;
-  }
   function drawModel() {
     if (modelPanel.hidden) return;
     const info = modelInfo, line = node("p", "", "agent-help office-model-status"); line.setAttribute("role", "status");
-    const pick = button(info?.present ? "Modeli değiştir" : "Model seç (.glb)", choose), actions = node("div", undefined, "agent-actions");
-    const parts = [node("h3", "Kendi ofis modeliniz"), node("p", "Bilgisayarınızdaki bir .glb dosyasını (en fazla 100 MB) 3D ofise yerleştirin. Model yalnız bu bilgisayarda ve bu ofis için saklanır, sunucuya gönderilmez. Ajanlar ve masalar ofisin kendi düzeninde kalır; model metre ölçüsüyle okunur.", "agent-help")];
+    const actions = node("div", undefined, "agent-actions");
+    const pick = button(info?.present || info?.rejected ? "Yeni model seç (.glb)" : "Model seç (.glb)", choose);
+    const sample = button("Örnek ofisi kullan", useSample);
+    const parts = [node("h3", "Kendi ofis modeliniz"), node("p", "Bilgisayarınızdaki .glb dosyası (en fazla 100 MB) RPA ofis yerleşim sözleşmesine uymalıdır: ajanlar modelin tanımladığı çalışma ve bekleme noktalarına yerleşir, yalnız modelin yol ağında yürür. Model yalnız bu bilgisayarda ve bu ofis için saklanır, sunucuya gönderilmez. Kurallar ve model hazırlama yönergesi: belgelerdeki «Ofis modeli» sayfası.", "agent-help")];
     if (!info) { modelPanel.replaceChildren(...parts, node("p", "Model bilgisi yükleniyor…", "muted"), line); return; }
-    if (!info.present) { actions.append(pick); modelPanel.replaceChildren(...parts, actions, line); return; }
-    const value = { ...PLACEMENT, ...placement }, turn = node("select");
-    const scale = amount(Math.round(value.scale * 100), [1, 10000], 5);
-    for (const degrees of [0, 90, 180, 270]) { const option = node("option", `${degrees}°`); option.value = String(degrees); turn.append(option); }
-    turn.value = String(value.rotation);
-    const x = amount(value.offset_x, PLACEMENT_RANGES.offset_x, .5), z = amount(value.offset_z, PLACEMENT_RANGES.offset_z, .5);
-    const y = amount(value.offset_y, PLACEMENT_RANGES.offset_y, .1), cut = amount(value.cut_height, PLACEMENT_RANGES.cut_height, .1);
-    const room = node("input"); room.type = "checkbox"; room.checked = value.hide_room; room.id = `rpa-office-model-field-${++serial}`;
-    const roomLabel = node("label", undefined, "office-model-check"); roomLabel.htmlFor = room.id;
-    roomLabel.append(room, node("span", "Hazır ofisin zeminini ve duvarlarını gizle"));
-    const grid = node("div", undefined, "office-model-grid");
-    grid.append(labelled("Ölçek (%)", scale), labelled("Yön", turn), labelled("Sağa / sola (m)", x), labelled("İleri / geri (m)", z),
-      labelled("Yükseklik (m)", y), labelled("Tavan kesiti (m, 0 = kapalı)", cut));
-    const changed = () => {
-      const next = { scale: Number(scale.value) / 100, rotation: Number(turn.value), offset_x: Number(x.value), offset_y: Number(y.value),
-        offset_z: Number(z.value), cut_height: Number(cut.value), hide_room: room.checked };
-      const invalid = [scale, x, y, z, cut].some((item) => item.value.trim() === "")
-        || Object.entries(PLACEMENT_RANGES).some(([key, [min, max]]) => !Number.isFinite(next[key]) || next[key] < min || next[key] > max);
-      if (invalid) { modelMessage("Değerleri izin verilen aralıkta girin.", true); return; }
+    if (info.rejected) {
+      const reasons = node("ul", undefined, "office-model-errors");
+      (info.rejected.errors || []).forEach((item) => reasons.append(node("li", item)));
+      actions.append(pick, sample, button("Eski modeli sil", removeModel));
+      modelPanel.replaceChildren(...parts, node("p", `İçe aktarılmış model (${info.rejected.name}) yerleşim sözleşmesine uymadığı için kullanılmıyor:`, "agent-warning"),
+        reasons, actions, line);
+      return;
+    }
+    if (!info.present) { actions.append(pick, sample); modelPanel.replaceChildren(...parts, actions, line); return; }
+    const value = { ...PLACEMENT, ...placement };
+    const cut = node("input"); cut.type = "number"; cut.min = String(CUT_RANGE[0]); cut.max = String(CUT_RANGE[1]); cut.step = ".1";
+    cut.value = String(value.cut_height);
+    cut.addEventListener("input", () => {
+      const next = { cut_height: Number(cut.value) };
+      if (cut.value.trim() === "" || !Number.isFinite(next.cut_height) || next.cut_height < CUT_RANGE[0] || next.cut_height > CUT_RANGE[1]) {
+        modelMessage("Tavan kesitini 0–100 m arasında girin.", true); return;
+      }
       placement = next; scene?.place(next); modelMessage("");
       clearTimeout(placeTimer); placeTimer = setTimeout(() => savePlacement(next), 600);
-    };
-    for (const item of [scale, x, z, y, cut]) item.addEventListener("input", changed);
-    turn.addEventListener("change", changed); room.addEventListener("change", changed);
-    actions.append(pick, button("Yerleşimi sıfırla", () => {
-      placement = { ...PLACEMENT }; drawModel(); scene?.place(placement); clearTimeout(placeTimer); savePlacement(placement);
-    }), button("Varsayılan ofise dön", removeModel));
+    });
+    actions.append(pick, sample, button("Varsayılan ofise dön", removeModel));
     const size = info.size < 1_000_000 ? `${Math.max(1, Math.round(info.size / 1000))} KB`
       : `${(info.size / 1_000_000).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} MB`;
-    modelPanel.replaceChildren(...parts, node("p", `${info.name} · ${size}`, "office-model-name"), grid, roomLabel, actions, line);
+    const room = info.layout?.capacity || {}, seats = Object.keys(info.layout?.seats || {}).length;
+    const facts = node("p", `${room.work || 0} çalışma noktası · ${room.wait || 0} bekleme noktası · ${seats} oturma yeri · ${Object.keys(info.layout?.points || {}).length} yerleşim düğümü`, "agent-help");
+    const notes = node("ul", undefined, "office-model-errors");
+    (info.layout?.warnings || []).forEach((item) => notes.append(node("li", item)));
+    modelPanel.replaceChildren(...parts, node("p", `${info.name} · ${size} · Yerleşim sözleşmesi ${info.layout?.version || 1}`, "office-model-name"),
+      facts, ...(notes.children.length ? [notes] : []), node("div", undefined, "office-model-grid"), actions, line);
+    modelPanel.querySelector(".office-model-grid").append(field("Tavan kesiti (m, 0 = kapalı)", cut));
   }
   async function savePlacement(next) {
     try {
       const saved = await options.api("/api/agents/office/model/placement", { method: "PUT", body: JSON.stringify(next) });
-      if (alive && modelInfo?.id === saved.id) { modelInfo = saved; modelMessage("Yerleşim bu bilgisayara kaydedildi."); }
+      if (alive && modelInfo?.id === saved.id) { modelInfo = saved; modelMessage("Görünüm bu bilgisayara kaydedildi."); }
     } catch (error) { if (alive) modelMessage(error.message, true); }
+  }
+  async function imported(load, message) {
+    modelPanel.querySelectorAll("button, input, select").forEach((item) => { item.disabled = true; });
+    modelMessage(message);
+    try {
+      const info = await load();
+      if (!alive) return;
+      clearTimeout(placeTimer); modelInfo = info; placement = { ...PLACEMENT, ...info.placement }; drawModel();
+      modelMessage("Model içe aktarıldı; 3D ofis hazırlanıyor…");
+      await switchMode("3d");
+      if (alive && !modelNotice) modelMessage(layoutState?.places?.full ? "Model yerleştirildi; ofis kapasitesi dolu, yerleşemeyenler listede."
+        : "Model yerleştirildi; ajanlar çalışma noktalarında.");
+    } catch (error) {
+      if (alive) { drawModel(); modelMessage(error.message, true); }
+    }
   }
   function choose() {
     const input = node("input"); input.type = "file"; input.accept = ".glb,model/gltf-binary";
-    input.addEventListener("change", async () => {
+    input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file || !alive) return;
       if (!/\.glb$/i.test(file.name)) { modelMessage("Yalnız .glb dosyası içe aktarılabilir. Modeli dokularıyla birlikte tek bir .glb olarak dışa aktarın.", true); return; }
       if (file.size > MODEL_LIMIT) { modelMessage("Model en fazla 100 MB olabilir. Dokuları küçültüp veya ayrıntıyı azaltıp yeniden dışa aktarın.", true); return; }
-      modelPanel.querySelectorAll("button, input, select").forEach((item) => { item.disabled = true; });
-      modelMessage("Model içe aktarılıyor…");
-      try {
-        const info = await options.api("/api/agents/office/model", { method: "PUT", body: file,
-          headers: { "Content-Type": "model/gltf-binary", "X-Model-Name": encodeURIComponent(file.name) } });
-        if (!alive) return;
-        clearTimeout(placeTimer); modelInfo = info; placement = { ...PLACEMENT, ...info.placement }; drawModel();
-        modelMessage("Model içe aktarıldı; 3D ofis hazırlanıyor…");
-        await switchMode("3d");
-        if (alive && !modelNotice) modelMessage("Model 3D ofise yerleştirildi. Yerini aşağıdaki ayarlarla düzeltebilirsiniz.");
-      } catch (error) {
-        if (alive) { drawModel(); modelMessage(error.message, true); }
-      }
+      imported(() => options.api("/api/agents/office/model", { method: "PUT", body: file,
+        headers: { "Content-Type": "model/gltf-binary", "X-Model-Name": encodeURIComponent(file.name) } }), "Model içe aktarılıyor ve yerleşim sözleşmesi denetleniyor…");
     });
     input.click();
+  }
+  function useSample() {
+    imported(() => options.api("/api/agents/office/model/sample", { method: "POST", body: "{}" }), "Örnek ofis hazırlanıyor…");
   }
   async function removeModel() {
     const question = "İçe aktarılan model bu bilgisayardan silinsin mi? 3D ofis hazır görünümle açılır.";
@@ -281,21 +337,28 @@ export function mountOffice(container, options) {
       await options.api("/api/agents/office/model", { method: "DELETE" });
       if (!alive) return;
       modelInfo = { present: false, placement: { ...PLACEMENT } }; placement = { ...PLACEMENT }; drawModel();
-      if (mode === "3d") await switchMode("3d"); else releaseModel();
+      if (mode !== "list") await switchMode(mode); else releaseModel();
       modelMessage("Varsayılan ofise dönüldü.");
     } catch (error) { if (alive) modelMessage(error.message, true); }
   }
-  // The model is read once and reused while agents come and go; only a new import reads the file again.
-  async function officeModel(THREE) {
+  // The layout of the imported model and everybody's persistent point on it.
+  async function officeLayout() {
     const info = await options.api("/api/agents/office/model");
     if (!alive) return null;
-    const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id;
+    const changed = modelInfo?.present !== info.present || modelInfo?.id !== info.id || Boolean(modelInfo?.rejected) !== Boolean(info.rejected);
     modelInfo = info;
     if (changed) { placement = { ...PLACEMENT, ...info.placement }; drawModel(); }
-    if (!info.present) { releaseModel(); return null; }
-    if (modelState.id !== info.id) {
+    if (!info.present || !info.layout) { releaseModel(); layoutState = null; return null; }
+    const places = await options.api("/api/agents/office/model/assignments", { method: "POST",
+      body: JSON.stringify({ occupants: occupants(lastData), humans_complete: humansLoaded }) });
+    layoutState = { id: info.id, layout: info.layout, places };
+    return layoutState;
+  }
+  // The model is read once and reused while agents come and go; only a new import reads the file again.
+  function officeModel(THREE) {
+    if (modelState.id !== modelInfo.id) {
       releaseModel();
-      const id = info.id, promise = fetch("/api/agents/office/model/file", { cache: "no-store" }).then((response) => {
+      const id = modelInfo.id, promise = fetch("/api/agents/office/model/file", { cache: "no-store" }).then((response) => {
         if (!response.ok) throw new Error("Ofis modeli okunamadı.");
         return response.arrayBuffer();
       }).then((buffer) => openModel(THREE, buffer));
@@ -308,7 +371,20 @@ export function mountOffice(container, options) {
   function releaseModel() {
     const old = modelState; modelState = { id: null, promise: null, value: null }; old.value?.dispose();
   }
+  function showCapacity() {
+    const overflow = layoutState?.places?.overflow?.length || 0;
+    capacity.hidden = !overflow;
+    capacity.textContent = overflow ? `Ofis kapasitesi dolu: ${overflow} çalışan yerleşemedi; listede görünür.` : "";
+  }
 
+  // ----- list, feed and the detail panel ---------------------------------------------------------
+  function placeOf(person) {
+    const point = layoutState?.places?.places?.[person.id];
+    if (!layoutState) return "";
+    if (!point) return " · Yer yok (ofis kapasitesi dolu)";
+    const kind = layoutState.layout.points[point]?.kind;
+    return ` · ${PLACE_NAMES[kind] || "Nokta"} ${point.replace(/^RPA_[A-Z]+_/, "")}`;
+  }
   function updateList(data) {
     const focused = list.contains(document.activeElement) ? document.activeElement.dataset.person : null;
     const headings = ["Çalışan", "Tür / alan", "Durum", "Görev", "Sırada"];
@@ -320,7 +396,7 @@ export function mountOffice(container, options) {
       const item = node("tr"), name = node("td"), link = button(person.name, () => selectPerson(person.id));
       link.dataset.person = person.id; name.append(link);
       item.append(name);
-      [person.kind === "human" ? "İnsan · Çalışanlar" : person.role === "manager" ? "Ajan · Yönetim" : `Ajan · ${person.department || "Departman alanı"}`,
+      [(person.kind === "human" ? "İnsan · Çalışanlar" : person.role === "manager" ? "Ajan · Yönetim" : `Ajan · ${person.department || "Departman alanı"}`) + placeOf(person),
         stateName(person), person.task_label || "Görev bekliyor", Number(person.queue_count) || 0].forEach((value) => item.append(node("td", value)));
       body.append(item);
     }
@@ -330,19 +406,24 @@ export function mountOffice(container, options) {
     }
     table.append(caption, head, body); list.replaceChildren(table);
     if (focused) [...list.querySelectorAll("button[data-person]")].find((item) => item.dataset.person === focused)?.focus({ preventScroll: true });
-    summary.textContent = `${data.agents.length} ajan · ${data.people.length} insan · ${data.departments.length} departman · ${Number(data.totals.queued) || 0} ajan görevi sırada`;
+    const overflow = layoutState?.places?.overflow?.length || 0;
+    summary.textContent = `${data.agents.length} ajan · ${data.people.length} insan · ${data.departments.length} departman · ${Number(data.totals.queued) || 0} ajan görevi sırada`
+      + (overflow ? ` · ${overflow} çalışan yerleşemedi (ofis kapasitesi dolu)` : "");
+    managerButton.hidden = !session || !data.agents.some((item) => item.role === "manager");
   }
   function updateFeed(data) {
     const people = population(data), verbs = { delegated: "görev verdi", question: "soru sordu", answered: "soruyu yanıtladı",
-      completed: "sonucu teslim etti" };
+      completed: "sonucu teslim etti", office_request: "diğer ofise iş gönderdi", office_received: "diğer ofisten iş aldı",
+      office_answered: "diğer ofisin işini teslim etti" };
     for (const person of people) {
       const event = person.event;
       if (!event?.id || feedSeen.has(event.id) || !verbs[event.kind]) continue;
       if (event.kind === "completed" && person.status !== "succeeded") continue;
       const target = people.find((item) => item.id === event.to_agent_id);
-      if (!target) continue;
+      const destination = target ? target.name : event.to_office ? `${event.to_office} ofisi` : "";
+      if (!destination) continue;
       feedSeen.add(event.id); if (feedSeen.size > 500) feedSeen.delete(feedSeen.values().next().value);
-      feedItems.unshift({ time: new Date(), text: `${person.name} → ${target.name}: ${verbs[event.kind]}`, kind: event.kind });
+      feedItems.unshift({ time: new Date(), text: `${person.name} → ${destination}: ${verbs[event.kind]}`, kind: event.kind });
     }
     feedItems.splice(8);
     feedList.replaceChildren(...(feedItems.length ? feedItems.map((item) => {
@@ -352,7 +433,122 @@ export function mountOffice(container, options) {
     }) : [node("li", "Henüz iletişim yok. Yönetici görev verdiğinde, bir departman soru sorduğunda veya sonuç teslim ettiğinde burada görünür.", "agent-help")]));
   }
   function closePanel() { selected = null; panelVersion++; panel.hidden = true; panel.replaceChildren(); layout.classList.remove("office-with-panel"); }
-  async function selectPerson(identity) {
+  function toast(message, error = false) { options.toast?.(message, error); }
+  // The forms act exactly like the other Studio screens and with the same rights; nothing happens without a click.
+  function taskForm(person, work) {
+    const text = node("textarea"); text.rows = 4; text.maxLength = 16000;
+    const start = button("Görevi başlat", async () => {
+      const task = text.value.trim();
+      if (!task) { toast("Görevi yazın.", true); return; }
+      start.disabled = true;
+      try {
+        await options.api(`/api/agents/${encodeURIComponent(person.id)}/runs`, { method: "POST", body: JSON.stringify({ task }) });
+        if (!alive) return;
+        toast(`${person.name} görevi aldı.`); text.value = ""; refresh(true);
+      } catch (error) { toast(error.message, true); } finally { start.disabled = false; }
+    });
+    start.classList.add("primary");
+    work.replaceChildren(node("h4", person.role === "manager" ? "Yöneticiye görev ver" : "Görev ver"),
+      field(person.role === "manager" ? "Yönetici ne yapsın? Gerekirse departmanlarına dağıtır." : "Ajan ne yapsın?", text), start);
+    text.focus();
+  }
+  async function chatForm(person, work, version) {
+    const thread = node("ol", undefined, "office-chat"), text = node("textarea"); text.rows = 3; text.maxLength = 4000;
+    const show = (messages) => thread.replaceChildren(...(messages || []).slice(-6).map((item) => {
+      const row = node("li", undefined, item.role === "user" ? "mine" : "theirs");
+      row.append(node("strong", item.role === "user" ? (item.user || "Siz") : person.name), node("span", item.text));
+      return row;
+    }));
+    const send = button("Sor", async () => {
+      const question = text.value.trim();
+      if (!question) { toast("Sorunuzu yazın.", true); return; }
+      send.disabled = true; text.disabled = true;
+      try {
+        const answer = await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`, { method: "POST", body: JSON.stringify({ text: question }) });
+        if (!alive || panelVersion !== version) return;
+        show(answer?.messages); text.value = "";
+      } catch (error) { toast(error.message, true); } finally { send.disabled = false; text.disabled = false; }
+    });
+    send.classList.add("primary");
+    work.replaceChildren(node("h4", person.role === "manager" ? "Yöneticiye soru sor" : "Ajana soru sor"), thread,
+      field("Sorunuz (ajan iş başlatmaz, bildiklerinden yanıtlar)", text), send);
+    text.focus();
+    try {
+      const history = await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`);
+      if (alive && panelVersion === version && Array.isArray(history)) show(history);
+    } catch { /* The form still works without the earlier messages. */ }
+  }
+  function humanTaskForm(person, work) {
+    const heading = node("input"); heading.type = "text"; heading.maxLength = 160;
+    const text = node("textarea"); text.rows = 4; text.maxLength = 16000;
+    const priority = node("select");
+    for (const [value, label] of [["normal", "Normal"], ["high", "Yüksek"], ["low", "Düşük"]]) {
+      const option = node("option", label); option.value = value; priority.append(option);
+    }
+    const assign = button("Görevi ata", async () => {
+      const titleText = heading.value.trim(), instructions = text.value.trim();
+      if (!titleText || !instructions) { toast("Görev başlığını ve yapılacak işi yazın.", true); return; }
+      assign.disabled = true;
+      try {
+        await options.api("/api/agents/central/tasks", { method: "POST", body: JSON.stringify({ request_id: requestId(), title: titleText,
+          instructions, assignee_user_id: person.user_id, priority: priority.value }) });
+        if (!alive) return;
+        toast(`${person.name} için görev oluşturuldu.`); heading.value = ""; text.value = ""; refresh(true);
+      } catch (error) { toast(error.message, true); } finally { assign.disabled = false; }
+    });
+    assign.classList.add("primary");
+    work.replaceChildren(node("h4", "Görev ata"), field("Görev başlığı", heading), field("Yapılacak iş", text), field("Öncelik", priority), assign);
+    heading.focus();
+  }
+  // A question the agent waits for and, for the approver, the approval card, straight from the run.
+  async function pendingWork(person, box, version) {
+    let run;
+    try { run = await options.api(`/api/agents/runs/${encodeURIComponent(person.run_id)}`); } catch { return; }
+    if (!alive || panelVersion !== version || !run || typeof run !== "object" || Array.isArray(run)) return;
+    const question = run.pending_question, approval = run.pending_approval;
+    if (question?.id && typeof question.question === "string") {
+      const card = node("section", undefined, "office-pending");
+      card.append(node("h4", "Ajan sizden yanıt bekliyor"), node("p", question.question));
+      const answer = async (value, control) => {
+        control.disabled = true;
+        try {
+          await options.api(`/api/agents/runs/${encodeURIComponent(run.id)}/questions/${encodeURIComponent(question.id)}/answer`,
+            { method: "POST", body: JSON.stringify({ answer: value }) });
+          if (!alive) return;
+          toast("Yanıtınız ajana iletildi."); card.remove(); refresh(true);
+        } catch (error) { toast(error.message, true); control.disabled = false; }
+      };
+      const choices = node("div", undefined, "agent-actions");
+      (Array.isArray(question.options) ? question.options : []).slice(0, 8).forEach((option) => {
+        const choice = button(String(option), () => answer(option, choice)); choices.append(choice);
+      });
+      const text = node("textarea"); text.rows = 2; text.maxLength = 4000;
+      const send = button("Yanıtla", () => { if (text.value.trim()) answer(text.value.trim(), send); });
+      card.append(...(choices.children.length ? [choices] : []), field("Yanıtınız", text), send);
+      box.append(card);
+    }
+    if (approval?.id && session?.can_approve) {
+      const card = node("section", undefined, "office-pending");
+      card.append(node("h4", "Onay bekleniyor"), node("p", `${approval.workflow_name || "Akış"} · ${approval.reason || ""}`));
+      const inputs = node("ul", undefined, "office-recent");
+      Object.entries(approval.inputs || {}).slice(0, 12).forEach(([key, value]) => inputs.append(node("li", `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`.slice(0, 300))));
+      const decide = async (approved, control) => {
+        control.disabled = true;
+        try {
+          await options.api(`/api/agents/runs/${encodeURIComponent(run.id)}/approvals/${encodeURIComponent(approval.id)}/decision`,
+            { method: "POST", body: JSON.stringify({ approved }) });
+          if (!alive) return;
+          toast(approved ? "İşlem onaylandı." : "İşlem reddedildi."); card.remove(); refresh(true);
+        } catch (error) { toast(error.message, true); control.disabled = false; }
+      };
+      const row = node("div", undefined, "agent-actions");
+      const yes = button("Onayla", () => decide(true, yes)), no = button("Reddet", () => decide(false, no));
+      yes.classList.add("primary"); row.append(yes, no);
+      card.append(...(inputs.children.length ? [inputs] : []), node("p", "Girdileri düzenlemek için onay kartına gidin.", "agent-help"), row);
+      box.append(card);
+    }
+  }
+  async function selectPerson(identity, focus = "") {
     const person = lastData && population(lastData).find((item) => item.id === identity);
     if (!alive || !person) return;
     selected = identity; const version = ++panelVersion;
@@ -360,14 +556,23 @@ export function mountOffice(container, options) {
     const top = node("div", undefined, "office-detail-heading");
     top.append(node("h3", person.name), button("Kapat", closePanel));
     const live = node("p", `${stateName(person)} · ${person.task_label || "Görev bekliyor"}`, "office-detail-live");
-    panel.replaceChildren(top, node("p", person.kind === "human" ? "İnsan çalışan" : person.role === "manager" ? "Yönetici ajan" : `Departman ajanı · ${person.department}`, "agent-eyebrow"), live);
+    panel.replaceChildren(top, node("p", (person.kind === "human" ? "İnsan çalışan" : person.role === "manager" ? "Yönetici ajan" : `Departman ajanı · ${person.department}`) + placeOf(person), "agent-eyebrow"), live);
     if (person.kind === "human" && !person.can_view_tasks) { panel.append(node("p", "Bu çalışanın görev ayrıntılarını görüntüleme yetkiniz yok.", "agent-help")); return; }
-    if (person.kind === "human") panel.append(button("Görevler ekranına git", () => options.openTab?.("tasks")));
-    else if (person.run_id) panel.append(button(person.status === "waiting_approval" ? "Onay kartına git" : "Çalışma kaydına git", () => options.openAgentRun?.(person.run_id)));
-    const details = node("div", "Ayrıntılar yükleniyor…", "office-detail-body"); panel.append(details);
+    const human = person.kind === "human", actions = node("div", undefined, "agent-actions office-detail-actions");
+    const work = node("div", undefined, "office-detail-work"), waiting = node("div", undefined, "office-detail-pending");
+    if (human) {
+      actions.append(button("Görevler ekranına git", () => options.openTab?.("tasks")));
+      if (session?.can_manage && person.user_id) actions.append(button("Görev ata", () => humanTaskForm(person, work)));
+    } else {
+      if (person.run_id) actions.append(button(person.status === "waiting_approval" ? "Onay kartına git" : "Çalışma kaydına git", () => options.openAgentRun?.(person.run_id)));
+      if (session) actions.append(button("Görev ver", () => taskForm(person, work)), button("Soru sor", () => chatForm(person, work, version)));
+    }
+    const details = node("div", "Ayrıntılar yükleniyor…", "office-detail-body");
+    panel.append(actions, waiting, work, details);
+    if (focus === "chat" && session && !human) chatForm(person, work, version);
+    if (session && !human && person.run_id && ["waiting_user", "waiting_approval"].includes(person.status)) pendingWork(person, waiting, version);
     const end = new Date(), start = new Date(end); start.setHours(0, 0, 0, 0); start.setDate(1);
     const range = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
-    const human = person.kind === "human";
     const responses = await Promise.allSettled([
       options.api(human ? "/api/agents/central/tasks" : `/api/agents/tasks?agent_id=${encodeURIComponent(identity)}`),
       options.api(`/api/agents/${human ? "central/" : ""}metrics?${range}`),
@@ -393,10 +598,16 @@ export function mountOffice(container, options) {
         node("p", `Ortalama süre: ${Math.round(Number(entry.average_seconds) || 0)} sn · Toplam süre: ${Math.round(Number(entry.total_seconds) || 0)} sn`, "agent-help"));
     } else details.append(node("p", metrics ? "Bu ay için görev kaydı yok." : "Performans bilgisi alınamadı.", "agent-help"));
   }
+
+  // ----- views ---------------------------------------------------------------------------------
+  function drawPlan(data) {
+    if (layoutState) renderLayoutPlan(view, data, selectPerson, layoutState);
+    else renderPlan(view, data, selectPerson);
+  }
   function fallback(message) {
     if (!alive) return;
     mode = "2d"; scene?.dispose(); scene = null; generation++;
-    renderPlan(view, lastData || { agents: [], people: [], departments: [] }, selectPerson);
+    drawPlan(lastData || { agents: [], people: [], departments: [] });
     status.textContent = message; updateMode();
   }
   function updateMode() {
@@ -409,23 +620,36 @@ export function mountOffice(container, options) {
     mode = next; scene?.dispose(); scene = null;
     const version = ++generation; updateMode();
     if (mode === "list") { view.replaceChildren(); status.textContent = "Erişilebilir liste görünümü"; return; }
-    if (mode === "2d") { renderPlan(view, lastData, selectPerson); status.textContent = "2D ofis planı"; return; }
+    modelNotice = "";
+    let office = null;
+    try { office = await officeLayout(); }
+    catch (error) { layoutState = null; modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
+    if (!alive || generation !== version || mode !== next) return;
+    showCapacity(); updateList(lastData);
+    if (mode === "2d") {
+      drawPlan(lastData); status.textContent = modelNotice || (office ? "2D ofis planı · kendi modeliniz" : "2D ofis planı");
+      return;
+    }
     view.replaceChildren(node("p", "3D ofis hazırlanıyor…", "office-loading"));
     try {
       model ||= Promise.all([import("three"), import("three/addons/controls/OrbitControls.js")]);
       const [THREE, { OrbitControls }] = await model;
       if (!alive || generation !== version || mode !== "3d") return;
-      let own = null; modelNotice = "";
-      try { own = await officeModel(THREE); }
-      catch (error) { modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
+      let own = null;
+      if (office) {
+        try { own = await officeModel(THREE); }
+        catch (error) { layoutState = null; showCapacity(); modelNotice = `Ofis modeli açılamadı (${error?.message || "bilinmeyen hata"}); hazır ofis gösteriliyor.`; }
+      }
       if (!alive || generation !== version || mode !== "3d") return;
-      scene = createScene(THREE, OrbitControls, view, lastData, fallback, selectPerson, seenEvents, own, placement);
-      status.textContent = modelNotice || (own ? "3D ofis · kendi modeliniz" : "3D ofis · yerel görünüm");
+      scene = createScene(THREE, OrbitControls, view, lastData, fallback, selectPerson, seenEvents,
+        own && layoutState ? { model: own, layout: layoutState.layout, places: layoutState.places, placement } : null);
+      status.textContent = modelNotice || (own && layoutState ? "3D ofis · kendi modeliniz" : "3D ofis · yerel görünüm");
       if (modelNotice) modelMessage(modelNotice, true);
       scene.pause(document.hidden);
     } catch { if (alive && generation === version) fallback("3D bu cihazda açılamadı; 2D plan gösteriliyor."); }
   }
-  async function refresh() {
+  async function refresh(now = false) {
+    if (now) { clearTimeout(timer); timer = setTimeout(() => refresh(), 300); return; }
     if (!alive || document.hidden || pending) return;
     pending = true;
     try {
@@ -435,7 +659,7 @@ export function mountOffice(container, options) {
       const data = safeData(local.value);
       heading.textContent = data.office ? `${data.office} ofisi` : "Ofis";
       const humans = central.status === "fulfilled" && Array.isArray(central.value?.people) ? central.value.people.slice(0, 500) : null;
-      data.people = humans || [];
+      data.people = humans || []; humansLoaded = humans !== null;
       humanWarning.hidden = humans !== null; humanWarning.textContent = humans === null ? "İnsan çalışanların durumu alınamadı. Kurum bağlantısı yenilendiğinde tekrar gösterilecek." : "";
       lastData = data; updateList(data); updateFeed(data);
       if (selected) {
@@ -446,7 +670,7 @@ export function mountOffice(container, options) {
       }
       const key = JSON.stringify([data.departments, population(data).map((p) => [p.id, p.kind, p.role, p.department])]);
       if (shapeKey !== key) { shapeKey = key; await switchMode(mode); }
-      else if (mode === "2d") renderPlan(view, data, selectPerson);
+      else if (mode === "2d") drawPlan(data);
       else scene?.update(data);
     } catch (error) { if (alive) { closePanel(); status.textContent = error?.message || "Ofis bilgisi güncellenemedi."; } }
     finally { pending = false; if (alive && !document.hidden) timer = setTimeout(refresh, 3000); }
@@ -459,13 +683,25 @@ export function mountOffice(container, options) {
   };
 }
 
-function renderPlan(host, data, selectPerson) {
-  const focused = host.contains(document.activeElement) ? document.activeElement.dataset.person : null;
-  const create = (tag, attributes, text) => {
+function svgFactory() {
+  return (tag, attributes, text) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attributes || {})) element.setAttribute(key, String(value));
     if (text !== undefined) element.textContent = text; return element;
   };
+}
+function planPerson(create, person, x, y, selectPerson) {
+  const mark = create("g", { role: "button", tabindex: "0", id: `rpa-office-plan-person-${++serial}`,
+    "aria-label": `${person.name} · ${stateName(person)}`, class: "office-plan-person", "data-status": person.status, "data-activity": person.activity || person.status, "data-person": person.id });
+  mark.append(create("circle", { cx: x, cy: y + 28, r: 12 }), create("text", { x, y: y + 34, "text-anchor": "middle", class: "office-plan-symbol" }, symbol(person)),
+    create("text", { x, y: y + 59, "text-anchor": "middle", class: "office-plan-name" }, String(person.name).slice(0, 12)));
+  mark.addEventListener("click", () => selectPerson(person.id));
+  mark.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectPerson(person.id); } });
+  return mark;
+}
+function renderPlan(host, data, selectPerson) {
+  const focused = host.contains(document.activeElement) ? document.activeElement.dataset.person : null;
+  const create = svgFactory();
   const areas = rooms(data), seats = seating(data), length = Math.max(18, ...areas.map((r) => r.z + r.depth / 2 + 9));
   const px = (x) => 500 + x * 32, py = (z) => 40 + (z + 8.5) * 24;
   const floor = create("svg", { viewBox: `0 0 1000 ${length * 24 + 80}`, role: "group", "aria-label": "Ofis planı ve çalışan durumları", class: "office-plan" });
@@ -484,21 +720,56 @@ function renderPlan(host, data, selectPerson) {
       create("text", { x: (px(seat.x) + px(head.x)) / 2, y: (py(seat.z) + py(head.z)) / 2 + 22, "text-anchor": "middle", class: "office-plan-link-label" }, "Soru"));
   }
   for (const seat of seats) {
-    const person = seat.person, x = px(seat.x), y = py(seat.z);
-    floor.append(create("rect", { x: x - 28, y: y - 5, width: 56, height: 22, rx: 4, class: "office-plan-desk" }));
-    const mark = create("g", { role: "button", tabindex: "0", id: `rpa-office-plan-person-${++serial}`,
-      "aria-label": `${person.name} · ${stateName(person)}`, class: "office-plan-person", "data-status": person.status, "data-activity": person.activity || person.status, "data-person": person.id });
-    mark.append(create("circle", { cx: x, cy: y + 28, r: 12 }), create("text", { x, y: y + 34, "text-anchor": "middle", class: "office-plan-symbol" }, symbol(person)),
-      create("text", { x, y: y + 59, "text-anchor": "middle", class: "office-plan-name" }, String(person.name).slice(0, 12)));
-    mark.addEventListener("click", () => selectPerson(person.id));
-    mark.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectPerson(person.id); } });
-    floor.append(mark);
+    const x = px(seat.x), y = py(seat.z);
+    floor.append(create("rect", { x: x - 28, y: y - 5, width: 56, height: 22, rx: 4, class: "office-plan-desk" }), planPerson(create, seat.person, x, y, selectPerson));
   }
   host.replaceChildren(floor); host.dataset.mode = "2d";
   if (focused) [...host.querySelectorAll("[data-person]")].find((item) => item.dataset.person === focused)?.focus({ preventScroll: true });
 }
+// The plan of an imported model: only its own points, paths and labels; no rooms are invented.
+function renderLayoutPlan(host, data, selectPerson, state) {
+  const focused = host.contains(document.activeElement) ? document.activeElement.dataset.person : null;
+  const create = svgFactory(), { layout, places } = state, points = Object.entries(layout.points);
+  const xs = [...points.map(([, item]) => item.position[0]), ...layout.labels.map((item) => item.position[0])];
+  const zs = [...points.map(([, item]) => item.position[2]), ...layout.labels.map((item) => item.position[2])];
+  const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 3;
+  const scale = 920 / Math.max(1, maxX - minX), height = (maxZ - minZ) * scale + 80;
+  const px = (x) => 40 + (x - minX) * scale, py = (z) => 40 + (z - minZ) * scale;
+  const floor = create("svg", { viewBox: `0 0 1000 ${Math.round(height)}`, role: "group", "aria-label": "Ofis modelinin planı ve çalışan durumları", class: "office-plan" });
+  floor.append(create("rect", { x: 20, y: 20, width: 960, height: height - 40, rx: 24, class: "office-plan-floor" }));
+  for (const [first, second] of layout.edges) {
+    const a = layout.points[first].position, b = layout.points[second].position;
+    floor.append(create("line", { x1: px(a[0]), y1: py(a[2]), x2: px(b[0]), y2: py(b[2]), class: "office-plan-path" }));
+  }
+  for (const [, item] of points) {
+    if (!["work", "wait", "manager"].includes(item.kind)) continue;
+    floor.append(create("rect", { x: px(item.position[0]) - 18, y: py(item.position[2]) - 10, width: 36, height: 20, rx: 4,
+      class: item.kind === "wait" ? "office-plan-wait" : "office-plan-desk" }));
+  }
+  for (const item of layout.labels) floor.append(create("text", { x: px(item.position[0]), y: py(item.position[2]), "text-anchor": "middle", class: "office-plan-area" }, item.text));
+  const spots = new Map();
+  for (const person of population(data)) {
+    const point = places?.places?.[person.id];
+    if (point && layout.points[point]) spots.set(person.id, layout.points[point].position);
+  }
+  const manager = population(data).find((person) => person.role === "manager" && spots.has(person.id));
+  for (const person of population(data)) {
+    if (!manager || person === manager || person.activity !== "asking_manager" || !spots.has(person.id)) continue;
+    const a = spots.get(person.id), b = spots.get(manager.id);
+    floor.append(create("line", { x1: px(a[0]), y1: py(a[2]) + 18, x2: px(b[0]), y2: py(b[2]) + 18, class: "office-plan-link" }),
+      create("text", { x: (px(a[0]) + px(b[0])) / 2, y: (py(a[2]) + py(b[2])) / 2 + 14, "text-anchor": "middle", class: "office-plan-link-label" }, "Soru"));
+  }
+  for (const person of population(data)) {
+    const at = spots.get(person.id);
+    if (at) floor.append(planPerson(create, person, px(at[0]), py(at[2]) - 22, selectPerson));
+  }
+  const overflow = places?.overflow?.length || 0;
+  if (overflow) floor.append(create("text", { x: 500, y: height - 30, "text-anchor": "middle", class: "office-plan-full" }, `Ofis kapasitesi dolu: ${overflow} çalışan listede`));
+  host.replaceChildren(floor); host.dataset.mode = "2d";
+  if (focused) [...host.querySelectorAll("[data-person]")].find((item) => item.dataset.person === focused)?.focus({ preventScroll: true });
+}
 
-function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, seenEvents, own = null, placement = PLACEMENT) {
+function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, seenEvents, office = null) {
   let disposed = false, paused = document.hidden, raf = null, animationTimer = null, slow = 0, frames = 0;
   const paint = [], labels = [], materials = new Set(), geometries = new Set(), characters = new Map(), flights = [];
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "low-power" });
@@ -539,7 +810,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     deskMat = material("surface"), chairMat = material("accent"), metalMat = material("ink-2"),
     glassMat = material("accent-tint", { transparent: true, opacity: .22, depthWrite: false, roughness: .2 }),
     screenMat = material("ink"), plantMat = material("ok"), zoneMat = material("surface-3"), trimMat = material("accent"),
-    humanMat = material("mark"), headMat = material("surface"), bootMat = material("ink"), paperMat = material("on-solid");
+    humanMat = material("mark"), headMat = material("surface"), bootMat = material("ink");
   function mesh(geometry, mat, x, y, z, parent = scene) {
     geometries.add(geometry); const object = new THREE.Mesh(geometry, mat); object.position.set(x, y, z);
     object.castShadow = !mat.transparent; object.receiveShadow = !mat.transparent; parent.add(object); return object;
@@ -562,79 +833,92 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     mesh(new THREE.CylinderGeometry(.32, .24, .55, 6), wallMat, x, .42, z);
     mesh(new THREE.ConeGeometry(.53, 1.15, 5), plantMat, x, 1.2, z);
   }
-  const areas = rooms(data), length = Math.max(18, ...areas.map((r) => r.z + r.depth / 2 + 9)), centerZ = length / 2 - 9;
-  controls.maxDistance = Math.max(58, length * 2.8);
-  // The generated floor and walls; an imported office model may take their place.
-  const shell = new THREE.Group(); scene.add(shell);
-  box(28.5, .46, length + .6, edgeMat, 0, -.3, centerZ, shell); box(28, .16, length, floorMat, 0, .015, centerZ, shell);
-  box(28, 2.9, .24, wallMat, 0, 1.45, -8.8, shell); box(.24, 2.9, length, wallMat, -13.9, 1.45, centerZ, shell);
-  for (let x = -12; x <= 12; x += 2) box(.012, .014, length, edgeMat, x, .103, centerZ, shell);
-  for (let z = -8; z <= length - 9; z += 2) box(28, .014, .012, edgeMat, 0, .103, z, shell);
-  for (const room of areas) {
-    box(7.8, .035, room.depth, zoneMat, room.x, .13, room.z);
-    box(7.8, .045, .075, trimMat, room.x, .16, room.z - room.depth / 2);
-    if (!room.members.length) [-2.5, 0, 2.5].forEach((offset) => desk(room.x + offset, room.z));
-    label(room.name, room.x, .35, room.z - room.depth / 2 + .3);
-    plant(room.x - 3.45, room.z + room.depth / 2 - .5);
-  }
-  box(6.2, .055, 6.2, wallMat, 0, .14, -.7);
-  for (const x of [-3.1, 3.1]) {
-    box(.08, 3.2, 6.2, glassMat, x, 1.72, -.7);
-    for (const z of [-3.8, 2.4]) box(.075, 3.35, .075, metalMat, x, 1.78, z);
-    box(.09, .075, 6.2, metalMat, x, 3.42, -.7);
-  }
-  box(6.2, 3.2, .06, glassMat, 0, 1.72, -3.8); box(6.2, .075, .09, metalMat, 0, 3.42, -3.8);
-  if (!data.agents.some((a) => a.role === "manager")) desk(0, -.7, true);
-  plant(-2.15, -2.65); plant(2.15, -2.65); label("Yönetici odası", 0, 3.9, -1.8, true);
-  plant(12.8, -7.65); plant(-12.8, length - 9.8);
-  box(3.7, .48, 1.1, chairMat, 0, .53, 6.8); box(3.7, .58, .18, chairMat, 0, 1.04, 7.27);
-  box(2.3, .12, .8, deskMat, 0, .7, 5.4); box(.12, .6, .12, metalMat, -.8, .35, 5.4); box(.12, .6, .12, metalMat, .8, .35, 5.4);
-  // Araştırma köşesi: agents that read the web walk here (bookshelf and globe beside the lounge).
-  box(1.5, 2.3, .45, deskMat, -3.15, 1.15, 5.5);
-  for (const height of [.55, 1.15, 1.75]) box(1.3, .08, .4, metalMat, -3.15, height, 5.5);
-  for (const [offset, height, token] of [[-.35, .82, trimMat], [.1, .82, plantMat], [-.2, 1.42, humanMat], [.3, 1.42, trimMat]])
-    box(.18, .42, .3, token, -3.15 + offset, height, 5.5);
-  box(.12, 1.0, .12, metalMat, 3.15, .5, 5.5);
-  mesh(new THREE.SphereGeometry(.45, 18, 12), plantMat, 3.15, 1.35, 5.5);
-  label("Araştırma köşesi", -3.15, 2.75, 5.5);
-  // The imported model is scenery only: agents keep the office's own seats, states and labels.
-  let imported = null;
-  if (own) {
+
+  // ----- the room: generated, or the imported model with its own points -----------------------
+  const layout = office?.layout || null;
+  let length = 18, centerZ = 0, target = new THREE.Vector3(0, 0, 1), extent = 22, outer = null;
+  if (layout) {
     renderer.localClippingEnabled = true;
-    const inner = own.group.clone(), outer = new THREE.Group(), middle = own.box.getCenter(new THREE.Vector3());
-    inner.position.set(-middle.x, -own.box.min.y, -middle.z); outer.add(inner); scene.add(outer);
-    imported = { outer, size: own.box.getSize(new THREE.Vector3()), extent: 0 };
+    // The model's RPA_ORIGIN becomes the office origin; every point already lies in that frame.
+    outer = new THREE.Group(); outer.matrixAutoUpdate = false;
+    outer.matrix.fromArray(layout.origin_matrix).invert(); outer.add(office.model.group.clone()); scene.add(outer);
+    outer.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(outer), size = bounds.getSize(new THREE.Vector3());
+    extent = Math.max(4, size.x, size.z);
+    const middle = bounds.getCenter(new THREE.Vector3());
+    target = layout.camera_target ? new THREE.Vector3(...layout.camera_target) : new THREE.Vector3(middle.x, 0, middle.z);
+    for (const item of layout.labels) label(item.text, ...item.position);
+    controls.minAzimuthAngle = -Infinity; controls.maxAzimuthAngle = Infinity;
+    controls.minDistance = Math.max(3, extent * .25); controls.maxDistance = Math.max(20, extent * 3);
+    Object.assign(light.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: extent * 4 + 40 });
+    light.position.set(target.x + extent * .35, extent * .8 + 10, target.z + extent * .45); light.target.position.copy(target); scene.add(light.target);
+  } else {
+    const areas = rooms(data);
+    length = Math.max(18, ...areas.map((r) => r.z + r.depth / 2 + 9)); centerZ = length / 2 - 9; target = new THREE.Vector3(0, 0, centerZ);
+    controls.maxDistance = Math.max(58, length * 2.8);
+    box(28.5, .46, length + .6, edgeMat, 0, -.3, centerZ); box(28, .16, length, floorMat, 0, .015, centerZ);
+    box(28, 2.9, .24, wallMat, 0, 1.45, -8.8); box(.24, 2.9, length, wallMat, -13.9, 1.45, centerZ);
+    for (let x = -12; x <= 12; x += 2) box(.012, .014, length, edgeMat, x, .103, centerZ);
+    for (let z = -8; z <= length - 9; z += 2) box(28, .014, .012, edgeMat, 0, .103, z);
+    for (const room of areas) {
+      box(7.8, .035, room.depth, zoneMat, room.x, .13, room.z);
+      box(7.8, .045, .075, trimMat, room.x, .16, room.z - room.depth / 2);
+      if (!room.members.length) [-2.5, 0, 2.5].forEach((offset) => desk(room.x + offset, room.z));
+      label(room.name, room.x, .35, room.z - room.depth / 2 + .3);
+      plant(room.x - 3.45, room.z + room.depth / 2 - .5);
+    }
+    box(6.2, .055, 6.2, wallMat, 0, .14, -.7);
+    for (const x of [-3.1, 3.1]) {
+      box(.08, 3.2, 6.2, glassMat, x, 1.72, -.7);
+      for (const z of [-3.8, 2.4]) box(.075, 3.35, .075, metalMat, x, 1.78, z);
+      box(.09, .075, 6.2, metalMat, x, 3.42, -.7);
+    }
+    box(6.2, 3.2, .06, glassMat, 0, 1.72, -3.8); box(6.2, .075, .09, metalMat, 0, 3.42, -3.8);
+    if (!data.agents.some((a) => a.role === "manager")) desk(0, -.7, true);
+    plant(-2.15, -2.65); plant(2.15, -2.65); label("Yönetici odası", 0, 3.9, -1.8, true);
+    plant(12.8, -7.65); plant(-12.8, length - 9.8);
+    box(3.7, .48, 1.1, chairMat, 0, .53, 6.8); box(3.7, .58, .18, chairMat, 0, 1.04, 7.27);
+    box(2.3, .12, .8, deskMat, 0, .7, 5.4); box(.12, .6, .12, metalMat, -.8, .35, 5.4); box(.12, .6, .12, metalMat, .8, .35, 5.4);
+    // Araştırma köşesi: agents that read the web walk here (bookshelf and globe beside the lounge).
+    box(1.5, 2.3, .45, deskMat, -3.15, 1.15, 5.5);
+    for (const height of [.55, 1.15, 1.75]) box(1.3, .08, .4, metalMat, -3.15, height, 5.5);
+    for (const [offset, height, token] of [[-.35, .82, trimMat], [.1, .82, plantMat], [-.2, 1.42, humanMat], [.3, 1.42, trimMat]])
+      box(.18, .42, .3, token, -3.15 + offset, height, 5.5);
+    box(.12, 1.0, .12, metalMat, 3.15, .5, 5.5);
+    mesh(new THREE.SphereGeometry(.45, 18, 12), plantMat, 3.15, 1.35, 5.5);
+    label("Araştırma köşesi", -3.15, 2.75, 5.5);
   }
+  light.shadow.camera.updateProjectionMatrix();
   function place(value) {
-    if (!imported) return;
-    const settings = { ...PLACEMENT, ...value }, scale = own.unit * settings.scale;
-    imported.outer.scale.setScalar(scale); imported.outer.rotation.y = settings.rotation * Math.PI / 180;
-    imported.outer.position.set(settings.offset_x, settings.offset_y, centerZ + settings.offset_z);
-    own.plane.constant = settings.cut_height > 0 ? settings.cut_height : 1e6;
-    shell.visible = !settings.hide_room;
-    imported.extent = Math.max(imported.size.x, imported.size.z) * scale;
-    controls.maxDistance = Math.max(58, length * 2.8, imported.extent * 1.8);
+    if (!office) return;
+    const cut = Number({ ...PLACEMENT, ...value }.cut_height) || 0;
+    office.model.plane.constant = cut > 0 ? cut : 1e6;
     request();
   }
 
-  function character(seat) {
-    const { person, x, z } = seat, root = new THREE.Group(); scene.add(root); root.position.set(x, .05, z + .95);
+  // ----- people --------------------------------------------------------------------------------
+  // Legs bend at the hip and the knee, so a seat is used with a real seated pose, never faked by moving.
+  function character(spec) {
+    const { person } = spec, root = new THREE.Group(); scene.add(root); root.position.copy(spec.origin); root.rotation.y = spec.yaw;
     const shirt = person.kind === "human" ? humanMat : chairMat, screen = material("ink"), statusMat = material("accent");
-    desk(x, z, seat.large, screen);
+    if (spec.desk) desk(spec.desk.x, spec.desk.z, spec.desk.large, screen);
     const body = new THREE.Group(); root.add(body);
     mesh(new THREE.CylinderGeometry(.27, .34, .65, 5), shirt, 0, 1.13, 0, body);
     const head = mesh(new THREE.IcosahedronGeometry(.29, 1), headMat, 0, 1.67, 0, body);
     // Small eyes and a badge distinguish the generated office figures without external textures.
     for (const side of [-1, 1]) box(.055, .045, .035, bootMat, side * .10, 1.7, -.27, body);
     box(.10, .15, .025, person.kind === "human" ? chairMat : humanMat, .14, 1.25, -.26, body);
-    const arms = [], legs = [];
+    const arms = [], legs = [], knees = [];
     for (const side of [-1, 1]) {
       const arm = new THREE.Group(); arm.position.set(side * .34, 1.33, 0); body.add(arm);
       box(.17, .46, .18, shirt, 0, -.18, 0, arm); mesh(new THREE.IcosahedronGeometry(.12, 0), headMat, 0, -.44, 0, arm); arms.push(arm);
-      const leg = box(.17, .48, .22, bootMat, side * .17, .53, -.16, root); legs.push(leg);
-      box(.19, .14, .32, bootMat, side * .17, .26, -.23, root);
+      const hip = new THREE.Group(); hip.position.set(side * .17, .77, -.16); root.add(hip);
+      box(.17, .24, .22, bootMat, 0, -.12, 0, hip);
+      const knee = new THREE.Group(); knee.position.set(0, -.24, 0); hip.add(knee);
+      const shin = box(.17, SHIN, .22, bootMat, 0, -SHIN / 2, 0, knee), boot = box(.19, .14, .32, bootMat, 0, -SHIN - .03, -.07, knee);
+      legs.push(hip); knees.push({ knee, shin, boot });
     }
-    const ring = mesh(new THREE.TorusGeometry(.52, .035, 5, 20, Math.PI * 1.5), statusMat, x, .25, z + .95);
+    const ring = mesh(new THREE.TorusGeometry(.52, .035, 5, 20, Math.PI * 1.5), statusMat, spec.ring.x, spec.ring.y, spec.ring.z);
     ring.rotation.x = Math.PI / 2; ring.visible = false;
     const folder = box(.35, .42, .065, humanMat, -.42, 1.05, -.18, body); folder.visible = false;
     const name = button("", () => selectPerson(person.id)); name.className = "office-person-label";
@@ -642,26 +926,59 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     const bubble = node("span", "", "office-person-bubble"), caption = node("span", "", "office-person-name");
     const speech = node("span", "", "office-person-speech"); speech.hidden = true; speech.setAttribute("aria-hidden", "true");
     name.append(speech, bubble, caption);
-    const labelItem = { node: name, point: new THREE.Vector3(x, 2.9, z + .95), character: root }; labels.push(labelItem);
+    const labelItem = { node: name, point: root.position.clone().add(new THREE.Vector3(0, 2.85, 0)), character: root }; labels.push(labelItem);
     root.traverse((child) => { if (child.isMesh) child.userData.personId = person.id; });
-    characters.set(person.id, { root, body, head, arms, legs, folder, ring, screen, statusMat, name, bubble, caption, labelItem,
-      speech, said: null, origin: root.position.clone(), person, delivery: null, trip: null });
+    characters.set(person.id, { root, body, head, arms, legs, knees, folder, ring, screen, statusMat, name, bubble, caption, labelItem,
+      speech, said: null, origin: root.position.clone(), yaw: spec.yaw, seat: spec.seat || null, place: spec.place || null,
+      person, delivery: null, trip: null });
   }
-  seating(data).forEach(character);
+  if (layout) {
+    for (const person of population(data)) {
+      const point = office.places?.places?.[person.id], anchor = point ? layout.points[point] : null;
+      if (!anchor) continue;  // No free point: the person stays in the list, never on top of someone else.
+      const [x, y, z] = anchor.position, yaw = (anchor.yaw || 0) + CHARACTER_FORWARD;
+      const seatName = layout.seats[point], seatPoint = seatName ? layout.points[seatName] : null;
+      let seat = null;
+      if (seatPoint) {
+        const [sx, sy, sz] = seatPoint.position, seatYaw = (seatPoint.yaw ?? anchor.yaw ?? 0);
+        seat = { position: new THREE.Vector3(sx + Math.sin(seatYaw) * SEAT_FORWARD, sy - THIGH_UNDERSIDE, sz + Math.cos(seatYaw) * SEAT_FORWARD),
+          yaw: seatYaw + CHARACTER_FORWARD, shin: Math.min(2.2, Math.max(.6, (sy + .01 - y) / SHIN)) };
+      }
+      character({ person, origin: new THREE.Vector3(x, y - SOLE, z), yaw, seat, place: point, ring: { x, y: y + .06, z } });
+    }
+  } else {
+    for (const seat of seating(data)) {
+      character({ person: seat.person, origin: new THREE.Vector3(seat.x, .05, seat.z + .95), yaw: 0,
+        desk: { x: seat.x, z: seat.z, large: seat.large }, ring: { x: seat.x, y: .25, z: seat.z + .95 } });
+    }
+  }
+  function pose(item, seated) {
+    item.legs.forEach((hip) => { hip.rotation.x = seated ? Math.PI / 2 : 0; });
+    const length = seated ? SHIN * item.seat.shin : SHIN;
+    item.knees.forEach(({ knee, shin, boot }) => {
+      knee.rotation.x = seated ? -Math.PI / 2 : 0;
+      shin.scale.y = length / SHIN; shin.position.y = -length / 2; boot.position.y = -length - .03;
+    });
+  }
   // Balloons show only the message type; the office never receives question or answer texts.
   function say(item, text, duration, stamp) { item.said = { text, until: stamp + duration }; }
   function eventFor(person, stamp) {
     const event = person.event;
     if (!event?.id || seenEvents.has(event.id)) return;
     seenEvents.add(event.id); if (seenEvents.size > 1000) seenEvents.delete(seenEvents.values().next().value);
-    const source = characters.get(person.id), destination = characters.get(event.to_agent_id);
+    const source = characters.get(person.id);
+    if (source && event.kind === "office_request") { say(source, "Diğer ofise", 4500, stamp); return; }
+    if (source && event.kind === "office_answered") { say(source, "Diğer ofise sonuç", 4500, stamp); return; }
+    if (source && event.kind === "office_received") { say(source, "Diğer ofisten", 4500, stamp); return; }
+    const destination = characters.get(event.to_agent_id);
     if (!source || !destination) return;
     if (event.kind === "answered") say(source, "Yanıt", 4500, stamp);
     else if (event.kind === "delegated") say(source, "Görev", 3000, stamp);
     else if (event.kind === "completed" && person.status === "succeeded") say(source, "Sonuç", 4500, stamp);
     if (reduced.matches) return;
-    if (event.kind === "completed" && person.status === "succeeded") source.delivery = { stamp, path: route(source, 0) };
-    else if (event.kind === "delegated") source.delivery = { stamp, path: handOver(source, destination) };
+    const trip = event.kind === "completed" && person.status === "succeeded" ? deliveryRoute(source)
+      : event.kind === "delegated" ? handOver(source, destination) : null;
+    if (trip) source.delivery = { stamp, ...trip };
   }
   function update(next) {
     const stamp = performance.now();
@@ -679,17 +996,56 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     });
     request();
   }
+
+  // ----- walking: generated corridors, or only the model's declared path network ----------------
   const TRIP = 3500;
+  const at = (name) => { const [x, y, z] = layout.points[name].position; return new THREE.Vector3(x, y - SOLE, z); };
+  function journey(names) {
+    const path = names.map(at);
+    let total = 0;
+    for (let index = 1; index < path.length; index++) total += path[index].distanceTo(path[index - 1]);
+    return { route: path, duration: Math.max(1200, total / WALK_SPEED * 1000) };
+  }
+  // A destination point of the model (meeting or research point) that nobody else is heading to.
+  function freePoint(item, kind) {
+    const busy = new Set([...characters.values()].filter((other) => other !== item).map((other) => other.trip?.target || other.delivery?.target));
+    return Object.keys(layout.points).sort().find((name) => layout.points[name].kind === kind && !busy.has(name)
+      && shortestPath(layout, item.place, name)) || null;
+  }
+  function tripTo(item, kind) {
+    if (!layout) {
+      return kind === "ask" ? { route: route(item, askingSlot(item)), duration: TRIP, face: 0 }
+        : { route: route(item, researchSlot(item), 4.4), duration: TRIP, face: Math.PI };
+    }
+    if (!item.place) return null;
+    const destination = freePoint(item, kind === "ask" ? "meet" : "research");
+    if (!destination) return null;  // The model defines no such area, or every spot is taken: stay with the balloon.
+    return { ...journey(shortestPath(layout, item.place, destination)), target: destination,
+      face: (layout.points[destination].yaw || 0) + CHARACTER_FORWARD };
+  }
+  function deliveryRoute(item) {
+    if (!layout) return { route: route(item, 0), duration: 8000 };
+    const destination = item.place && freePoint(item, "meet");
+    if (!destination) return null;
+    const trip = journey(shortestPath(layout, item.place, destination));
+    return { ...trip, duration: trip.duration * 2 + 1500, target: destination };
+  }
   function route(item, endX, endZ = 1.9) {
     const side = item.origin.x < 0 ? -4 : 4;
     return [item.origin, new THREE.Vector3(side, .05, item.origin.z), new THREE.Vector3(side, .05, 3.3),
       new THREE.Vector3(endX, .05, 3.3), new THREE.Vector3(endX, .05, endZ)];
   }
-  // The manager leaves the glass room and hands the task card over at the department's desk.
+  // The manager leaves its place and hands the task card over next to the department's place.
   function handOver(manager, department) {
+    if (layout) {
+      const names = manager.place && department.place ? shortestPath(layout, manager.place, department.place) : null;
+      if (!names || names.length < 3) return null;
+      const trip = journey(names.slice(0, -1));
+      return { ...trip, duration: trip.duration * 2 + 1500 };
+    }
     const side = department.origin.x < 0 ? -4 : 4, front = department.origin.z + 1.2;
-    return [manager.origin, new THREE.Vector3(manager.origin.x, .05, 3.3), new THREE.Vector3(side, .05, 3.3),
-      new THREE.Vector3(side, .05, front), new THREE.Vector3(department.origin.x, .05, front)];
+    return { route: [manager.origin, new THREE.Vector3(manager.origin.x, .05, 3.3), new THREE.Vector3(side, .05, 3.3),
+      new THREE.Vector3(side, .05, front), new THREE.Vector3(department.origin.x, .05, front)], duration: 8000 };
   }
   function researchSlot(item) {
     const reading = [...characters.values()].filter((other) => (other.person.activity || other.person.status) === "researching");
@@ -702,21 +1058,28 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     const index = Math.max(0, waiting.indexOf(item));
     return (index % 2 ? 1 : -1) * (1.2 + Math.floor(index / 2) * 1.2);
   }
+  // Moves along the polyline by distance, so every corridor is walked at the same pace.
   function walk(item, path, phase, back, stamp, stepping) {
     // A frame's timestamp can precede the moment an event was recorded; never step outside the path.
     phase = Math.max(0, Math.min(1, phase));
-    const piece = Math.min(3, Math.floor(phase * 4)), fraction = phase * 4 - piece;
-    item.root.position.lerpVectors(path[piece], path[piece + 1], fraction);
-    const direction = path[piece + 1].clone().sub(path[piece]);
-    item.root.rotation.y = Math.atan2(-direction.x, -direction.z) + (back ? Math.PI : 0);
-    if (stepping) item.legs.forEach((leg, index) => { leg.rotation.x = Math.sin(stamp / 130 + index * Math.PI) * .35; });
+    const lengths = [];
+    let total = 0;
+    for (let index = 1; index < path.length; index++) { const piece = path[index].distanceTo(path[index - 1]); lengths.push(piece); total += piece; }
+    let left = phase * total, index = 0;
+    while (index < lengths.length - 1 && left > lengths[index]) { left -= lengths[index]; index++; }
+    const from = path[index], to = path[Math.min(index + 1, path.length - 1)];
+    item.root.position.lerpVectors(from, to, lengths[index] ? Math.min(1, left / lengths[index]) : 1);
+    const direction = to.clone().sub(from);
+    if (direction.lengthSq() > 1e-6) item.root.rotation.y = Math.atan2(-direction.x, -direction.z) + (back ? Math.PI : 0);
+    if (stepping) item.legs.forEach((leg, number) => { leg.rotation.x = Math.sin(stamp / 130 + number * Math.PI) * .35; });
   }
   function animate(stamp) {
     let active = false;
     for (const item of characters.values()) {
       const state = item.person.activity || item.person.status, moving = !reduced.matches;
-      item.root.position.copy(item.origin); item.root.rotation.y = 0; item.body.position.y = 0; item.head.rotation.z = 0;
-      item.arms[0].rotation.set(0, 0, 0); item.arms[1].rotation.set(0, 0, 0); item.legs.forEach((leg) => { leg.rotation.x = 0; });
+      item.root.position.copy(item.origin); item.root.rotation.y = item.yaw; item.body.position.y = 0; item.head.rotation.z = 0;
+      item.arms[0].rotation.set(0, 0, 0); item.arms[1].rotation.set(0, 0, 0);
+      pose(item, false);
       item.ring.visible = state === "workflow"; item.ring.rotation.z = moving ? stamp / 1300 : 0;
       item.folder.visible = Boolean(item.delivery) && moving;
       if (state === "waiting_approval") {
@@ -732,32 +1095,40 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
       if (item.said && item.said.until <= stamp) item.said = null;
       item.speech.textContent = speech; item.speech.hidden = !speech; active ||= Boolean(item.said);
       if (wanted && moving && !item.trip) {
-        item.trip = { out: true, stamp, kind: wanted,
-          route: wanted === "ask" ? route(item, askingSlot(item)) : route(item, researchSlot(item), 4.4) };
-        item.delivery = null;
+        const trip = tripTo(item, wanted);
+        // Without a reachable spot the person stays in place; the trip is not retried every frame.
+        item.trip = trip ? { ...trip, out: true, stamp, kind: wanted } : { out: true, stamp, kind: wanted, idle: true };
+        if (trip) item.delivery = null;
       } else if (item.trip?.out && (item.trip.kind !== wanted || !moving)) {
-        const reached = Math.min(1, (stamp - item.trip.stamp) / TRIP);
-        item.trip = { ...item.trip, out: false, stamp: stamp - (1 - reached) * TRIP };
+        const reached = item.trip.idle ? 1 : Math.min(1, (stamp - item.trip.stamp) / item.trip.duration);
+        item.trip = { ...item.trip, out: false, stamp: stamp - (1 - reached) * (item.trip.duration || 0) };
       }
+      let walked = false;
       if (item.trip) {
-        const elapsed = (stamp - item.trip.stamp) / TRIP, phase = item.trip.out ? Math.min(1, elapsed) : 1 - elapsed;
-        if ((!item.trip.out && phase <= 0) || !moving) item.trip = null;
+        if (item.trip.idle) { if (!item.trip.out) item.trip = null; }
         else {
-          walk(item, item.trip.route, phase, !item.trip.out, stamp, phase < 1);
-          if (phase >= 1) item.root.rotation.y = item.trip.kind === "research" ? Math.PI : 0;
-          active ||= phase < 1;
+          const elapsed = (stamp - item.trip.stamp) / item.trip.duration, phase = item.trip.out ? Math.min(1, elapsed) : 1 - elapsed;
+          if ((!item.trip.out && phase <= 0) || !moving) item.trip = null;
+          else {
+            walk(item, item.trip.route, phase, !item.trip.out, stamp, phase < 1); walked = true;
+            if (phase >= 1) item.root.rotation.y = item.trip.face;
+            active ||= phase < 1;
+          }
         }
       }
       if (item.delivery && moving && !item.trip) {
-        const progress = (stamp - item.delivery.stamp) / 8000;
+        const progress = (stamp - item.delivery.stamp) / item.delivery.duration;
         if (progress >= 1) { item.delivery = null; item.folder.visible = false; }
         else {
-          // Walk to the open front of the manager room, then return to the same desk.
+          // Walk to the destination, then return to the same place.
           const phase = progress < .5 ? progress * 2 : (1 - progress) * 2;
-          walk(item, item.delivery.path, phase, progress >= .5, stamp, true); active = true;
+          walk(item, item.delivery.route, phase, progress >= .5, stamp, true); walked = true; active = true;
         }
       }
-      item.labelItem.point.copy(item.root.position).add(new THREE.Vector3(0, 2.85, 0));
+      if (item.seat && !walked) {
+        pose(item, true); item.root.position.copy(item.seat.position); item.root.rotation.y = item.seat.yaw;
+      }
+      item.labelItem.point.copy(item.root.position).add(new THREE.Vector3(0, item.seat && !walked ? 2.85 - .2 : 2.85, 0));
     }
     for (let index = flights.length - 1; index >= 0; index--) {
       const flight = flights[index], progress = (stamp - flight.stamp) / 2400;
@@ -786,7 +1157,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     }
     frames++; slow = frames > 3 && performance.now() - start > 100 ? slow + 1 : 0;
     if (slow >= 6) {
-      fallback(imported ? "Ofis modeli bu cihazda ağır kaldı; 2D plan gösteriliyor. Daha sade bir model deneyin veya varsayılan ofise dönün."
+      fallback(office ? "Ofis modeli bu cihazda ağır kaldı; 2D plan gösteriliyor. Daha sade bir model deneyin veya varsayılan ofise dönün."
         : "Bu cihazda daha akıcı görüntü için 2D plana geçildi.");
       return;
     }
@@ -802,8 +1173,9 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); request();
   }
   function reset() {
-    const scale = Math.max(1, length / 22, (imported?.extent || 0) / 30); camera.position.set(23 * scale, 24 * scale, centerZ + 29 * scale);
-    controls.target.set(0, 0, centerZ); controls.update(); request();
+    const scale = layout ? Math.max(.3, extent / 36) : Math.max(1, length / 22);
+    camera.position.set(target.x + 23 * scale, 24 * scale, target.z + 29 * scale);
+    controls.target.copy(target); controls.update(); request();
   }
   function lost(event) { event.preventDefault(); fallback("3D görüntü kesildi; 2D plan gösteriliyor."); }
   let pointerStart = null;
@@ -820,7 +1192,7 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
   controls.addEventListener("change", request);
   const observer = new ResizeObserver(resize); observer.observe(host);
   const themes = new MutationObserver(theme); themes.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  place(placement); motion(); reset(); resize(); theme(); update(data);
+  place(office?.placement); motion(); reset(); resize(); theme(); update(data);
   return { reset, update, place, pause(value) {
     paused = value; if (paused) { cancelAnimationFrame(raf); raf = null; clearTimeout(animationTimer); animationTimer = null; } else request();
   }, dispose() {

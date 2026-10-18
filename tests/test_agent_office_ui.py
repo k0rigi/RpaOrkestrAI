@@ -9,19 +9,32 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 import pytest
-from glb_samples import office
+from glb_samples import layout_office, office
+
+from rpa_orkestrai.agents.office_layout import assign, read_layout
+from rpa_orkestrai.agents.office_model import SAMPLE, OfficeModelError, contract_error, parse_glb
 
 pytestmark = pytest.mark.skipif(os.environ.get("RPA_UI_TESTS") != "1", reason="İsteğe bağlı Chromium ofis testi")
 STATIC = Path(__file__).resolve().parents[1] / "src" / "rpa_orkestrai" / "static"
 ATTACK = '<img src=x onerror="window.bad=true">'
-PLACEMENT = {"scale": 1, "rotation": 0, "offset_x": 0, "offset_y": 0, "offset_z": 0, "cut_height": 0, "hide_room": True}
+PLACEMENT = {"cut_height": 0}
+SESSION = {"actor": {"name": "Çalışan"}, "can_manage": False, "can_approve": False}
 
 
 def model_info(model):
     if not model:
         return {"present": False, "placement": dict(PLACEMENT)}
     return {"present": True, "id": hashlib.sha256(model["bytes"]).hexdigest()[:16], "name": model["name"],
-            "size": len(model["bytes"]), "imported_at": "2026-10-18T09:00:00+00:00", "placement": model["placement"]}
+            "size": len(model["bytes"]), "imported_at": "2026-10-18T09:00:00+00:00", "placement": model["placement"],
+            "layout": model["layout"]}
+
+
+def stored_model(raw, name):
+    """What Studio keeps after an import: the same contract check as the real service."""
+    layout = read_layout(parse_glb(raw))
+    if not layout["ok"]:
+        raise contract_error(layout["errors"])
+    return {"bytes": raw, "name": name, "placement": dict(PLACEMENT), "layout": layout}
 
 
 @pytest.fixture
@@ -46,7 +59,7 @@ def office_browser():
             route.fulfill(content_type="text/html; charset=utf-8", body=html,
                           headers={"Content-Security-Policy": f"default-src 'self'; script-src 'self' 'sha256-{digest}'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' blob:"})
         elif path == "/api/agents/session":
-            route.fulfill(json={"actor": {"name": "Çalışan"}, "can_manage": False, "can_approve": False})
+            route.fulfill(json=data.get("_session", SESSION))
         elif path == "/api/agents/office":
             # Keys starting with "_" steer the other test routes; the snapshot never carries them.
             route.fulfill(json={key: value for key, value in data.items() if not key.startswith("_")})
@@ -55,7 +68,7 @@ def office_browser():
                           json={"success": True, "people": data.get("_people", [])})
         elif path == "/api/agents/tasks":
             route.fulfill(json=data.get("_tasks", []))
-        elif path == "/api/agents/central/tasks":
+        elif path == "/api/agents/central/tasks" and request.method == "GET":
             route.fulfill(json={"tasks": data.get("_human_tasks", [])})
         elif path == "/api/agents/metrics":
             route.fulfill(json={"agents": data.get("_metrics", [])})
@@ -63,8 +76,11 @@ def office_browser():
             route.fulfill(json={"metrics": {"users": data.get("_human_metrics", [])}})
         elif path == "/api/agents/office/model":
             if request.method == "PUT":
-                data["_model"] = {"bytes": request.post_data_buffer, "name": unquote(request.headers.get("x-model-name", "")),
-                                  "placement": dict(PLACEMENT)}
+                try:
+                    data["_model"] = stored_model(request.post_data_buffer, unquote(request.headers.get("x-model-name", "")))
+                except OfficeModelError as exc:
+                    route.fulfill(status=422, json={"detail": str(exc)})
+                    return
             elif request.method == "DELETE":
                 data["_model"] = None
                 route.fulfill(status=204, body="")
@@ -75,6 +91,34 @@ def office_browser():
         elif path == "/api/agents/office/model/placement":
             data["_model"]["placement"] = json.loads(request.post_data)
             route.fulfill(json=model_info(data["_model"]))
+        elif path == "/api/agents/office/model/sample":
+            data["_model"] = stored_model(SAMPLE.read_bytes(), "Örnek ofis (RPA yerleşim 1).glb")
+            route.fulfill(json=model_info(data["_model"]))
+        elif path == "/api/agents/office/model/assignments":
+            body = json.loads(request.post_data)
+            result = assign(data["_model"]["layout"], body["occupants"], data.get("_places", {}),
+                            humans_complete=body["humans_complete"])
+            data["_places"] = result["places"]
+            route.fulfill(json=result)
+        elif request.method == "POST" and re.fullmatch(r"/api/agents/[a-f0-9]{32}/runs", path):
+            data.setdefault("_started", []).append((path.split("/")[3], json.loads(request.post_data)))
+            route.fulfill(status=202, json={"id": "c" * 32, "status": "queued"})
+        elif re.fullmatch(r"/api/agents/[a-f0-9]{32}/chat", path):
+            chat = data.setdefault("_chat", [])
+            if request.method == "POST":
+                text = json.loads(request.post_data)["text"]
+                chat.extend([{"role": "user", "text": text, "user": "Çalışan"}, {"role": "assistant", "text": "Bugün iki iş bitti."}])
+                route.fulfill(json={"reply": chat[-1], "messages": chat})
+            else:
+                route.fulfill(json=chat)
+        elif re.fullmatch(r"/api/agents/runs/[a-f0-9]{32}", path):
+            route.fulfill(json=data.get("_run", {}))
+        elif re.fullmatch(r"/api/agents/runs/[a-f0-9]{32}/(questions|approvals)/[a-f0-9]{32}/(answer|decision)", path):
+            data.setdefault("_decisions", []).append((path.rsplit("/", 1)[1], json.loads(request.post_data)))
+            route.fulfill(json=data.get("_run", {}))
+        elif path == "/api/agents/central/tasks" and request.method == "POST":
+            data.setdefault("_assigned", []).append(json.loads(request.post_data))
+            route.fulfill(status=201, json={"success": True, "task": {}})
         elif path.startswith("/api/"):
             route.fulfill(json=[])
         else:
@@ -102,8 +146,9 @@ def office_browser():
             page.goto("http://office.test/", wait_until="networkidle")
             page.evaluate("""async () => {
               window.officeOptions = {initialTab: 'office', api: async (path, options) => {
-                const response = await fetch(path, options); if (!response.ok) throw new Error("Bağlantı hatası");
-                return response.status === 204 ? null : response.json(); }, toast: () => {},
+                const response = await fetch(path, options);
+                if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Bağlantı hatası");
+                return response.status === 204 ? null : response.json(); }, toast: (text) => (window.officeToasts ||= []).push(text),
                 openRun: () => { throw new Error('Ofis çalışma başlatamaz'); }};
               await window.RpaAgents.mount(document.getElementById('test-root'), window.officeOptions);
             }""")
@@ -179,7 +224,7 @@ def test_office_disposes_webgl_and_stops_polling_when_hidden_or_unmounted(office
     page.wait_for_timeout(3200)
     assert [call for call in calls if call[1] == "/api/agents/office"] == before
     page.evaluate("window.RpaAgents.unmount()")
-    page.wait_for_function("window.officeContextLost")
+    eventually(page, "window.officeContextLost")
     assert page.locator(".office-view canvas").count() == 0
     page.evaluate("Object.defineProperty(document, 'hidden', {configurable: true, value: false}); document.dispatchEvent(new Event('visibilitychange'))")
     page.wait_for_timeout(3200)
@@ -404,64 +449,199 @@ def test_researching_agent_walks_to_the_research_corner_and_manager_hands_over_t
     interactive_ids(page)
 
 
-def test_own_model_is_baked_to_outward_faces_matte_colours_and_metres(office_browser):
+def test_own_model_is_baked_to_outward_faces_and_matte_colours(office_browser):
     start, _, _, _, _ = office_browser
     page = start()
-    opened = page.evaluate("""async (samples) => {
-      const THREE = await import('three'), { openModel } = await import('/office.js'), results = [];
-      for (const sample of samples) {
-        const model = await openModel(THREE, Uint8Array.from(atob(sample), (c) => c.charCodeAt(0)).buffer);
-        const meshes = model.group.children, geometry = meshes[0].geometry, index = geometry.index.array;
-        const position = geometry.getAttribute('position'), up = [];
-        for (let i = 0; i < index.length; i += 3) {
-          const [a, b, c] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(position, index[i + k]));
-          up.push(new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).y);
-        }
-        const material = meshes[0].material;
-        results.push({ meshes: meshes.length, up, color: material.color.toArray(), metalness: material.metalness,
-          roughness: material.roughness, clipping: material.clippingPlanes.length, unit: model.unit,
-          size: model.box.getSize(new THREE.Vector3()).toArray() });
-        model.dispose();
+    plain = page.evaluate("""async (sample) => {
+      const THREE = await import('three'), { openModel } = await import('/office.js');
+      const model = await openModel(THREE, Uint8Array.from(atob(sample), (c) => c.charCodeAt(0)).buffer);
+      const meshes = model.group.children, geometry = meshes[0].geometry, index = geometry.index.array;
+      const position = geometry.getAttribute('position'), up = [];
+      for (let i = 0; i < index.length; i += 3) {
+        const [a, b, c] = [0, 1, 2].map((k) => new THREE.Vector3().fromBufferAttribute(position, index[i + k]));
+        up.push(new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).y);
       }
-      return results;
-    }""", [base64.b64encode(office(scale)).decode() for scale in (1, 200, 1000)])
-    plain, centimetres, millimetres = opened
+      const material = meshes[0].material, result = { meshes: meshes.length, up, color: material.color.toArray(),
+        metalness: material.metalness, roughness: material.roughness, clipping: material.clippingPlanes.length,
+        size: model.box.getSize(new THREE.Vector3()).toArray() };
+      model.dispose();
+      return result;
+    }""", base64.b64encode(office()).decode())
     # Both copies merge into one mesh; the mirrored copy still faces up after its mirror is baked in.
     assert plain["meshes"] == 1 and len(plain["up"]) == 2 and all(value > 0 for value in plain["up"])
     assert plain["color"] == [1, 0, 0] and plain["metalness"] == 0 and plain["roughness"] == 0.5 and plain["clipping"] == 1
-    assert plain["unit"] == 1 and plain["size"] == [5, 0, 1]
-    assert centimetres["unit"] == 0.01 and millimetres["unit"] == 0.001
+    assert plain["size"] == [5, 0, 1]
 
 
-def test_own_model_is_imported_placed_and_removed_on_this_computer(office_browser, tmp_path):
+def test_paths_follow_only_the_declared_network(office_browser):
+    start, _, _, _, _ = office_browser
+    page = start()
+    layout = read_layout(parse_glb(SAMPLE.read_bytes()))
+    route = page.evaluate("""async (layout) => {
+      const { shortestPath } = await import('/office.js');
+      return [shortestPath(layout, 'RPA_WORK_001', 'RPA_MEET_001'), shortestPath(layout, 'RPA_WORK_001', 'RPA_ORIGIN')];
+    }""", layout)
+    assert route[0][0] == "RPA_WORK_001" and route[0][-1] == "RPA_MEET_001" and route[1] is None
+    edges = {tuple(edge) for edge in layout["edges"]}
+    assert all(tuple(sorted(pair)) in edges for pair in zip(route[0], route[0][1:]))
+
+
+def eventually(page, expression, timeout=10):
+    """Polls a page expression; the office page's CSP forbids the string evaluation of wait_for_function."""
+    for _ in range(timeout * 10):
+        if page.evaluate(expression):
+            return
+        page.wait_for_timeout(100)
+    raise AssertionError("Beklenen durum oluşmadı: " + expression)
+
+
+def open_model_panel(page):
+    page.get_by_role("button", name="Ofis modeli", exact=True).click()
+    return page.locator(".office-model")
+
+
+def test_the_sample_office_places_everyone_on_its_own_points(office_browser):
     start, _, calls, _, data = office_browser
     populated(data)
     page = start()
     page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
-    page.get_by_role("button", name="Ofis modeli", exact=True).click()
-    panel = page.locator(".office-model")
-    sample = tmp_path / "Ofis planı.glb"
-    sample.write_bytes(office())
-    with page.expect_file_chooser() as chooser:
-        panel.get_by_role("button", name="Model seç (.glb)").click()
-    chooser.value.set_files(str(sample))
+    panel = open_model_panel(page)
+    panel.get_by_role("button", name="Örnek ofisi kullan").click()
     page.get_by_text("3D ofis · kendi modeliniz", exact=True).wait_for()
-    panel.get_by_text("Model 3D ofise yerleştirildi", exact=False).wait_for()
-    assert data["_model"]["bytes"] == office() and data["_model"]["name"] == "Ofis planı.glb"
+    panel.get_by_text("Model yerleştirildi; ajanlar çalışma noktalarında.", exact=True).wait_for()
+    assert panel.get_by_text("8 çalışma noktası · 4 bekleme noktası · 9 oturma yeri", exact=False).is_visible()
+    # Only the model's own areas are labelled; no rooms are generated around it.
+    labels = set(page.locator(".office-room-label").all_inner_texts())
+    assert labels == {"Çalışma alanı", "Yönetici odası", "Bekleme alanı", "Araştırma köşesi"}
+    assert page.locator(".office-person-label").count() == 7 and page.locator(".office-capacity").is_hidden()
+    manager = data["agents"][0]["id"]
+    assert data["_places"][manager] == "RPA_MANAGER_01" and len(set(data["_places"].values())) == 7
+    assert "Ajan · Yönetim · Yönetici noktası 01" in page.locator(".office-list").inner_text()
     assert any(path.endswith("GLTFLoader.js") for _, path, _ in calls)
-    assert panel.get_by_text("Ofis planı.glb", exact=False).is_visible()
-    interactive_ids(page)
-    panel.get_by_label("Ölçek (%)").fill("150")
-    panel.get_by_label("Yön").select_option("90")
-    panel.get_by_text("Yerleşim bu bilgisayara kaydedildi.", exact=True).wait_for()
-    assert data["_model"]["placement"] == {**PLACEMENT, "scale": 1.5, "rotation": 90}
-    panel.get_by_label("Ölçek (%)").fill("0")
-    panel.get_by_text("Değerleri izin verilen aralıkta girin.", exact=True).wait_for()
     target = os.environ.get("RPA_OFFICE_PREVIEW_DIR")
     if target:
-        page.screenshot(path=str(Path(target) / "ofis-kendi-modeli.png"), full_page=True)
+        page.wait_for_timeout(1500)
+        page.screenshot(path=str(Path(target) / "ornek-ofis.png"), full_page=True)
+    interactive_ids(page)
+    # The same places on the next start: the mapping is kept.
+    before = dict(data["_places"])
+    page.get_by_role("button", name="2D plan", exact=True).click()
+    page.locator(".office-plan-path").first.wait_for(state="attached")
+    assert page.locator(".office-plan-path").count() == len(data["_model"]["layout"]["edges"])
+    assert page.locator(".office-plan-person").count() == 7 and data["_places"] == before
+    assert set(page.locator(".office-plan-area").all_text_contents()) == labels
+    if target:
+        page.screenshot(path=str(Path(target) / "ornek-ofis-2d.png"), full_page=True)
+    panel.get_by_label("Tavan kesiti (m, 0 = kapalı)").fill("2.5")
+    panel.get_by_text("Görünüm bu bilgisayara kaydedildi.", exact=True).wait_for()
+    assert data["_model"]["placement"] == {"cut_height": 2.5}
     page.on("dialog", lambda dialog: dialog.accept())
     panel.get_by_role("button", name="Varsayılan ofise dön").click()
     panel.get_by_text("Varsayılan ofise dönüldü.", exact=True).wait_for()
-    assert data["_model"] is None and page.get_by_text("3D ofis · yerel görünüm", exact=True).is_visible()
-    assert panel.get_by_role("button", name="Model seç (.glb)").is_visible()
+    assert data["_model"] is None and page.locator(".office-plan-path").count() == 0
+
+
+def test_a_full_office_keeps_the_rest_in_the_list_without_overlapping(office_browser):
+    start, _, _, _, data = office_browser
+    populated(data)
+    for index in range(10):
+        data["agents"].append({"id": format(index + 100, "032x"), "kind": "agent", "name": f"Ek ajan {index}", "role": "department",
+                               "department": "Departman A", "status": "idle", "task_id": None, "task_label": "Görev bekliyor", "queue_count": 0})
+    data["_model"] = stored_model(SAMPLE.read_bytes(), "ornek.glb")
+    page = start()
+    page.get_by_text("3D ofis · kendi modeliniz", exact=True).wait_for()
+    overflow = 17 - 13  # Manager point, 8 work and 4 waiting points.
+    capacity = page.locator(".office-capacity")
+    assert capacity.inner_text() == f"Ofis kapasitesi dolu: {overflow} çalışan yerleşemedi; listede görünür."
+    assert page.locator(".office-person-label").count() == 13 and len(set(data["_places"].values())) == 13
+    assert page.locator(".office-list").inner_text().count("Yer yok (ofis kapasitesi dolu)") == overflow
+    assert "4 çalışan yerleşemedi (ofis kapasitesi dolu)" in page.locator(".office-summary").inner_text()
+
+
+def test_a_model_without_the_contract_is_refused_and_the_office_stays(office_browser, tmp_path):
+    start, _, _, _, data = office_browser
+    populated(data)
+    page = start()
+    page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
+    panel = open_model_panel(page)
+    plain = tmp_path / "depo.glb"
+    plain.write_bytes(office())
+    with page.expect_file_chooser() as chooser:
+        panel.get_by_role("button", name="Model seç (.glb)").click()
+    chooser.value.set_files(str(plain))
+    message = panel.locator(".office-model-status")
+    message.get_by_text("yerleşim sözleşmesine uymuyor", exact=False).wait_for()
+    assert "RPA_ORIGIN" in message.inner_text() and data.get("_model") is None
+    assert page.get_by_text("3D ofis · yerel görünüm", exact=True).is_visible()
+    good = tmp_path / "Ofis planı.glb"
+    good.write_bytes(layout_office())
+    with page.expect_file_chooser() as chooser:
+        panel.get_by_role("button", name="Model seç (.glb)").click()
+    chooser.value.set_files(str(good))
+    page.get_by_text("3D ofis · kendi modeliniz", exact=True).wait_for()
+    # Two work points and one waiting point for seven people: four stay in the list.
+    assert page.locator(".office-person-label").count() == 3
+    assert data["_model"]["name"] == "Ofis planı.glb"
+
+
+def test_work_is_managed_from_the_3d_office(office_browser):
+    start, _, _, _, data = office_browser
+    populated(data)
+    data["_session"] = {**SESSION, "can_manage": True, "can_approve": True}
+    manager, approver, asker = data["agents"][0], data["agents"][2], data["agents"][3]
+    page = start()
+    page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
+    detail = page.locator(".office-detail")
+    # A question the agent waits for is answered with one of its options.
+    data["_run"] = {"id": "f" * 32, "pending_question": {"id": "a" * 32, "question": ATTACK, "options": ["Evet", "Hayır"]}}
+    page.locator(f'.office-person-label[data-person="{asker["id"]}"]').click()
+    detail.get_by_text(ATTACK, exact=True).wait_for()
+    detail.get_by_role("button", name="Evet", exact=True).click()
+    eventually(page, "(window.officeToasts || []).includes('Yanıtınız ajana iletildi.')")
+    assert data["_decisions"][-1] == ("answer", {"answer": "Evet"})
+    # The approver decides the waiting approval from its card.
+    data["_run"] = {"id": "f" * 32, "pending_approval": {"id": "b" * 32, "workflow_name": "Sipariş gir", "reason": "Kayıt yazılacak",
+                                                          "inputs": {"musteri": ATTACK}}}
+    page.locator(f'.office-person-label[data-person="{approver["id"]}"]').click()
+    detail.get_by_text("Onay bekleniyor", exact=True).wait_for()
+    assert detail.get_by_text(f"musteri: {ATTACK}", exact=True).is_visible()
+    detail.get_by_role("button", name="Onayla", exact=True).click()
+    eventually(page, "(window.officeToasts || []).includes('İşlem onaylandı.')")
+    assert data["_decisions"][-1] == ("decision", {"approved": True})
+    # A task for the manager, and a question to it from the toolbar.
+    page.locator(f'.office-person-label[data-person="{manager["id"]}"]').click()
+    detail.get_by_role("button", name="Görev ver", exact=True).click()
+    detail.get_by_label("Yönetici ne yapsın?", exact=False).fill("Bugünkü iadeleri topla")
+    detail.get_by_role("button", name="Görevi başlat", exact=True).click()
+    eventually(page, "(window.officeToasts || []).some((text) => text.endsWith('görevi aldı.'))")
+    assert data["_started"] == [(manager["id"], {"task": "Bugünkü iadeleri topla"})]
+    page.get_by_role("button", name="Yöneticiye yaz", exact=True).click()
+    detail.get_by_label("Sorunuz", exact=False).fill("Bugün ne bitti?")
+    detail.get_by_role("button", name="Sor", exact=True).click()
+    detail.get_by_text("Bugün iki iş bitti.", exact=True).wait_for()
+    # A task for a person of the office.
+    page.locator('.office-person-label[data-person="human-18"]').click()
+    detail.get_by_role("button", name="Görev ata", exact=True).click()
+    detail.get_by_label("Görev başlığı").fill("Kontrol")
+    detail.get_by_label("Yapılacak iş").fill("İade listesini doğrula")
+    detail.get_by_role("button", name="Görevi ata", exact=True).click()
+    eventually(page, "(window.officeToasts || []).some((text) => text.endsWith('için görev oluşturuldu.'))")
+    created = data["_assigned"][-1]
+    assert (created["assignee_user_id"], created["title"], created["priority"]) == (18, "Kontrol", "normal")
+    assert re.fullmatch(r"[a-f0-9]{32}", created["request_id"])
+    assert page.locator("img").count() == 0 and not page.evaluate("window.bad || false")
+    interactive_ids(page)
+
+
+def test_without_rights_the_panel_offers_no_decisions(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    data["_run"] = {"id": "f" * 32, "pending_approval": {"id": "b" * 32, "workflow_name": "Sipariş gir", "inputs": {}}}
+    page = start()
+    page.locator('.office-person-label[data-status="waiting_approval"]').click()
+    page.locator(".office-detail").get_by_role("button", name="Görev ver", exact=True).wait_for()
+    assert page.get_by_role("button", name="Onayla", exact=True).count() == 0
+    page.locator('.office-person-label[data-person="human-18"]').click()
+    page.get_by_role("button", name="Görevler ekranına git", exact=True).wait_for()
+    assert page.get_by_role("button", name="Görev ata", exact=True).count() == 0
+    assert all(method == "GET" for method, _, _ in calls)

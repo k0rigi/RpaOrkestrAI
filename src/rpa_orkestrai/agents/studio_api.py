@@ -16,7 +16,7 @@ from ..errors import WorkflowError
 from ..models import Model, now, uid
 from .contracts import infer_contract
 from .models import ProviderConnection
-from .office_model import OfficeModelError, OfficeModels, Placement
+from .office_model import Occupants, OfficeModelError, OfficeModels, Placement
 from .policy import inspect_workflow
 from .provider_adapters import LocalModelError
 from .providers import ProviderError
@@ -109,6 +109,25 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
             return models.place(actor(), body)
         except KeyError:
             raise HTTPException(404, missing) from None
+
+    @result.post("/office/model/sample")
+    def use_sample_office_model():
+        try:
+            return models.use_sample(actor())
+        except OfficeModelError as exc:
+            raise HTTPException(422, str(exc)) from None
+        except OSError:
+            raise HTTPException(507, "Model bu bilgisayara kaydedilemedi. Disk alanını ve çalışma klasörü izinlerini kontrol edin.") from None
+
+    @result.post("/office/model/assignments")
+    def office_model_assignments(body: Occupants):
+        # Agents and people keep their points; newcomers get free ones; who finds none stays in the list.
+        try:
+            return models.assignments(actor(), body)
+        except KeyError:
+            raise HTTPException(404, missing) from None
+        except OfficeModelError as exc:
+            raise HTTPException(422, str(exc)) from None
 
     @result.delete("/office/model", status_code=204)
     def delete_office_model():

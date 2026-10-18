@@ -76,3 +76,24 @@
 .office-model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 14px; }
 .office-model-check { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 0 0 12px; cursor: pointer; }
 .office-model-status:empty { display: none; }
+.office-model-status { white-space: pre-line; }
+.office-model-errors { margin: 6px 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.office-model-errors li + li { margin-top: 3px; }
+/* Capacity: people who found no free point stay in the list; the frame says so. */
+.office-capacity { position: absolute; top: 20px; right: 22px; max-width: min(60%, 360px); margin: 0; padding: 8px 11px; font-size: 12px; font-weight: 600; color: var(--warn); background: var(--warn-tint); border: 1px solid var(--warn-line); border-radius: var(--r-m); }
+.office-capacity[hidden] { display: none; }
+/* Actions from the 3D office: the same rights as the other Studio screens. */
+.office-detail-actions { margin: 12px 0 4px; }
+.office-detail-work:empty, .office-detail-pending:empty { display: none; }
+.office-detail-work, .office-pending { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 4px; }
+.office-pending { border: 1px solid var(--warn-line); background: var(--warn-tint); border-radius: var(--r-m); padding: 10px 12px; }
+.office-pending h4 { margin-top: 4px; }
+.office-chat { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.office-chat li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r-m); background: var(--surface-2); font-size: 13px; overflow-wrap: anywhere; }
+.office-chat li.mine { background: var(--accent-tint); }
+.office-chat strong { font-size: 11px; color: var(--muted); }
+/* The plan of an imported model: its own points, paths and labels. */
+.office-plan-path { stroke: var(--line-strong); stroke-width: 2; stroke-dasharray: 5 6; }
+.office-plan-wait { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.office-plan .office-plan-area { fill: var(--accent-text); font-size: 15px; font-weight: 600; }
+.office-plan .office-plan-full { fill: var(--warn); font-size: 15px; font-weight: 600; }
