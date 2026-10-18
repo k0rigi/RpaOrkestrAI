@@ -27,7 +27,7 @@ from ..config import atomic_json
 from ..errors import WorkflowError
 from ..models import HOUR_MINUTE, Model, now, uid
 from ..scheduler import next_occurrence, summary
-from .models import TERMINAL_STATUSES, AgentRunRequest, Identifier, validate_inputs, visible
+from .models import TERMINAL_STATUSES, AgentRunRequest, Identifier, reachable, validate_inputs, visible
 from .runner import AgentServiceError
 
 MAX_AUTOMATIONS = 50
@@ -536,7 +536,8 @@ class AutomationService:
         try:
             body = AgentRunRequest(task=item.task, title=f"Otomatik: {item.name}"[:200], inputs=inputs)
             run = self.service.start_automated(item.agent_id, body, {
-                "automation_id": item.id, "name": item.name, "trigger": item.trigger.kind, "manual": manual})
+                "automation_id": item.id, "name": item.name, "trigger": item.trigger.kind, "manual": manual},
+                office=item.office_id)
         except (AgentServiceError, ValueError) as exc:
             if manual:
                 raise
@@ -596,7 +597,9 @@ class AutomationService:
             return  # No licensed session: nothing starts; due times are judged when one exists.
         moment = self.clock()
         with self._lock:
-            items = [item for item in self._read().automations if self._sees(actor, item) and item.enabled]
+            # Every office of the account keeps its automations running, not only the one on screen.
+            items = [item for item in self._read().automations
+                     if item.enabled and reachable(actor, item.company_id, item.office_id, item.user_id)]
         events = []
         while self._events:
             events.append(self._events.popleft())

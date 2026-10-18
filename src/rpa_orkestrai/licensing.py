@@ -47,6 +47,8 @@ LICENSE_API = "https://orkestrai.net/api/rpa/lisans"
 LICENSE_PUBLIC_KEY = "ZPxj98IYClRDVdbSPDY4fLrPZBKBhichNXmx6FGTTqA="
 PRODUCT, MODULE = "rpa-orkestrai", "MOD_RPA"
 PROTOCOL = 2
+# A firm has at most this many agent offices (orkestrai.net enforces the same limit).
+MAX_OFFICES = 50
 # The signed license names both values; these apply until the first one arrives and bound it.
 REFRESH_SECONDS, REFRESH_RANGE = 600, (60, 3600)
 TOLERANCE_SECONDS, TOLERANCE_RANGE = 3600, (300, 6 * 3600)
@@ -201,11 +203,29 @@ def _agent_claims(value: Any, claims: dict) -> dict:
                                    or not isinstance(office_name, str) or not 1 <= len(office_name) <= 120
                                    or any(ord(char) < 32 for char in office_name)):
             return {}
-        # A licensed account outside every office may open its own office (ofis_kurabilir).
+        # An office authority may run several offices: "ofisler" lists every office of the account.
+        listed, offices = value.get("ofisler"), []
+        if listed is not None:
+            if not isinstance(listed, list) or len(listed) > MAX_OFFICES:
+                return {}
+            for item in listed:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not re.fullmatch(r"[a-f0-9]{32}", item["id"]) or not isinstance(item.get("ad"), str)
+                        or not 1 <= len(item["ad"]) <= 120 or any(ord(char) < 32 for char in item["ad"])
+                        or type(item.get("yetkili")) is not bool):
+                    return {}
+                offices.append((item["id"], item["ad"], item["yetkili"]))
+            identities = [item[0] for item in offices]
+            if len(set(identities)) != len(identities) or (office is None) != (not offices) or (
+                    office is not None and office not in identities):
+                return {}
+        elif office is not None:
+            offices.append((office, office_name, owner_id == user_id))
+        # The account may open an office: it has none yet, or it is the authority of all its offices.
         return {"user_id": user_id, "company_id": company_id, "owner_id": owner_id,
                 "session_id": session_id, "permissions": tuple(permissions), "ends_on": ends,
-                "office_id": office, "office_name": office_name if office else "",
-                "can_create_office": office is None and value.get("ofis_kurabilir") is True}
+                "office_id": office, "office_name": office_name if office else "", "offices": tuple(offices),
+                "can_create_office": value.get("ofis_kurabilir") is True}
     except (KeyError, TypeError, ValueError):
         return {}
 
@@ -249,6 +269,12 @@ class LicenseService:
         machine_id: Callable[[], str] = machine_identifier, timeout: float = 15,
     ):
         self._path = Path(data_dir) / "license.json"
+        # Only which of the account's offices is on screen; it grants nothing by itself.
+        self._office_path = Path(data_dir) / "agent_office.json"
+        try:
+            self._office_choice = json.loads(self._office_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self._office_choice = None
         self._api = api_url.rstrip("/")
         # Password changes go to the account service next to the license service.
         self._account_api = self._api.rsplit("/", 1)[0] + "/hesap"
@@ -330,12 +356,35 @@ class LicenseService:
                 return None
             if extension["ends_on"] and date.fromisoformat(extension["ends_on"]) < date.today():
                 return None
-            return Actor(user_id=extension["user_id"], company_id=extension["company_id"],
-                         name=self._license.full_name or self._license.user,
-                         session_id=extension["session_id"], permissions=extension["permissions"],
-                         office_id=extension.get("office_id"), office_name=extension.get("office_name") or "",
-                         individual=self._license.account_type == "bireysel",
-                         can_create_office=extension.get("can_create_office") is True)
+            actor = Actor(user_id=extension["user_id"], company_id=extension["company_id"],
+                          name=self._license.full_name or self._license.user,
+                          session_id=extension["session_id"], permissions=extension["permissions"],
+                          office_id=extension.get("office_id"), office_name=extension.get("office_name") or "",
+                          individual=self._license.account_type == "bireysel",
+                          can_create_office=extension.get("can_create_office") is True,
+                          offices=extension.get("offices") or ())
+            # The office chosen on this computer, while the account still works there; else its first office.
+            return actor.in_office(self._chosen_office(actor)) or actor
+
+    def _chosen_office(self, actor) -> str | None:
+        value = self._office_choice
+        if not isinstance(value, dict) or (value.get("company_id"), value.get("user_id")) != (actor.company_id, actor.user_id):
+            return None
+        office = value.get("office_id")
+        return office if isinstance(office, str) and re.fullmatch(r"[a-f0-9]{32}", office) else None
+
+    def select_office(self, office_id: str) -> None:
+        """Puts one of the account's offices on screen; the other offices' work keeps running."""
+        with self._lock:
+            actor = self.agent_actor()
+            if actor is None or not isinstance(office_id, str) or actor.in_office(office_id) is None:
+                raise LicenseError("Bu ofise erişiminiz yok.")
+            choice = {"company_id": actor.company_id, "user_id": actor.user_id, "office_id": office_id}
+            self._office_choice = choice
+            try:
+                self._office_path.write_text(json.dumps(choice), encoding="utf-8")
+            except OSError:
+                pass  # The choice still holds until Studio closes.
 
     def agent_allowed(self) -> bool:
         return self.agent_actor() is not None

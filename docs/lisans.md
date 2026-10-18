@@ -73,6 +73,8 @@ Yetki değişikliği açık uygulamalara **en geç 10 dakika içinde** yansır. 
 
 **Ofisi kullanıcı kurar (0.9.36):** RPA ve Ajanlar lisansı olan, henüz bir ofiste bulunmayan hesap Studio'da Ajanlar'ı ilk açtığında kendi ofisini kurar ve yetkilisi olur. Yetkili, firmada ofisi olmayan lisanslı çalışanları **Ofisim** sekmesinden ofisine ekler. Yönetimin işi lisansı vermektir; ofis açmak için iş akışı gerekmez. Ofisi olmayan hesap ofis kurana kadar ajan çalıştırmaz. Ayrıntılar: [Kendi ofisinizi kurmak](ajanlar.md#kendi-ofisinizi-kurmak-0936).
 
+**Birden fazla ofis (0.9.37):** bir yetkili istediği kadar ofis kurup yönetebilir (firma başına en fazla 50 ofis); yetkili olmayan çalışan tek ofiste kalır. İmzalı ajan lisansı hesabın bütün ofislerini listeler; Studio her istekte hangi ofis adına çalıştığını bildirir ve orkestrai.net bunu her istekte doğrular. Ek ofis için ek lisans gerekmez: lisans kullanıcıya ve firmaya verilir. Ayrıntılar: [Birden fazla ofisi yönetmek](ajanlar.md#birden-fazla-ofisi-yönetmek-0937).
+
 **Firmaya kullanıcı açma (0.9.36):** orkestrai deposundaki **RpaOrkestrAI kullanıcı yönetimi** iş akışı (önce `preflight`, sonra `apply`) mevcut bir firmaya yeni hesap açar.
 
 - Hesaba MOD_RPA, istenirse MOD_AJAN satırları yazılır. Dönem firmanın modül dönemini aşamaz; firmanın kendi satırları değişmez.

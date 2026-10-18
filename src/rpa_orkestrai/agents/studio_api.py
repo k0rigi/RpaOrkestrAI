@@ -66,6 +66,8 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
         return {"actor": {"user_id": identity.user_id, "company_id": identity.company_id, "name": identity.name},
                 "can_manage": "agents.manage" in identity.permissions, "can_approve": identity.can_approve,
                 "office": {"id": identity.office_id, "name": identity.office_name} if identity.office_id else None,
+                "offices": [{"id": office, "name": name, "is_authority": authority}
+                            for office, name, authority in identity.offices],
                 "individual": identity.individual, "can_create_office": identity.can_create_office}
 
     @result.get("/office")

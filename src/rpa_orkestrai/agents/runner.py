@@ -37,6 +37,7 @@ from .models import (
     NoteInput,
     PermissionChange,
     Playbook,
+    same_account,
     validate_inputs,
     validate_json_value,
     visible,
@@ -806,8 +807,13 @@ class AgentService:
             child.wake.set()
         return {"answered": True, "agent_id": child.agent.id, "task_id": child.run.task_id}
 
-    def start(self, agent_id: str, body: AgentRunRequest) -> AgentRun:
+    def start(self, agent_id: str, body: AgentRunRequest, *, office: str | None = None) -> AgentRun:
         actor = self._authorize()
+        if office is not None:
+            # An automation starts in its own office even while another office of the account is on screen.
+            actor = actor.in_office(office)
+            if actor is None:
+                raise AgentServiceError("Bu otomasyonun ofisine erişiminiz kalmadı.", 403)
         with self._lock:
             if self._closed:
                 raise AgentServiceError("Ajan servisi kapatılıyor.", 409)
@@ -818,9 +824,10 @@ class AgentService:
                 raise AgentServiceError("Ajan görev kuyruğu dolu; açık görevlerin tamamlanmasını bekleyin.", 409)
             return self._enqueue(agent, body, actor)
 
-    def start_automated(self, agent_id: str, body: AgentRunRequest, source: dict) -> AgentRun:
+    def start_automated(self, agent_id: str, body: AgentRunRequest, source: dict,
+                        office: str | None = None) -> AgentRun:
         """Same permissions, approvals and limits as a manual task; the timeline names the automation."""
-        run = self.start(agent_id, body)
+        run = self.start(agent_id, body, office=office)
         with self._lock:
             context = self._contexts.get(run.id)
             if context is not None:
@@ -966,8 +973,8 @@ class AgentService:
         except AgentServiceError:
             raise AgentCancelled("Lisans veya kullanıcı yetkisi sona erdiği için çalışma durduruldu.") from None
         original = context.run.actor
-        if (actor.user_id, actor.company_id, actor.session_id, actor.office_id) != (
-                original.user_id, original.company_id, original.session_id, original.office_id):
+        # Another office of the same account may be on screen; the run stops only when its office is lost.
+        if not same_account(actor, original) or actor.in_office(original.office_id) is None:
             raise AgentCancelled("Kullanıcı oturumu değiştiği için çalışma durduruldu.")
         try:
             current = self.agent_store.agent(context.agent.id)
@@ -1375,7 +1382,7 @@ class AgentService:
                 prepared = edit["prepared"]
                 new_remote = self.approval_backend.request(context, prepared, approval["reason"] + " (düzenlendi)",
                                                            expires_in=max(1, approval["deadline"] - time.monotonic()))
-                decided = self.approval_backend.decide(new_remote["id"], True)
+                decided = self.approval_backend.decide(new_remote["id"], True, context.run.office_id)
                 if not isinstance(decided, dict) or decided.get("status") != "approved":
                     raise ValueError
             except Exception:
@@ -1390,7 +1397,7 @@ class AgentService:
             with self._lock:
                 return self._view(context)
         try:
-            self.approval_backend.decide(remote["id"], approved)
+            self.approval_backend.decide(remote["id"], approved, context.run.office_id)
         except Exception:
             raise AgentServiceError("Merkezi onay kararı kaydedilemedi; işlem başlatılmadı.", 503) from None
         with self._lock:
@@ -1575,7 +1582,8 @@ class AgentService:
             if remote is None:
                 current = self._authorize(None)
                 approver = approval["approver"]
-                if not current.can_approve or current != approver:
+                current = current.in_office(approver.office_id) if same_account(current, approver) else None
+                if current is None or not current.can_approve or current != approver:
                     raise AgentStopped("Onay yetkisi veya onaylayan oturum değişti; akış başlatılmadı.")
         if remote is not None:
             try:

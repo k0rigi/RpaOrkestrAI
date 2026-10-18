@@ -5,7 +5,7 @@ import json
 import pytest
 from test_agents_ui import ATTACK, STATIC, assert_unique_interactive_ids, pytestmark, ui  # noqa: F401
 
-OFFICE = "c" * 32
+OFFICE, SECOND, NEW = "c" * 32, "d" * 32, "e" * 32
 
 
 @pytest.fixture
@@ -30,10 +30,25 @@ def office_ui(ui):  # noqa: F811
         path = request.url.split("studio.test", 1)[1]
         body = json.loads(request.post_data) if request.post_data else None
         calls.append((request.method, path, body))
-        if path == "/api/agents/central/my-office" and request.method == "POST":
+        if path == "/api/agents/central/my-office" and request.method == "POST" and session.get("offices"):
+            # An authority opens another office; it opens on screen.
+            new = {"id": NEW, "name": body["name"], "is_authority": True}
+            session["offices"].append(new)
+            session["office"] = state["office"] = {"id": NEW, "name": body["name"]}
+            route.fulfill(status=201, json={"success": True, "office": state["office"]})
+        elif path == "/api/agents/central/my-office" and request.method == "POST":
             join(body["name"])
             state["members"] = [{"user_id": 1, "name": "Çalışan", "authority": True}]
             route.fulfill(status=201, json={"success": True, "office": state["office"]})
+        elif path == "/api/agents/central/my-offices":
+            route.fulfill(json={"success": True, "can_create": True, "offices": [
+                {"id": item["id"], "name": item["name"], "is_authority": True, "people": 2, "open_tasks": 1,
+                 "pending_approvals": 3, "agents": 4, "on_screen": item["id"] == session["office"]["id"]}
+                for item in session["offices"]]})
+        elif path.endswith("/my-office/select"):
+            chosen = next(item for item in session["offices"] if item["id"] == body["office_id"])
+            session["office"] = state["office"] = {"id": chosen["id"], "name": chosen["name"]}
+            route.fulfill(json={"office_id": chosen["id"]})
         elif path == "/api/agents/central/my-office":
             route.fulfill(json=mine())
         elif path.endswith("/my-office/name"):
@@ -153,3 +168,45 @@ def test_a_personal_account_names_its_office_but_has_no_colleagues_to_place(offi
     assert page.get_by_label("Ofis adı").is_visible()
     assert page.get_by_role("heading", name="Ofise çalışan ekle").count() == 0
     assert page.get_by_role("button", name="Ofise ekle").count() == 0
+
+
+def test_an_authority_switches_offices_from_the_header_and_opens_another_office(office_ui):
+    page, calls, session, _, join, remount = office_ui
+    join("Satın Alma")
+    session.update(can_create_office=True, offices=[{"id": OFFICE, "name": "Satın Alma", "is_authority": True},
+                                                    {"id": SECOND, "name": ATTACK, "is_authority": True}])
+    remount()
+    picker = page.get_by_label("Ofis", exact=True)
+    assert picker.input_value() == OFFICE
+    picker.select_option(SECOND)
+    page.wait_for_function("document.getElementById('agent-office-picker')?.value === 'dddddddddddddddddddddddddddddddd'")
+    assert [body for _, path, body in calls if path.endswith("/my-office/select")] == [{"office_id": SECOND}]
+    page.get_by_role("button", name="Ofisim", exact=True).click()
+    page.get_by_role("heading", name="Ofislerim").wait_for()
+    rows = page.locator(".agent-office-list li")
+    rows.nth(1).get_by_text("Ekranda", exact=True).wait_for()
+    assert "4 ajan · 2 kişi · 1 açık görev · 3 onay bekliyor" in rows.nth(0).inner_text()
+    rows.nth(0).get_by_role("button", name="Bu ofise geç").click()
+    page.wait_for_function("document.getElementById('agent-office-picker')?.value === 'cccccccccccccccccccccccccccccccc'")
+    page.get_by_role("button", name="Ofisim", exact=True).click()
+    page.get_by_label("Yeni ofisin adı").fill("  Muhasebe   Departmanı ")
+    page.get_by_role("button", name="Yeni ofis kur").click()
+    page.wait_for_function("document.getElementById('agent-office-picker')?.value === 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'")
+    assert [body for method, path, body in calls if method == "POST" and path == "/api/agents/central/my-office"] == [
+        {"name": "Muhasebe Departmanı"}]
+    assert page.locator("img").count() == 0 and not page.evaluate("window.injected || false")
+    assert_unique_interactive_ids(page)
+
+
+def test_a_member_sees_one_office_without_a_picker_or_new_office_form(office_ui):
+    page, _, session, state, join, remount = office_ui
+    state["authority"] = False
+    join("Satın Alma")
+    session.update(offices=[{"id": OFFICE, "name": "Satın Alma", "is_authority": False}])
+    remount()
+    page.get_by_text("Satın Alma ofisi", exact=True).wait_for()
+    assert page.locator("#agent-office-picker").count() == 0
+    page.get_by_role("button", name="Ofisim", exact=True).click()
+    page.get_by_text("Bu ofisin üyesisiniz", exact=False).wait_for()
+    assert page.get_by_role("button", name="Yeni ofis kur").count() == 0
+    assert page.get_by_role("heading", name="Ofislerim").count() == 0

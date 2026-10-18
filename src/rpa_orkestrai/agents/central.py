@@ -19,11 +19,13 @@ from .policy import canonical
 
 BASE_URL = "https://orkestrai.net/api/studio/ekip"
 IDENTIFIER = re.compile(r"^[a-f0-9]{32}$")
-PATH = re.compile(r"^/(?:ben|uyeler|ofis|ofisim(?:/(?:ad|ayril|uyeler(?:/[1-9][0-9]{0,9}/cikar)?))?|"
+PATH = re.compile(r"^/(?:ben|uyeler|ofis|ofislerim|ofisim(?:/(?:ad|ayril|uyeler(?:/[1-9][0-9]{0,9}/cikar)?))?|"
                   r"gorevler(?:/[a-f0-9]{32}(?:/(?:durum|ata|sil))?)?|"
                   r"onaylar(?:/[a-f0-9]{32}(?:/(?:karar|tuket|iptal))?)?|"
                   r"llm/(?:models|jobs(?:/[a-f0-9]{32})?))$")
 RESPONSE_LIMIT = 512 * 1024
+# Names the office a request acts for; orkestrai.net checks the account's access to it every time.
+OFFICE_HEADER = "X-Rpa-Ofis"
 
 
 class CentralError(RuntimeError):
@@ -90,6 +92,10 @@ class CentralClient:
         actor = self.actor()
         if expected_actor is not None and identity_key(actor) != identity_key(expected_actor):
             raise CentralError("Kullanıcı oturumu değişti; istek gönderilmedi.", 403)
+        # A run keeps acting for its own office even while another office of the account is on screen.
+        office = (expected_actor if expected_actor is not None else actor).office_id
+        if office is not None and actor.in_office(office) is None:
+            raise CentralError("Bu ofise erişiminiz kalmadı. Ajanlar sayfasını yenileyin.", 403)
         deadline = min(deadline or time.monotonic() + 8, time.monotonic() + 8)
         if (cancel is not None and cancel.is_set()) or time.monotonic() >= deadline:
             raise CentralError("İstek iptal edildi veya süresi doldu.", 409)
@@ -100,9 +106,11 @@ class CentralClient:
             token = self.licensing.agent_access_token()
             if not isinstance(token, str) or not token or len(token) > 8192 or any(ord(c) < 32 for c in token):
                 raise ValueError
-            request = Request(BASE_URL + path, method=method, data=raw, headers={
-                "Authorization": "Bearer " + token, "Content-Type": "application/json", "Accept": "application/json",
-            })
+            headers = {"Authorization": "Bearer " + token, "Content-Type": "application/json",
+                       "Accept": "application/json"}
+            if office is not None:
+                headers[OFFICE_HEADER] = office
+            request = Request(BASE_URL + path, method=method, data=raw, headers=headers)
             context = ssl.create_default_context(cafile=certifi.where())
             with (self.opener or urlopen)(request, timeout=max(0.1, deadline - time.monotonic()), context=context) as response:
                 if response.geturl() != BASE_URL + path or response.getcode() not in {200, 201, 202}:
@@ -175,8 +183,12 @@ class CentralApprovalBackend:
         if not isinstance(result, dict) or any(remote[key] != result.get(key) for key in keys):
             raise CentralError("Onayın çalışma veya girdi bağı doğrulanamadı.")
 
-    def decide(self, remote_id, approved):
+    def decide(self, remote_id, approved, office_id=None):
         actor = self.client.actor()
+        # The approval lives in the office of its run.
+        actor = actor if office_id is None else actor.in_office(office_id)
+        if actor is None:
+            raise CentralError("Bu ofise erişiminiz kalmadı. Ajanlar sayfasını yenileyin.", 403)
         if not actor.can_approve:
             raise CentralError("Riskli işlemi yalnız onay yetkilisi (ofislere ayrılmış firmada ofis yetkilisi) onaylayabilir.", 403)
         path = "/onaylar/" + record_id(remote_id)

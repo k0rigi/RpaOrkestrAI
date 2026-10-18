@@ -105,6 +105,13 @@
 .agent-office-setup .field-input { width: 100%; box-sizing: border-box; margin: 6px 0 12px; }
 .agent-office-setup .field-label { display: block; margin-top: 16px; }
 .agent-my-office { max-width: 720px; }
+.agent-office-switch { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.agent-office-picker { max-width: 100%; padding: 6px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-m); font: inherit; font-weight: 600; }
+.agent-office-list { list-style: none; padding: 0; margin: 0 0 10px; display: grid; gap: 8px; }
+.agent-office-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-m); background: var(--surface); overflow-wrap: anywhere; }
+.agent-office-list li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.agent-office-list .agent-help { margin: 0; }
+.agent-office-current { color: var(--accent-text); font-size: .84rem; font-weight: 600; }
 .agent-my-office h3 { margin: 22px 0 8px; }
 .agent-my-office .agent-field { margin: 18px 0 10px; }
 .agent-people { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 6px; max-width: 720px; }

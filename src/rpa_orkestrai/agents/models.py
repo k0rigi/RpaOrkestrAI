@@ -97,12 +97,30 @@ class Actor(Model):
     office_name: str = Field(default="", max_length=120, exclude=True)
     # A person's own account (bireysel): one human in the team, so the human-team screens stay hidden.
     individual: bool = Field(default=False, exclude=True)
-    # Licensed but outside every office: the account first opens its own office.
+    # The account may open an office: it has none yet, or it is the authority of all its offices.
     can_create_office: bool = Field(default=False, exclude=True)
+    # Every office of the account as (id, name, is authority); an authority may run several offices.
+    # office_id is the one on screen; work of the other offices keeps running in its own office.
+    offices: tuple[tuple[str, str, bool], ...] = Field(default_factory=tuple, max_length=50, exclude=True)
 
     @property
     def can_approve(self) -> bool:
         return "agents.approve" in self.permissions
+
+    def in_office(self, office_id: str | None) -> "Actor | None":
+        """The same account acting for another of its offices; None when it cannot reach that office."""
+        if office_id == self.office_id:
+            return self
+        found = next((item for item in self.offices if item[0] == office_id), None)
+        if found is None:
+            return None
+        permissions = self.permissions if found[2] else tuple(item for item in self.permissions if item == "agents.use")
+        return self.model_copy(update={"office_id": found[0], "office_name": found[1], "permissions": permissions})
+
+
+def same_account(first: Actor, second: Actor) -> bool:
+    """The same signed-in account and session, whichever of its offices is on screen."""
+    return (first.company_id, first.user_id, first.session_id) == (second.company_id, second.user_id, second.session_id)
 
 
 def visible(actor: Actor, company_id: int, office_id: str | None, owner_id: int) -> bool:
@@ -117,6 +135,12 @@ def visible(actor: Actor, company_id: int, office_id: str | None, owner_id: int)
     if actor.office_id is None and not actor.can_create_office:
         return True  # A firm without offices is one team.
     return owner_id == actor.user_id
+
+
+def reachable(actor: Actor, company_id: int, office_id: str | None, owner_id: int) -> bool:
+    """Visible from any office of the account: background work keeps running in every office."""
+    other = actor if office_id is None else actor.in_office(office_id)
+    return other is not None and visible(other, company_id, office_id, owner_id)
 
 
 class AgentLimits(Model):

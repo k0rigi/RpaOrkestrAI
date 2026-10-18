@@ -125,3 +125,44 @@ def test_single_team_files_stay_readable_by_earlier_versions(runtime):
              runtime.service.agent_store.path("agent_tasks", run.task_id), runtime.settings.data_dir / "agent_automations.json"]
     assert not any("office_id" in path.read_text() for path in files)
     assert SimpleNamespace(**runtime.service.get_task(run.task_id).model_dump()).office_id is None
+
+
+def work_in_both(runtime, office):
+    """One authority running both offices, with `office` on screen."""
+    names = {CLAIMS: "Claim & İade Departmanı", LOGISTICS: "Lojistik"}
+    runtime.state["actor"] = runtime.owner.model_copy(update={
+        "office_id": office, "office_name": names[office],
+        "offices": ((CLAIMS, names[CLAIMS], True), (LOGISTICS, names[LOGISTICS], True))})
+
+
+def test_switching_offices_of_one_authority_keeps_the_other_office_working(runtime):
+    work_in_both(runtime, CLAIMS)
+    agent = new_agent(runtime)
+
+    def switched(request):
+        work_in_both(runtime, LOGISTICS)  # The authority looks at its other office meanwhile.
+        return response(finish("Bitti"))
+
+    runtime.state["provider"] = ScriptedProvider([], callback=switched)
+    run = runtime.done(runtime.service.start(agent.id, AgentRunRequest(task="İşi yap")))
+    assert run.status == "succeeded" and run.office_id == CLAIMS
+    assert runtime.service.agents() == [] and runtime.service.runs() == []  # Lojistik on screen.
+    work_in_both(runtime, CLAIMS)
+    assert [item.id for item in runtime.service.runs()] == [run.id]
+
+
+def test_automations_of_every_office_of_an_authority_keep_running(runtime):
+    clock = [datetime(2026, 10, 18, 8, 0)]
+    service = AutomationService(runtime.service, runtime.settings.data_dir, clock=lambda: clock[0])
+    work_in_both(runtime, CLAIMS)
+    agent = new_agent(runtime)
+    service.create(AutomationInput(name="Sabah", agent_id=agent.id, task="Özetle",
+                                   trigger=AutomationTrigger(kind="schedule", schedule_kind="daily", time="09:00")))
+    work_in_both(runtime, LOGISTICS)
+    assert service.automations() == []
+    runtime.state["provider"] = ScriptedProvider([response(finish())])
+    clock[0] = datetime(2026, 10, 18, 9, 1)
+    service.tick()
+    started = [run for run in runtime.service.agent_store.runs() if run.agent_id == agent.id]
+    assert len(started) == 1 and started[0].office_id == CLAIMS
+    assert runtime.done(started[0]).status == "succeeded"

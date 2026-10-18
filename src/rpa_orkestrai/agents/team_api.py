@@ -45,6 +45,10 @@ class OfficeMember(Model):
     user_id: int = Field(ge=1, le=2147483647, strict=True)
 
 
+class OfficeChoice(Model):
+    office_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
 class Decision(Model):
     approved: bool = Field(strict=True)
 
@@ -109,7 +113,37 @@ def router(service, client, approval_backend):
     def create_office(body: OfficeName):
         answer = call(request, "POST", "/ofisim", body.model_dump())
         signed_again()
+        # The new office opens on screen; the account's other offices keep their work.
+        office = answer.get("office") if isinstance(answer, dict) else None
+        if isinstance(office, dict) and isinstance(office.get("id"), str):
+            try:
+                client.licensing.select_office(office["id"])
+            except Exception:  # noqa: BLE001 - The office is created; the account picks it from the list.
+                pass
         return answer
+
+    @result.get("/my-offices")
+    def my_offices():
+        answer = call(request, "GET", "/ofislerim")
+        actor = service._authorize()
+        # Local agents stay on this computer; their count per office comes from here, not from orkestrai.net.
+        counts = {}
+        for agent in service.agent_store.agents():
+            if agent.company_id == actor.company_id and agent.office_id:
+                counts[agent.office_id] = counts.get(agent.office_id, 0) + 1
+        for office in answer.get("offices") or []:
+            if isinstance(office, dict):
+                office["agents"] = counts.get(office.get("id"), 0)
+                office["on_screen"] = office.get("id") == actor.office_id
+        return answer
+
+    @result.post("/my-office/select")
+    def select_office(body: OfficeChoice):
+        try:
+            client.licensing.select_office(body.office_id)
+        except Exception:  # noqa: BLE001 - The message must not depend on the licence internals.
+            raise HTTPException(403, "Bu ofise erişiminiz yok.") from None
+        return {"office_id": body.office_id}
 
     @result.post("/my-office/name")
     def rename_office(body: OfficeName):

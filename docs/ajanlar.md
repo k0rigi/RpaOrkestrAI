@@ -186,7 +186,8 @@ kurar.
   listesinde ve Ofis görünümünün başlığında yazar.
 - **Kim kurar:** 0.9.36'dan itibaren ofisi kullanıcı kendisi kurar (bkz.
   [Kendi ofisinizi kurmak](#kendi-ofisinizi-kurmak-0936)). orkestrai.net yönetimi
-  yalnız RPA ve Ajanlar lisansını verir. Bir kişi yalnız bir ofiste bulunur.
+  yalnız RPA ve Ajanlar lisansını verir. Yetkili birden fazla ofisi yönetebilir
+  (0.9.37); yetkili olmayan çalışan tek ofiste bulunur.
 - **Erişim:** bir ofise bağlı olmayan hesap önce kendi ofisini kurar veya bir ofis
   yetkilisinin onu eklemesini bekler; o zamana kadar ajan çalıştırmaz ve ofislerin
   kayıtlarını görmez. Yetkilisinin hesabı pasifleşen veya kapatılan ofis kapanır;
@@ -213,8 +214,9 @@ bireysel hesaplarda da aynıdır.
 1. **Ofis adı** yazın (2–120 karakter, firmanızda başka bir ofisin adı olmamalı;
    ör. «Lojistik Planlama Departmanı») ve **Ofisi kur**'a basın.
 2. Ofisi kuran kişi ofisin **yetkilisi** olur: ajan kurma, otomasyon, görev verme ve
-   onay yetkileri hemen gelir. Her hesap yalnız bir ofis kurabilir ve tek ofiste
-   bulunur. Bir firmada en fazla 50 ofis açılabilir.
+   onay yetkileri hemen gelir. Yetkili, 0.9.37'den itibaren başka ofisler de
+   kurabilir (bkz. [Birden fazla ofisi yönetmek](#birden-fazla-ofisi-yönetmek-0937)).
+   Bir firmada en fazla 50 ofis açılabilir.
 3. Başka birinin ofisine katılacaksanız bu ekranda bekleyin. Ofis yetkilisi sizi
    eklediğinde ekran en geç bir dakika içinde o ofise geçer.
 
@@ -223,13 +225,38 @@ Ajanlar sayfasındaki **Ofisim** sekmesi ofisin bilgilerini gösterir:
 - **Yetkili:** ofisin adını değiştirir; firmada ofisi olmayan, RPA ve Ajanlar
   lisanslı çalışanları listeden seçip ofise ekler; bir üyeyi **Ofisten çıkar** ile
   çıkarır. Çıkarılan kişinin ofisteki görev ve onay geçmişi ofiste kalır.
-- **Üye:** **Ofisten ayrıl** ile ayrılabilir; sonra kendi ofisini kurabilir.
+- **Üye:** **Ofisten ayrıl** ile ayrılabilir; sonra kendi ofisini kurabilir. Üye
+  ofisindeyken yeni ofis kuramaz.
 - Yeni lisans vermek orkestrai.net yönetimindedir; kendi ofisini kurmuş bir çalışan
   başka bir ofise eklenmez.
 - Değişiklik açık Studio'lara en geç 10 dakika içinde yansır. Ofisi kurmak ve
   ofisten ayrılmak o bilgisayarda hemen geçerli olur.
 - Ofislerden önce kurulmuş ajan ve otomasyonlar, onları kuran kişi kendi ofisini
   kurduğunda o ofise geçer. Ofisi olmayan hesap başkalarının eski kayıtlarını görmez.
+
+### Birden fazla ofisi yönetmek (0.9.37)
+
+Bir yetkili birden fazla departmanı yönetebilir; her departmanın kendi ofisi olur.
+
+- **Yeni ofis:** **Ofisim** sekmesindeki **Yeni ofisin adı** alanına ad yazıp
+  **Yeni ofis kur**'a basın. Yeni ofis hemen ekrana gelir; yetkilisi sizsiniz. Bir
+  kullanıcının kurabileceği ofis sayısı sınırsızdır; firmadaki toplam sınır 50'dir.
+- **Ofis değiştirme:** birden fazla ofisiniz varsa Ajanlar başlığındaki **Ofis**
+  listesinden ofis seçin. Ajanlar, çalışmalar, görevler, onaylar, otomasyonlar,
+  Organizasyon, Performans ve 3D Ofis seçili ofise göre gösterilir. Seçim bu
+  bilgisayarda hatırlanır.
+- **Diğer ofisler çalışmaya devam eder:** ofis değiştirmek yalnız ekranı değiştirir.
+  Diğer ofislerin ajan çalışmaları, zamanlanmış otomasyonları ve onay beklemeleri
+  kendi ofislerinde sürer; onaylar ve görevler her zaman ait oldukları ofise yazılır.
+- **Ofislerim:** **Ofisim** sekmesinin başında her ofisin ajan, kişi, açık görev ve
+  bekleyen onay sayısı görünür; **Bu ofise geç** ile o ofise geçilir.
+- **Kişiler:** yetkili, kurduğu her ofisin kişisidir. Yetkili olmayan çalışan tek
+  ofiste bulunur; bir ofise eklenen kişi başka ofise eklenemez.
+- **Güvenlik:** Studio her istekte hangi ofis adına çalıştığını bildirir;
+  orkestrai.net bunu her istekte doğrular. Erişiminiz kalmayan bir ofis adına
+  istek yapılmaz; o ofisin açık çalışması durur.
+- **Uyumluluk:** birden fazla ofis 0.9.37 gerektirir. 0.9.36 ve önceki sürümler
+  yalnız ilk ofisi gösterir.
 
 ## Bireysel hesapta ajanlar (0.9.35)
 

@@ -56,6 +56,7 @@ Kurallar:
 - Firmanın MOD_AJAN satırı değişmez. Yeni kişinin dönemi, firmanın MOD_AJAN ve MOD_RPA dönemlerinin içinde olmalıdır.
 - `PolitikaSurumu = 1` (tek onaycılı) firma, yalnız kayıtlı onaycısı için çalıştırıldığında ofise dönüşür. Onaycının mevcut lisans tarihleri aynen yazılır; görev ve onay geçmişi ile bugünkü ekip o ofise taşınır.
 - Kullanıcı kimliği bilinmiyorsa `preflight` herhangi bir kimlikle çalıştırılır. Hesap adı firmada bulunursa sonuçta `found_user_id` görünür; `apply` bu kimlik açıkça yazılarak yeniden çalıştırılır.
+- 0.9.37'den itibaren bir yetkili birden fazla ofis kurup yönetebilir (yetkilinin her ofisinde üyelik satırı vardır; üye tek ofiste). Studio seçili ofisi `X-Rpa-Ofis` başlığıyla bildirir; erişilemeyen ofis `OFIS_ERISIMI_YOK` ile reddedilir.
 - 0.9.36'dan itibaren ofisi kullanıcı kurar: ofislere ayrılmış (veya organizasyon kaydı olmayan) firmada ofisi olmayan lisanslı hesap, Studio'da Ajanlar'ı açınca kendi ofisini kurar (lisans iddiası `ofis_kurabilir`). Yetkili, ofisi olmayan lisanslı çalışanları Ofisim sekmesinden ekler. Bu iş akışı artık yalnız toplu geçiş veya yetkili kendisi yapamadığında gerekir. Sorun incelerken önce kişinin ofis üyeliğine bak (`SYS_AjanOfisUyeleri`, `SYS_AjanOfisleri`).
 
 Firma, kullanıcı, ofis, yetkili ve bitiş tarihini kullanıcıdan açıkça teyit etmeden `apply` çalıştırma.

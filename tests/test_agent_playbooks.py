@@ -262,7 +262,7 @@ class CentralApprovals:
     def status(self, context, remote):
         return {"status": self.states[remote["id"]], "approver_user_id": 1}
 
-    def decide(self, identity, approved):
+    def decide(self, identity, approved, office_id=None):
         self.decisions.append((identity, approved))
         self.states[identity] = "approved" if approved else "rejected"
         return {"id": identity, "status": self.states[identity]}

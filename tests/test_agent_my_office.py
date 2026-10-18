@@ -7,13 +7,14 @@ from test_agent_api import api as agent_api  # noqa: F401
 from test_agent_licensing import entitlement
 from test_licensing import FakeOrkestrai, service
 
-from rpa_orkestrai.agents.central import PATH
-from rpa_orkestrai.agents.models import Actor, visible
+from rpa_orkestrai.agents.central import PATH, CentralClient, CentralError
+from rpa_orkestrai.agents.models import Actor, reachable, same_account, visible
+from rpa_orkestrai.licensing import LicenseError
 
 OFFICE = "c" * 32
 
 
-def test_signed_claim_lets_only_an_account_outside_every_office_open_one(tmp_path):
+def test_signed_claim_says_who_may_open_an_office(tmp_path):
     server = FakeOrkestrai()
     server.claims = {"ajan": entitlement(yetkiler=["agents.use"], ofis_kurabilir=True)}
     licensing = service(tmp_path, server)
@@ -21,8 +22,11 @@ def test_signed_claim_lets_only_an_account_outside_every_office_open_one(tmp_pat
     actor = licensing.agent_actor()
     assert actor.can_create_office and actor.office_id is None and not actor.can_approve
     assert "create" not in json.dumps(actor.model_dump())
-    for claims in (entitlement(ofis_id=OFFICE, ofis_adi="Claim & İade", ofis_kurabilir=True),
-                   entitlement(yetkiler=["agents.use"], ofis_kurabilir="true"), entitlement()):
+    # An office authority may open another office; a plain member or a malformed flag may not.
+    server.claims = {"ajan": entitlement(ofis_id=OFFICE, ofis_adi="Claim & İade", ofis_kurabilir=True)}
+    licensing.refresh()
+    assert licensing.agent_actor().can_create_office and licensing.agent_actor().office_id == OFFICE
+    for claims in (entitlement(yetkiler=["agents.use"], ofis_kurabilir="true"), entitlement()):
         server.claims = {"ajan": claims}
         licensing.refresh()
         assert licensing.agent_actor() is not None and not licensing.agent_actor().can_create_office
@@ -114,3 +118,138 @@ def test_only_the_office_authority_renames_the_office_and_places_colleagues(cent
     for path, body in (("/name", {"name": "Başka"}), ("/members", {"user_id": 12}), ("/members/11/remove", {})):
         assert client.post("/api/agents/central/my-office" + path, json=body).status_code == 403
     assert len(calls) == 3 and refreshes == []
+
+
+SECOND = "d" * 32
+
+
+def offices_claim(**changes):
+    return entitlement(ofis_id=OFFICE, ofis_adi="Claim & İade", ofis_kurabilir=True,
+                       ofisler=[{"id": OFFICE, "ad": "Claim & İade", "yetkili": True},
+                                {"id": SECOND, "ad": "İade Analiz", "yetkili": True}], **changes)
+
+
+def test_an_authority_switches_between_its_signed_offices_and_the_choice_is_remembered(tmp_path):
+    server = FakeOrkestrai()
+    server.claims = {"ajan": offices_claim()}
+    licensing = service(tmp_path, server)
+    licensing.login("operator", "dogru")
+    actor = licensing.agent_actor()
+    assert actor.office_id == OFFICE and [item[0] for item in actor.offices] == [OFFICE, SECOND]
+    licensing.select_office(SECOND)
+    assert (licensing.agent_actor().office_id, licensing.agent_actor().office_name) == (SECOND, "İade Analiz")
+    with pytest.raises(LicenseError):
+        licensing.select_office("e" * 32)
+    # The next Studio start on this computer opens the same office.
+    again = service(tmp_path, server)
+    again.login("operator", "dogru")
+    assert again.agent_actor().office_id == SECOND
+    # An office the account lost falls back to its first office.
+    server.claims = {"ajan": entitlement(ofis_id=OFFICE, ofis_adi="Claim & İade",
+                                         ofisler=[{"id": OFFICE, "ad": "Claim & İade", "yetkili": True}])}
+    again.refresh()
+    assert again.agent_actor().office_id == OFFICE
+
+
+@pytest.mark.parametrize("listed", [
+    "liste", [{"id": "ofis", "ad": "A", "yetkili": True}], [{"id": SECOND, "ad": "A", "yetkili": True}],
+    [{"id": OFFICE, "ad": "", "yetkili": True}], [{"id": OFFICE, "ad": "A\nB", "yetkili": True}],
+    [{"id": OFFICE, "ad": "A", "yetkili": "evet"}], [{"id": OFFICE, "ad": "A", "yetkili": True}] * 2,
+    [{"id": format(index, "032x"), "ad": "A", "yetkili": True} for index in range(51)],
+])
+def test_malformed_office_lists_never_enable_agents(tmp_path, listed):
+    server = FakeOrkestrai()
+    server.claims = {"ajan": entitlement(ofis_id=OFFICE, ofis_adi="Claim & İade", ofisler=listed)}
+    licensing = service(tmp_path, server)
+    licensing.login("operator", "dogru")
+    assert licensing.allowed() and not licensing.agent_allowed()
+
+
+def test_acting_for_another_office_keeps_the_account_and_its_rights_there():
+    actor = Actor(user_id=7, company_id=2, session_id="s", permissions=("agents.use", "agents.manage", "agents.approve"),
+                  office_id=OFFICE, office_name="A", offices=((OFFICE, "A", True), (SECOND, "B", True)))
+    other = actor.in_office(SECOND)
+    assert (other.office_id, other.office_name) == (SECOND, "B") and other.can_approve and same_account(actor, other)
+    assert actor.in_office(OFFICE) is actor and actor.in_office("e" * 32) is None and actor.in_office(None) is None
+    member = actor.model_copy(update={"offices": ((OFFICE, "A", True), (SECOND, "B", False))}).in_office(SECOND)
+    assert member.permissions == ("agents.use",)
+    # Lists show the office on screen; background work reaches every office of the account.
+    assert not visible(actor, 2, SECOND, 1) and reachable(actor, 2, SECOND, 1)
+    assert not reachable(actor, 2, "e" * 32, 7) and not reachable(actor, 3, SECOND, 7)
+
+
+def test_central_requests_name_the_office_of_their_work():
+    current = Actor(user_id=1, company_id=2, session_id="s", permissions=("agents.use",), office_id=OFFICE,
+                    office_name="A", offices=((OFFICE, "A", True), (SECOND, "B", True)))
+    sent = []
+
+    class Licence:
+        def agent_actor(self):
+            return current
+
+        def agent_access_token(self):
+            return "belirtec"
+
+    class Answer:
+        def __init__(self, request):
+            self.request = request
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def geturl(self):
+            return self.request.full_url
+
+        def getcode(self):
+            return 200
+
+        def read(self, _limit):
+            return b'{"success": true}'
+
+    def opener(request, **_kwargs):
+        sent.append(request.get_header("X-rpa-ofis"))
+        return Answer(request)
+
+    client = CentralClient(Licence(), opener=opener)
+    client.request("GET", "/uyeler")
+    client.request("GET", "/uyeler", expected_actor=current.in_office(SECOND))
+    assert sent == [OFFICE, SECOND]
+    lost = current.model_copy(update={"office_id": "e" * 32})
+    with pytest.raises(CentralError):
+        client.request("GET", "/uyeler", expected_actor=lost)
+    assert len(sent) == 2
+
+
+def test_my_offices_adds_the_local_agent_count_and_select_switches_the_screen(central):
+    api, calls, _, answers = central
+    api.licensing.actor = api.licensing.actor.model_copy(update={
+        "office_id": OFFICE, "office_name": "A", "offices": ((OFFICE, "A", True), (SECOND, "B", True))})
+    created = api.client.post("/api/agents", json={"name": "Analiz", "model": "test"})
+    assert created.status_code == 201
+    answers[("GET", "/ofislerim")] = {"success": True, "can_create": True, "offices": [
+        {"id": OFFICE, "name": "A", "is_authority": True, "people": 2, "open_tasks": 1, "pending_approvals": 0},
+        {"id": SECOND, "name": "B", "is_authority": True, "people": 1, "open_tasks": 0, "pending_approvals": 3}]}
+    listed = api.client.get("/api/agents/central/my-offices").json()["offices"]
+    assert [(item["agents"], item["on_screen"]) for item in listed] == [(1, True), (0, False)]
+    session = api.client.get("/api/agents/session").json()
+    assert session["offices"] == [{"id": OFFICE, "name": "A", "is_authority": True},
+                                  {"id": SECOND, "name": "B", "is_authority": True}]
+    chosen = []
+    api.licensing.select_office = lambda office: chosen.append(office)
+    assert api.client.post("/api/agents/central/my-office/select", json={"office_id": SECOND}).status_code == 200
+    assert api.client.post("/api/agents/central/my-office/select", json={"office_id": "x"}).status_code == 422
+
+    def refuse(_office):
+        raise ValueError("yok")
+
+    api.licensing.select_office = refuse
+    assert api.client.post("/api/agents/central/my-office/select", json={"office_id": "e" * 32}).status_code == 403
+    assert chosen == [SECOND]
+    # A new office opens on screen at once.
+    api.licensing.select_office = lambda office: chosen.append(office)
+    answers[("POST", "/ofisim")] = {"success": True, "office": {"id": "f" * 32, "name": "C"}}
+    assert api.client.post("/api/agents/central/my-office", json={"name": "Yeni Ofis"}).status_code == 201
+    assert chosen == [SECOND, "f" * 32]

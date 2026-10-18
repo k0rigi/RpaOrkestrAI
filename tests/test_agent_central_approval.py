@@ -64,7 +64,7 @@ class ApprovalBackend:
         self.unlocked()
         self.cancelled.append(remote["id"])
 
-    def decide(self, identity, approved):
+    def decide(self, identity, approved, office_id=None):
         self.unlocked()
         self.decisions.append((identity, approved))
         self.state = "approved" if approved else "rejected"

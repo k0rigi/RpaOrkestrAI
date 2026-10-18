@@ -361,7 +361,7 @@
       ]);
       if (!view.alive) return;
       [view.session, view.agents, view.connections, view.workflows, view.notes, view.studioConnections] = values;
-      if (view.session.can_create_office) return officeSetup(view, container, options);
+      if (!view.session.office && view.session.can_create_office) return officeSetup(view, container, options);
       shell(view);
       showTab(view, view.tabButtons.has(options.initialTab) ? options.initialTab : "agents");
       pollAttention(view);
@@ -418,7 +418,24 @@
     const title = element("div");
     // A firm split into departments: every office has its own agents and its own authority.
     const office = view.session.office?.name;
-    if (office) title.append(element("p", `${office} ofisi`, "agent-eyebrow"));
+    const offices = view.session.offices || [];
+    if (offices.length > 1) {
+      // An authority may run several offices; the choice changes only what is on screen.
+      const picker = document.createElement("select");
+      picker.id = "agent-office-picker"; picker.className = "agent-office-picker";
+      for (const item of offices) {
+        const option = element("option", item.name); option.value = item.id;
+        picker.append(option);
+      }
+      picker.value = view.session.office?.id || "";
+      const label = element("label", "Ofis", "agent-eyebrow"); label.htmlFor = picker.id;
+      picker.addEventListener("change", () => view.busy(picker, async () => {
+        await view.request("/api/agents/central/my-office/select", "POST", { office_id: picker.value });
+        mount(view.container, view.options);
+      }));
+      const row = element("div", null, "agent-office-switch"); row.append(label, picker);
+      title.append(row);
+    } else if (office) title.append(element("p", `${office} ofisi`, "agent-eyebrow"));
     title.append(element("h1", "Ajanlar"), element("p", "Hedefi tanımlayın; izin verdiğiniz akışlarla ilerlemeyi izleyin.", "muted"));
     const user = view.session.actor?.name || "Oturum açık";
     header.append(title, element("span", office && view.session.can_approve ? `${user} · Ofis yetkilisi` : user, "agent-user"));

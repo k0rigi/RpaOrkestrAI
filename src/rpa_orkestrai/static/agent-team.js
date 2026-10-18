@@ -412,7 +412,48 @@
     });
     return view.dispose;
   }
-  // The office of the account: its authority names it and places licensed colleagues; a member may leave.
+  // Every office of the account (an authority may run several) and opening another one.
+  function officeList(view, options) {
+    const section = el("section", undefined, "agent-my-offices");
+    const several = (options.session.offices || []).length > 1;
+    if (!several && !options.session.can_create_office) return section;
+    const list = el("ul", undefined, "agent-office-list");
+    section.append(el("h3", several ? "Ofislerim" : "Başka bir ofis"), list);
+    if (several) {
+      list.append(el("li", "Ofis bilgileri yükleniyor…", "muted"));
+      view.request("/api/agents/central/my-offices").then((data) => {
+        if (!view.alive) return;
+        list.replaceChildren(...(data.offices || []).map((office) => {
+          const row = el("li");
+          const facts = `${office.agents} ajan · ${office.people} kişi · ${office.open_tasks} açık görev · ${office.pending_approvals} onay bekliyor`;
+          const text = el("div");
+          text.append(el("strong", office.name), el("span", facts, "agent-help"));
+          row.append(text, office.on_screen ? el("span", "Ekranda", "agent-office-current")
+            : button("Bu ofise geç", () => view.act(async () => {
+              await view.request("/api/agents/central/my-office/select", "POST", { office_id: office.id });
+              options.reload?.();
+            }), "small"));
+          return row;
+        }));
+      }).catch((error) => { if (view.alive) list.replaceChildren(el("li", error.message, "agent-warning")); });
+      section.append(el("p", "Ofis değiştirmek yalnız ekranı değiştirir; diğer ofislerin ajanları, otomasyonları ve onay beklemeleri kendi ofislerinde sürer.", "agent-help"));
+    }
+    if (options.session.can_create_office) {
+      const name = input("Yeni ofisin adı");
+      name.field.maxLength = 120;
+      name.field.placeholder = "ör. Satın Alma Departmanı";
+      section.append(name.wrapper, button("Yeni ofis kur", () => view.act(async () => {
+        const value = name.field.value.trim().replace(/\s+/g, " ");
+        if (value.length < 2) throw new Error("Yeni ofise en az 2 karakterlik bir ad verin.");
+        await view.request("/api/agents/central/my-office", "POST", { name: value });
+        options.toast(`${value} ofisi kuruldu; ekranda artık bu ofis var.`);
+        options.reload?.();
+      }), "primary"), el("p", "Kurduğunuz her ofisin yetkilisi sizsiniz; her ofisin kendi ajanları, çalışanları ve onayları olur.", "agent-help"));
+    }
+    return section;
+  }
+
+  // The office on screen: its authority names it and places licensed colleagues; a member may leave.
   function mountMyOffice(container, options) {
     const view = setup(container, options);
     const draw = (data) => {
@@ -473,6 +514,8 @@
           options.reload?.();
         })));
       }
+      // The summary of every office comes first: it is where an authority of several offices starts.
+      parts.splice(2, 0, officeList(view, options));
       const page = el("section", undefined, "agent-my-office");
       page.append(...parts);
       container.replaceChildren(page);
