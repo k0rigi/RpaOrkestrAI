@@ -249,22 +249,35 @@ class WebSession:
             raise InterruptedError("Web adımı iptal edildi.")
 
     # ----- element actions --------------------------------------------------------------
-    def click(self, target: Target) -> None:
+    def click(self, target: Target, kind: str = "single") -> None:
         item = self.single(target)
         page = self.page
+        if kind == "hover":
+            # Only moves the pointer over the element (menus that open on hover); nothing is pressed.
+            self._run(lambda: item.hover(timeout=target.timeout_ms), "Öğenin üzerine gelinemedi")
+            return
+
+        def press() -> None:
+            if kind == "double":
+                item.dblclick(timeout=target.timeout_ms)
+            elif kind in {"right", "middle"}:
+                item.click(button=kind, timeout=target.timeout_ms)
+            else:
+                item.click(timeout=target.timeout_ms)
+
         # A link or form that opens another tab: wait for that tab, so the next step continues there.
-        new_tab = self._run(lambda: item.evaluate(
+        new_tab = kind == "single" and self._run(lambda: item.evaluate(
             "e => { const t = e.closest('a[target], form[target], area[target]');"
             " return !!t && !['', '_self', '_parent', '_top'].includes(t.target); }"), "Öğe okunamadı")
         # Never retried: a second click can submit a form twice.
         if new_tab:
             def click_and_wait() -> None:
                 with page.expect_popup(timeout=target.timeout_ms):
-                    item.click(timeout=target.timeout_ms)
+                    press()
 
             self._run(click_and_wait, "Yeni sekme açılmadı")
         else:
-            self._run(lambda: self._click_with_popup_watch(item, page, target), "Tıklanamadı")
+            self._run(lambda: self._click_with_popup_watch(press, page, target, item), "Tıklanamadı")
 
     def _popup_client(self, item: Any, page: Any, target: Target) -> Any:
         from playwright.sync_api import Error as PlaywrightError
@@ -291,7 +304,7 @@ class WebSession:
                     frame = frame.parent_frame
         return self._context.new_cdp_session(page)
 
-    def _click_with_popup_watch(self, item: Any, page: Any, target: Target) -> None:
+    def _click_with_popup_watch(self, press: Any, page: Any, target: Target, item: Any) -> None:
         """Wait for an observed window.open, not for a guessed destination or a fixed load delay."""
         from playwright.sync_api import Error as PlaywrightError
 
@@ -315,7 +328,7 @@ class WebSession:
             client.send("Page.enable")
             self._cancelled()
             deadline = time.monotonic() + target.timeout_ms / 1000
-            item.click(timeout=target.timeout_ms)  # Exactly once, including timeout/cancellation paths.
+            press()  # Exactly once, including timeout/cancellation paths.
             # Preserve the short event-delivery grace for scripts scheduled by the click.
             # Slow network responses wait only when the browser observed a new window.
             # A frame from another site reports through its own browser process, which can take longer.

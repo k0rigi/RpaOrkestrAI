@@ -117,7 +117,8 @@ def web_open(ctx, p):
 @handler("web.click")
 def web_click(ctx, p):
     target = web_target(p)
-    act(ctx, lambda web: web.click(target))
+    kind = choice(p.get("click", "single"), "Tıklama türü", {"single", "double", "right", "middle", "hover"})
+    act(ctx, lambda web: web.click(target, kind))
 
 
 @handler("web.fill")

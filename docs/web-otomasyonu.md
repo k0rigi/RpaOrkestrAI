@@ -31,7 +31,7 @@ Hedef, bir kişinin söyleyeceği adla seçilir: önce alan etiketi, yer tutucu 
 | Adım | Ne işe yarar |
 | --- | --- |
 | Web sayfası aç | Adresi açar; sonraki adımlar bu sekmede çalışır. |
-| Web öğesine tıkla | Düğme, bağlantı veya metne tıklar. Tıklamayla başlatılan yeni sekmenin ilk yanıtı beklenir; sonraki adımlar o sekmeye geçer. Yeni sekme süresinde açılmazsa işlem durur, tıklama tekrarlanmaz. |
+| Web öğesine tıkla | Düğme, bağlantı veya metne tıklar. **Tıklama türü** (0.9.39+): **Tek tık** (varsayılan), **Çift tık** (satır veya dosya açan listeler), **Sağ tık** (sitenin kendi sağ tık menüsü), **Orta tık** veya **Yalnız üzerine gel** (tıklamaz; fareyle açılan menüleri gösterir, sonraki adım menüdeki öğeye tıklar). Tıklamayla başlatılan yeni sekmenin ilk yanıtı beklenir; sonraki adımlar o sekmeye geçer. Yeni sekme süresinde açılmazsa işlem durur, tıklama tekrarlanmaz. Tek tık dışında bir tür seçilen akış 0.9.39 öncesi sürümlerde açılmaz. |
 | Web alanını doldur | Yazı alanının değerini değiştirir. |
 | Web'den metin oku | Öğenin metnini veya alanın değerini okur. |
 | Web listesinden seç | Açılır listede (select) seçenek seçer. |

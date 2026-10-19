@@ -1,3 +1,3 @@
 """RpaOrkestrAI: a local visual automation studio."""
 
-__version__ = "0.9.38"
+__version__ = "0.9.39"

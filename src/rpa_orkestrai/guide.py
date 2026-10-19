@@ -433,7 +433,8 @@ GUIDES = {
         "tarayıcınızın profili kullanılmaz."),
     "web.click": guide(
         ["Hedefi bulma yöntemini seçin; düğmeler için Düğme veya bağlantı adı.",
-         "Hedef'e sayfada görünen yazıyı yazın (ör. Kaydet)."],
+         "Hedef'e sayfada görünen yazıyı yazın (ör. Kaydet).",
+         "Gerekirse Tıklama türünü değiştirin: çift tık, sağ tık, orta tık veya tıklamadan yalnız üzerine gelme."],
         "",
         "Hedef birden fazla öğeyle eşleşirse tıklanmaz; Tam eşleşmeyi açın veya daha ayırt edici bir yazı kullanın. "
         "Tıklama tekrarlanmaz."),

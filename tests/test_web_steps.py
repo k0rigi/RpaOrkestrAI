@@ -24,6 +24,9 @@ PAGE = """<!doctype html><html lang="tr"><meta charset="utf-8"><title>Fatura por
   window.clicks = (window.clicks || 0) + 1">Kaydet</button>
 <button>Sil</button><button>Sil</button>
 <a href="#detay">Detaylar</a>
+<div id="satir" onmouseenter="kayit('ustunde')" onclick="kayit('tek')" ondblclick="kayit('cift')"
+  oncontextmenu="event.preventDefault(); kayit('sag')" onauxclick="if (event.button === 1) kayit('orta')">Kayıt 42</div>
+<script>function kayit(olay) { (window.olaylar ||= []).push(olay); }</script>
 <p id="sonuc"></p>
 </body></html>"""
 
@@ -82,6 +85,7 @@ def test_fill_select_click_and_read_like_a_person(site, ctx):
     (web_click, target("text", "Yok böyle bir şey"), "bulunamadı"),
     (web_select, {**target("css", "#durum"), "option": "Silindi"}, "bulunamadı"),
     (web_select, {**target("css", "#no"), "option": "x"}, "açılır liste"),
+    (web_click, {**target("button", "Kaydet"), "click": "uc"}, "Tıklama türü"),
 ])
 def test_ambiguous_or_missing_targets_do_nothing(site, ctx, step, params, match):
     web_open(ctx, {"url": site, "headless": True})
@@ -89,6 +93,20 @@ def test_ambiguous_or_missing_targets_do_nothing(site, ctx, step, params, match)
         step(ctx, params)
     assert ctx.web().page.evaluate("window.clicks") is None
     assert web_read(ctx, target("css", "#sonuc")) == ""
+
+
+@pytest.mark.parametrize("kind,events", [
+    ("single", ["ustunde", "tek"]),
+    ("double", ["ustunde", "tek", "tek", "cift"]),
+    ("right", ["ustunde", "sag"]),
+    ("middle", ["ustunde", "orta"]),
+    ("hover", ["ustunde"]),  # Menus that open on hover: the pointer moves there, nothing is pressed.
+])
+def test_the_chosen_click_kind_is_pressed_once_and_nothing_else(site, ctx, kind, events):
+    web_open(ctx, {"url": site, "headless": True})
+    web_click(ctx, {**target("text", "Kayıt 42"), "click": kind})
+    assert ctx.web().page.evaluate("window.olaylar") == events
+    assert ctx.web().page.evaluate("window.clicks") is None
 
 
 def test_exact_match_tells_apart_similar_texts(site, ctx):

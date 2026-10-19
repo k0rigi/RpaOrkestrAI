@@ -69,6 +69,9 @@ WEB_TARGET = [
     field("frame", "Çerçeve (iframe)", default="", omit_default=True,
           help="Hedef sayfanın içindeki bir çerçevedeyse çerçevenin CSS seçicisi (ör. iframe#icerik). Boş: sayfanın kendisi."),
 ]
+WEB_CLICKS = [{"value": "single", "label": "Tek tık"}, {"value": "double", "label": "Çift tık"},
+              {"value": "right", "label": "Sağ tık"}, {"value": "middle", "label": "Orta tık"},
+              {"value": "hover", "label": "Yalnız üzerine gel (tıklamaz)"}]
 MAIL_CONNECTION = field("connection", "E-posta (SMTP) bağlantısı", "connection", "", connection_type="smtp",
                         help="Gönderen hesap ve sunucu. Şifre yalnız bu bilgisayarda saklanır.")
 DATABASE_CONNECTION = field("connection", "Veritabanı bağlantısı", "connection", "", connection_type="database",
@@ -882,7 +885,11 @@ LIBRARY = [
             output("web_url", "Açılan sayfanın son adresi (yönlendirmelerden sonra).")]),
     action("web.click", "Web öğesine tıkla", "Web, e-posta ve API",
            "Açık sayfada düğme, bağlantı veya metne tıklar. Hedef birden fazla öğeyle eşleşirse tıklamaz.",
-           WEB_TARGET),
+           [*WEB_TARGET, field("click", "Tıklama türü", "select", "single", required=True, omit_default=True,
+                               options=WEB_CLICKS,
+                               help="Tek tık çoğu düğme ve bağlantı için yeterlidir. Çift tık satır veya dosya açar; "
+                                    "sağ tık sitenin kendi sağ tık menüsünü açar. Üzerine gel tıklamaz; fareyle "
+                                    "açılan menüleri gösterir.")]),
     action("web.fill", "Web alanını doldur", "Web, e-posta ve API",
            "Açık sayfada bir yazı alanının değerini yazılan değerle değiştirir.",
            [*WEB_TARGET, field("text", "Yazılacak değer", default="", help="Değişken kullanılabilir: ${row.no}. "
