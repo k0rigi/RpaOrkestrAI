@@ -27,6 +27,10 @@ PAGE = """<!doctype html><html lang="tr"><meta charset="utf-8"><title>Fatura por
 <div id="satir" onmouseenter="kayit('ustunde')" onclick="kayit('tek')" ondblclick="kayit('cift')"
   oncontextmenu="event.preventDefault(); kayit('sag')" onauxclick="if (event.button === 1) kayit('orta')">Kayıt 42</div>
 <script>function kayit(olay) { (window.olaylar ||= []).push(olay); }</script>
+<div id="cizim" style="cursor:pointer" onmousedown="this.basili = true"
+  onmouseup="if (this.basili) window.oturum = (window.oturum || 0) + 1"><table><tr><td><span>Oturum aç</span></td></tr></table></div>
+<div style="cursor:pointer"><span>Onay ver</span></div><div style="cursor:pointer"><span>Onay ver</span></div>
+<p>Yardım</p>
 <p id="sonuc"></p>
 </body></html>"""
 
@@ -107,6 +111,22 @@ def test_the_chosen_click_kind_is_pressed_once_and_nothing_else(site, ctx, kind,
     web_click(ctx, {**target("text", "Kayıt 42"), "click": kind})
     assert ctx.web().page.evaluate("window.olaylar") == events
     assert ctx.web().page.evaluate("window.clicks") is None
+
+
+def test_a_button_drawn_without_a_button_role_is_found_by_its_name_only_when_it_is_unique(site, ctx):
+    # Visual WebGui and similar sites draw buttons as plain elements with mouse handlers and no button role.
+    web_open(ctx, {"url": site, "headless": True})
+    web_click(ctx, target("button", "Oturum aç"))
+    assert ctx.web().page.evaluate("window.oturum") == 1
+    assert any("düğme olarak işaretlenmemiş" in line for line in ctx.logs)
+    with pytest.raises(WorkflowError, match="2 öğeyle"):
+        web_click(ctx, target("button", "Onay ver"))
+    # Plain text the page did not make clickable is never taken for a button.
+    with pytest.raises(WorkflowError, match="bulunamadı"):
+        web_click(ctx, {**target("button", "Yardım"), "timeout": 1})
+    # A real button keeps its single match: the text inside it is not counted a second time.
+    web_click(ctx, target("button", "Kaydet"))
+    assert ctx.web().page.evaluate("window.clicks") == 1 and ctx.web().page.evaluate("window.oturum") == 1
 
 
 def test_exact_match_tells_apart_similar_texts(site, ctx):
@@ -231,6 +251,12 @@ def test_upload_download_press_and_frame(portal, web, tmp_path):
     assert saved.endswith("rapor.csv") and Path(saved).read_text(encoding="utf-8").startswith("no;tutar")
     again = web_download(web, {**target("text", "Raporu indir"), "folder": str(tmp_path / "indirilen")})
     assert again.endswith("rapor (2).csv")  # never overwritten unless asked
+    # Allowed extensions: the right kind passes; another kind stops the flow and the file is kept.
+    folder = str(tmp_path / "turli")
+    assert web_download(web, {**target("text", "Raporu indir"), "folder": folder, "extensions": "xlsx, csv"}).endswith(".csv")
+    with pytest.raises(WorkflowError, match="izin verilenler: .xlsx"):
+        web_download(web, {**target("text", "Raporu indir"), "folder": folder, "extensions": "xlsx"})
+    assert (tmp_path / "turli" / "rapor (2).csv").is_file()
     web_fill(web, {**target("label", "Arama"), "text": "S-2"})
     web_press(web, {"key": "Enter", **target("label", "Arama")})
     assert web_read(web, target("css", "#aranan")) == "S-2"

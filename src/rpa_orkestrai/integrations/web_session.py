@@ -76,13 +76,23 @@ def check_url(url: str) -> str:
     return url
 
 
+def _scope(page: Any, target: Target) -> Any:
+    return page.frame_locator(target.frame).first if target.frame else page
+
+
+def drawn_buttons(page: Any, target: Target) -> Any:
+    """Buttons a site draws with plain elements and no button role (e.g. Visual WebGui): exactly this text, made
+    clickable by the page (pointer cursor). Used only when no element carries the button or link role."""
+    return _scope(page, target).get_by_text(target.value, exact=True)
+
+
 def build_locator(page: Any, target: Target) -> Any:
     """The Playwright locator for a target; used by runs and by Tarayıcıda seç alike."""
     if target.by not in TARGETS:
         raise WorkflowError("Hedefi bulma yöntemi geçersiz.")
     if not isinstance(target.value, str) or not target.value.strip() or len(target.value) > 4096:
         raise WorkflowError("Hedef boş olamaz.")
-    scope = page.frame_locator(target.frame).first if target.frame else page
+    scope = _scope(page, target)
     value, exact = target.value, target.exact
     if target.by == "text":
         return scope.get_by_text(value, exact=exact)
@@ -220,9 +230,14 @@ class WebSession:
     def locator(self, target: Target) -> Any:
         return build_locator(self.page, target)
 
-    def _matching(self, target: Target, visible: bool) -> list[Any]:
+    def _matching(self, target: Target, visible: bool) -> tuple[list[Any], bool]:
         found = self.locator(target)
-        return self._run(lambda: [item for item in found.all() if not visible or item.is_visible()], "Sayfa okunamadı")
+        items = self._run(lambda: [item for item in found.all() if not visible or item.is_visible()], "Sayfa okunamadı")
+        if items or target.by != "button":
+            return items, False
+        drawn = drawn_buttons(self.page, target)
+        return self._run(lambda: [item for item in drawn.all() if item.is_visible() and item.evaluate(
+            "e => getComputedStyle(e).cursor === 'pointer'")], "Sayfa okunamadı"), True
 
     def single(self, target: Target, *, visible: bool = True) -> Any:
         """Wait for exactly one (visible) match; more than one is never guessed between.
@@ -232,16 +247,21 @@ class WebSession:
         deadline = time.monotonic() + target.timeout_ms / 1000
         while True:
             self._cancelled()
-            matching = self._matching(target, visible)
+            matching, drawn = self._matching(target, visible)
             if len(matching) == 1:
+                if drawn:
+                    self.notices.append(f"“{target.value}” sayfada düğme olarak işaretlenmemiş; tam bu yazıyı taşıyan "
+                                        "tek tıklanabilir öğe kullanıldı.")
                 return matching[0]
             if len(matching) > 1:
                 raise WorkflowError(f"“{target.value}” sayfada {len(matching)} öğeyle eşleşti; hangisinin kullanılacağı "
                                     "belirsiz, işlem yapılmadı. Tam eşleşmeyi açın veya daha ayırt edici bir hedef yazın.")
             if time.monotonic() >= deadline:
                 where = " çerçevede" if target.frame else " sayfada"
+                hint = (" Bazı sitelerde alanın yanındaki yazı alana bağlı değildir; Tarayıcıda seç ile alanı seçin "
+                        "veya CSS seçici kullanın." if target.by == "label" else "")
                 raise WorkflowError(f"“{target.value}” ({TARGETS[target.by].lower()}){where} bulunamadı. Sayfanın "
-                                    "yüklendiğini ve hedefin görünür olduğunu kontrol edin.")
+                                    "yüklendiğini ve hedefin görünür olduğunu kontrol edin." + hint)
             self.page.wait_for_timeout(200)
 
     def _cancelled(self) -> None:
@@ -451,7 +471,7 @@ class WebSession:
             if condition == "url":
                 met = text in str(self.page.url)
             else:
-                count = len(self._matching(target, True))
+                count = len(self._matching(target, True)[0])
                 if count > 1 and condition == "visible":
                     raise WorkflowError(f"“{target.value}” sayfada {count} öğeyle eşleşti; daha ayırt edici bir hedef "
                                         "yazın.")

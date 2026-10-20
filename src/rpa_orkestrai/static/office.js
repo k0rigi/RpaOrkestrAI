@@ -70,7 +70,7 @@ const CHARACTER_FORWARD = Math.PI;
 const SOLE = .19;
 // Seated pose: the thighs' lower side above the origin, the shin length and how far the pelvis sits forward.
 const THIGH_UNDERSIDE = .66, SHIN = .24, SEAT_FORWARD = .12;
-const WALK_SPEED = 1.4;
+const WALK_SPEED = 1.4, MAX_TRIP = 6000;
 const PLACE_NAMES = { work: "Çalışma noktası", wait: "Bekleme noktası", manager: "Yönetici noktası" };
 // Older exporters (e.g. SimLab) write the retired specular-glossiness materials; they are shown as matte standard ones.
 function specularGlossiness(THREE) {
@@ -192,6 +192,7 @@ export function mountOffice(container, options) {
   let modelInfo = null, modelState = { id: null, promise: null, value: null }, modelNotice = "", placeTimer = null;
   // The layout and everybody's place are read again only when the people or the model change, never for a view switch.
   let placement = { ...PLACEMENT }, layoutState = null, layoutStale = true, layoutReading = null, layoutSerial = 0;
+  let demo = null;
   const session = options.session || null;
   const seenEvents = new Set();
   const title = node("div", undefined, "office-title");
@@ -213,11 +214,14 @@ export function mountOffice(container, options) {
     if (manager) selectPerson(manager.id, "chat");
   });
   managerButton.hidden = true;
+  // A short show on screen only: the office's own manager and departments act out the whole chain of work.
+  const demoButton = button("Gösterimi oynat", () => (demo ? stopDemo() : startDemo()));
+  demoButton.title = "Ajanların görev, soru, araştırma ve sonuç teslimini 3D'de canlandırır; gerçek iş yapılmaz.";
   const modelButton = button("Ofis modeli", () => toggleModel(modelPanel.hidden));
   const modelPanel = node("section", undefined, "office-model"); modelPanel.id = `rpa-office-model-${++serial}`; modelPanel.hidden = true;
   modelPanel.setAttribute("aria-label", "Kendi ofis modeliniz");
   modelButton.setAttribute("aria-expanded", "false"); modelButton.setAttribute("aria-controls", modelPanel.id);
-  controls.append(reset, managerButton, modelButton); toolbar.append(status, controls);
+  controls.append(reset, managerButton, demoButton, modelButton); toolbar.append(status, controls);
   const frame = node("div", undefined, "office-frame"), view = node("div", undefined, "office-view");
   view.append(node("p", "Ofis hazırlanıyor…", "office-loading"));
   const preview = node("span", "CANLI OFİS", "office-preview");
@@ -630,6 +634,7 @@ export function mountOffice(container, options) {
   function dropScene() { const previous = scene; scene = null; previous?.dispose(); }
   async function switchMode(next) {
     if (!alive || !lastData) return;
+    if (demo && next !== "3d") stopDemo(false);
     mode = next; const version = ++generation; updateMode();
     // The current 3D scene stays on screen, paused on its last frame, until the next view is ready: people coming
     // and going never blank the office while the layout is read, and nothing draws a model being released.
@@ -663,6 +668,60 @@ export function mountOffice(container, options) {
       scene.pause(document.hidden);
     } catch { if (alive && generation === version) fallback("3D bu cihazda açılamadı; 2D plan gösteriliyor."); }
   }
+  // ----- the show: what a real task looks like, played on screen with the office's own agents ------------------
+  const DEMO_STEP = 4500;
+  function demoCast(data) {
+    const manager = data.agents.find((item) => item.role === "manager");
+    const departments = data.agents.filter((item) => item.role !== "manager").slice(0, 2);
+    return manager && departments.length ? { manager, departments } : null;
+  }
+  // One task from start to finish; each walk gets time to arrive before the next turn.
+  function demoScript({ manager, departments: [first, second] }) {
+    let serial = 0;
+    const event = (kind, to) => ({ id: `gosterim-${Date.now()}-${++serial}`, kind, to_agent_id: to.id });
+    return [
+      [[manager, { activity: "thinking", event: event("delegated", first) }], [first, { activity: "thinking" }]],
+      second ? [[second, { activity: "workflow" }]] : [], [],
+      [[first, { activity: "researching" }]], [], [],
+      [[first, { activity: "asking_manager", event: event("question", manager) }], [manager, { activity: "reviewing" }]], [], [],
+      [[manager, { activity: "thinking", event: event("answered", first) }], [first, { activity: "thinking" }]],
+      [[first, { activity: "workflow" }]],
+      [[first, { activity: null, status: "succeeded", event: event("completed", manager) }], [manager, { activity: "reviewing" }]],
+      [], [], [],
+    ];
+  }
+  // Each agent keeps its show state until the next change; an event plays once (seen events are remembered).
+  function demoFrame(overrides) {
+    for (const [person, values] of overrides) demo.state.set(person.id, { ...(demo.state.get(person.id) || {}), ...values });
+    return { ...lastData, agents: lastData.agents.map((item) => ({ ...item, event: null, ...(demo.state.get(item.id) || {}) })) };
+  }
+  async function startDemo() {
+    if (!alive || !lastData || demo) return;
+    const cast = demoCast(lastData);
+    if (!cast) {
+      status.textContent = "Gösterim için ofiste bir yönetici ajan ve en az bir departman ajanı olmalı; Ajanlar sekmesinden ekleyin.";
+      return;
+    }
+    if (mode !== "3d") await switchMode("3d");
+    if (!alive || !scene || demo) return;
+    const steps = demoScript(cast), step = Number(options.showStep) || DEMO_STEP;
+    demo = { timers: [], state: new Map(), saved: status.textContent };
+    demoButton.textContent = "Gösterimi durdur";
+    status.textContent = matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "Gösterim · bilgisayarınızda Hareketi azalt açık: karakterler yürümez, yalnız balonlar görünür"
+      : "Gösterim oynatılıyor · gerçek iş yapılmıyor";
+    steps.forEach((turn, index) => {
+      demo.timers.push(setTimeout(() => { if (demo && scene) scene.update(demoFrame(turn)); }, index * step));
+    });
+    demo.timers.push(setTimeout(() => stopDemo(), steps.length * step));
+  }
+  function stopDemo(restore = true) {
+    if (!demo) return;
+    demo.timers.forEach(clearTimeout);
+    const saved = demo.saved; demo = null;
+    demoButton.textContent = "Gösterimi oynat";
+    if (restore && lastData) { scene?.update(lastData); status.textContent = saved; }
+  }
   async function refresh(now = false) {
     if (now) { clearTimeout(timer); timer = setTimeout(() => refresh(), 300); return; }
     if (!alive || document.hidden || pending) return;
@@ -687,15 +746,17 @@ export function mountOffice(container, options) {
         else if (person.kind === "human" && !person.can_view_tasks && panel.querySelector(".office-detail-body")) selectPerson(person.id);
         else if (panel.querySelector(".office-detail-live")) panel.querySelector(".office-detail-live").textContent = `${stateName(person)} · ${person.task_label || "Görev bekliyor"}`;
       }
+      if (reshaped && demo) stopDemo(false);
       if (reshaped) await switchMode(mode);
       else if (mode === "2d") drawPlan(data);
-      else scene?.update(data);
+      else if (!demo) scene?.update(data);
     } catch (error) { if (alive) { closePanel(); status.textContent = error?.message || "Ofis bilgisi güncellenemedi."; } }
     finally { pending = false; if (alive && !document.hidden) timer = setTimeout(refresh, 3000); }
   }
   function visibility() { clearTimeout(timer); scene?.pause(document.hidden); if (!document.hidden) refresh(); }
   document.addEventListener("visibilitychange", visibility); refresh();
   return () => {
+    stopDemo(false);
     alive = false; panelVersion++; generation++; clearTimeout(timer); clearTimeout(placeTimer); scene?.dispose(); scene = null;
     releaseModel(); document.removeEventListener("visibilitychange", visibility); container.classList.remove("office-root");
   };
@@ -1022,7 +1083,8 @@ function createScene(THREE, OrbitControls, host, data, fallback, selectPerson, s
     const path = names.map(at);
     let total = 0;
     for (let index = 1; index < path.length; index++) total += path[index].distanceTo(path[index - 1]);
-    return { route: path, duration: Math.max(1200, total / WALK_SPEED * 1000) };
+    // A large office is crossed faster: a trip never takes longer than MAX_TRIP, so people see where it ends.
+    return { route: path, duration: Math.min(MAX_TRIP, Math.max(1200, total / WALK_SPEED * 1000)) };
   }
   // A destination point of the model (meeting or research point) that nobody else is heading to.
   function freePoint(item, kind) {

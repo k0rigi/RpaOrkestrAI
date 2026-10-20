@@ -40,7 +40,7 @@ Hedef, bir kişinin söyleyeceği adla seçilir: önce alan etiketi, yer tutucu 
 | Web'de geri / ileri / yenile | Tarayıcı düğmeleri. |
 | Web sekmesine geç / kapat | Son, ilk, başlığında veya adresinde metin geçen sekme; etkin sekmeyi kapatma. |
 | Web tablosunu oku | HTML tablosunu satır listesine çevirir; başlıklar alan adı olur. |
-| Web'den dosya indir | İndirmeyi başlatan öğeye tıklar, dosyayı klasöre kaydeder; aynı ad varsa sonuna (2) eklenir. |
+| Web'den dosya indir | İndirmeyi başlatan öğeye tıklar, dosyayı klasöre kaydeder; aynı ad varsa sonuna (2) eklenir. **İzin verilen uzantılar** (0.9.40+, ör. `xlsx, csv`) yazılırsa inen dosyanın uzantısı ve içeriği denetlenir: başka türde bir dosya veya `.xlsx` adıyla inen bir web sayfası (ör. oturum düşmüş) akışı durdurur; dosya silinmez. Bu alanı kullanan akış 0.9.40 öncesi sürümlerde açılmaz. |
 | Web'e dosya yükle | Dosya seçme alanına dosyaları verir; Gözat penceresi açılmaz. |
 | Web sayfasının görüntüsünü al | Sayfayı çalışma çıktılarına PNG olarak ekler. |
 | Web'de JavaScript çalıştır | Sayfada kendi kodunuzu çalıştırır, döndürdüğü değeri değişkene kaydeder. |
@@ -90,5 +90,11 @@ Kod, sitede oturum açmış kullanıcının yetkisiyle çalışır. Güvenmediğ
 - Sabit **Bekle** yerine **Web'de bekle** kullanın: "Yükleniyor" yazısının kaybolmasını veya sonucun görünmesini bekleyin.
 - Hata anını görmek için **Hata olursa** dalına **Web sayfasının görüntüsünü al** ekleyin.
 - Türkçe büyük **İ** içeren metinlerde hedefi sayfadaki gibi yazın veya Tarayıcıda seç kullanın.
+- **Düğmesi düğme olarak işaretlenmemiş siteler** (ör. Visual WebGui ile yapılmış ERP ve portal ekranları) (0.9.40+):
+  **Düğme veya bağlantı adı** önce gerçek düğme ve bağlantılara bakar. Hiçbiri yoksa sayfada tam bu yazıyı taşıyan
+  ve tıklanabilir olan tek öğeyi kullanır; çalışma günlüğüne bunu yazar. Aynı yazıda birden fazla tıklanabilir öğe
+  varsa tıklamaz. **Görünen metin** veya CSS seçici de kullanılabilir.
+- Bu tür sitelerde alanın yanındaki yazı (ör. "Kullanıcı :") çoğu zaman alana bağlı değildir; **Alan etiketi** alanı
+  bulamaz. Alanı **Tarayıcıda seç** ile seçin veya CSS seçici yazın (ör. `#TRG_12`). Tahmini bir alana yazılmaz.
 - Akış çalışırken başka bir **Tarayıcıda seç** açılamaz (aynı tarayıcı profilini kullanırlar).
 - Bu adımları kullanan akışlar, adımı ilk getiren sürümden (0.9.20 veya 0.9.21) eski kurulumlarda açılmaz.

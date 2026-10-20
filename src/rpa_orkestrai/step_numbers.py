@@ -98,4 +98,6 @@ STEP_NUMBERS = {
     "mail.read": 90,
     "ftp.transfer": 91,
     "notify.send": 92,
+    "file.info": 93,
+    "ui.choose_file": 94,
 }

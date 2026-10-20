@@ -14,6 +14,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..errors import WorkflowError
+from ..file_types import describe, extension_of, parse_extensions, problem
 from . import handler
 from .common import choice, integer, jsonable, number, path, text
 
@@ -70,6 +71,30 @@ def exists(ctx, p):
     file = path(p.get("path"))
     kind = choice(p.get("kind", "any"), "Tür", {"any", "file", "folder"})
     return file.is_file() if kind == "file" else file.is_dir() if kind == "folder" else file.exists()
+
+
+@handler("file.info")
+def info(ctx, p):
+    """Name, extension, size and content type of one file; optionally stops when it is not the expected kind."""
+    file = path(p.get("path"))
+    allowed = parse_extensions(p.get("extensions"))
+    check = p.get("check_content", True) is not False
+    on_problem = choice(p.get("on_problem", "stop"), "Uygun değilse", {"stop", "continue"})
+    if file.is_file():
+        data = describe(file)
+        data["allowed"] = data["extension"] in allowed if allowed else None
+        reason = problem(data, allowed, check)
+        data.update(exists=True, ok=not reason, problem=reason)
+    else:
+        reason = f"Dosya bulunamadı: {file}" if not file.exists() else f"Bu bir klasör, dosya değil: {file}"
+        data = {"path": str(file), "name": file.name, "stem": file.stem, "folder": str(file.parent),
+                "extension": extension_of(file), "size": None, "modified": None, "type": None, "type_label": "",
+                "content_matches": None, "allowed": None, "exists": False, "ok": False, "problem": reason}
+    if reason and on_problem == "stop":
+        raise WorkflowError(f"{reason} Akış durduruldu.")
+    if reason:
+        ctx.log(reason)
+    return data
 
 
 @handler("file.list")

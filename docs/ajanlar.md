@@ -739,6 +739,36 @@ Bir düğmeye basılmadıkça hiçbir şey yapılmaz.
   atarsınız.
 - **Yöneticiye yaz:** araç çubuğundaki düğme, yönetici ajanın panelini soru formuyla açar.
 
+### Ajanları hareket halinde görmek (0.9.40)
+
+Karakterler yalnız ajanlar birbiriyle çalışırken yürür:
+
+| Ne olur? | 3D ofiste görünen |
+| --- | --- |
+| Yönetici bir departmana görev verir | Yönetici departmanın yanına yürür, "Görev" balonu |
+| Departman ajanı internette araştırır | Ajan araştırma köşesine yürür, "Araştırıyor" balonu |
+| Departman ajanı yöneticiye soru sorar | Ajan yöneticinin önüne yürür, "Soru" balonu; yönetici "Yanıt" ile döner |
+| Departman işini bitirir | Ajan sonucu yöneticiye götürür, "Sonuç" balonu |
+| Ajan izinli bir akış çalıştırır | Masasında çalışır, ekranı yeşil yanar |
+
+- **Gösterimi oynat:** araç çubuğundaki düğme, ofisinizdeki yönetici ve bir departman ajanıyla bu zinciri
+  yaklaşık bir dakikada canlandırır. Görev başlatılmaz, ajanlara veya sunucuya hiçbir şey gönderilmez; liste ve
+  son iletişimler gerçek durumu göstermeye devam eder. **Gösterimi durdur** veya başka görünüme geçmek gösterimi
+  bitirir. Gösterim için ofiste bir yönetici ajan ve en az bir departman ajanı olmalıdır.
+- Büyük ofis modellerinde yürüyüş en fazla 6 saniye sürer; uzak noktalara daha hızlı yürünür.
+- Bilgisayarda **Hareketi azalt** (macOS: Erişilebilirlik → Ekran; Windows: Erişilebilirlik → Görsel efektler →
+  Animasyon efektleri kapalı) açıksa karakterler yürümez, yalnız balonlar görünür.
+- **Gerçek bir görevle görmek için** yönetici ajana (karakterine tıklayıp **Görev ver** veya **Yöneticiye yaz**)
+  şuna benzer bir talimat verin; köşeli parantezleri kendi departman ve konularınızla değiştirin:
+
+  > [Departman A] ajanından [konu] hakkında internette kısa bir araştırma yapmasını, [Departman B] ajanından da
+  > [iş] için bugünkü durumun özetini çıkarmasını iste. Belirsiz bir nokta olursa sana sorsunlar. Sonuçları topla
+  > ve bana tek bir özet ver.
+
+  Yönetici görevleri dağıtırken yürür. İnternet araştırması izni açık olan departman araştırma köşesine gider.
+  Bitiren departman sonucu yöneticiye götürür. Ajanlar ofis 3 saniyede bir yenilendiğinde güncellenir; çok kısa
+  süren işlerin ara adımları görünmeyebilir.
+
 Yerel Chromium testleri geçse bile gerçek macOS WKWebView ve Windows WebView2
 kontrolleri ayrıca yapılmalıdır. Paket derlemesi `--self-test-office` ile gerçek
 pencere motorunu ve en az bir WebGL çizimini doğrular; yalnız 2D yedeğin çalışması

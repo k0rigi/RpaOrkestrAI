@@ -8,8 +8,9 @@ import platform
 import subprocess
 
 from ..errors import WorkflowError
+from ..file_types import extension_of, parse_extensions
 from . import handler
-from .common import choice, number, text
+from .common import choice, number, path, text
 
 BUTTONS = {"ok": ("Tamam",), "ok_cancel": ("İptal", "Tamam"), "yes_no": ("Hayır", "Evet")}
 ANSWERS = {"Tamam": "ok", "İptal": "cancel", "Evet": "yes", "Hayır": "no"}
@@ -63,6 +64,70 @@ $result = $form.ShowDialog()
 if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write('ok:' + $box.Text) }
 else { [Console]::Out.Write('cancel') }
 '''
+
+
+# argv: prompt, start folder ("" = the system's last folder), then the allowed extensions.
+MAC_CHOOSE_FILE = '''on run argv
+    set question to item 1 of argv
+    set startFolder to item 2 of argv
+    set kinds to {}
+    repeat with index from 3 to count of argv
+        set end of kinds to item index of argv
+    end repeat
+    activate
+    if startFolder is "" then
+        if (count of kinds) is 0 then
+            set chosen to choose file with prompt question
+        else
+            set chosen to choose file with prompt question of type kinds
+        end if
+    else
+        set place to (POSIX file startFolder) as alias
+        if (count of kinds) is 0 then
+            set chosen to choose file with prompt question default location place
+        else
+            set chosen to choose file with prompt question of type kinds default location place
+        end if
+    end if
+    return "ok:" & POSIX path of chosen
+end run'''
+# RPA_CHECK_ONLY: build the dialog and its filter without showing it (the Windows test checks the filter is valid).
+WINDOWS_CHOOSE_FILE = r'''
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = $env:RPA_TITLE
+$dialog.Filter = $env:RPA_FILTER
+$dialog.CheckFileExists = $true
+$dialog.Multiselect = $false
+if ($env:RPA_FOLDER) { $dialog.InitialDirectory = $env:RPA_FOLDER }
+if ($env:RPA_CHECK_ONLY) { [Console]::Out.Write('check:' + $dialog.Filter); exit 0 }
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$result = $dialog.ShowDialog($owner)
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write('ok:' + $dialog.FileName) }
+else { [Console]::Out.Write('cancel') }
+'''
+
+
+def windows_filter(extensions: list[str]) -> str:
+    if not extensions:
+        return "Tüm dosyalar (*.*)|*.*"
+    patterns = ";".join(f"*.{item}" for item in extensions)
+    return f"İzin verilen dosyalar ({patterns})|{patterns}"
+
+
+def run_windows_dialog(script: str, environment: dict, timeout: float) -> str:
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    try:
+        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                                capture_output=True, env={**os.environ, **environment}, timeout=timeout,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise WorkflowError("Dosya seçme penceresi açılamadı.") from exc
+    return result.stdout.decode("utf-8", errors="replace").lstrip("\ufeff")
 
 
 def _osascript(script: str, *arguments: str, timeout: float) -> str:
@@ -135,3 +200,33 @@ def ask(ctx, p):
     if p.get("on_cancel", "stop") == "stop":
         raise WorkflowError("Kullanıcı değer girmedi veya iptal etti.")
     return cancelled if cancelled is not None else ""
+
+
+@handler("ui.choose_file")
+def choose_file(ctx, p):
+    """The system's own Open dialog; only the allowed extensions are offered, and the choice is checked again."""
+    title = text(p.get("title") or "Dosya seçin", "Başlık", limit=200)
+    allowed = parse_extensions(p.get("extensions"))
+    raw_folder = str(p.get("folder") or "").strip()
+    folder = path(raw_folder, "Başlangıç klasörü") if raw_folder else None
+    if folder is not None and not folder.is_dir():
+        raise WorkflowError(f"Başlangıç klasörü bulunamadı: {folder}")
+    if platform.system() == "Darwin":
+        answer = _osascript(MAC_CHOOSE_FILE, title, str(folder or ""), *allowed, timeout=86400)
+    elif platform.system() == "Windows":
+        answer = run_windows_dialog(WINDOWS_CHOOSE_FILE, {"RPA_TITLE": title, "RPA_FILTER": windows_filter(allowed),
+                                                          "RPA_FOLDER": str(folder or "")}, 86400)
+    else:
+        raise WorkflowError("Dosya seçme penceresi macOS ve Windows'ta desteklenir.")
+    if not answer.startswith("ok:"):
+        if p.get("on_cancel", "stop") == "stop":
+            raise WorkflowError("Kullanıcı dosya seçmedi veya iptal etti.")
+        return ""
+    chosen = path(answer[3:].strip(), "Seçilen dosya")
+    if not chosen.is_file():
+        raise WorkflowError(f"Seçilen dosya bulunamadı: {chosen}")
+    if allowed and extension_of(chosen) not in allowed:
+        raise WorkflowError(f"“{chosen.name}” izin verilen türde değil; izin verilenler: "
+                            f"{', '.join('.' + item for item in allowed)}.")
+    ctx.log(f"Seçilen dosya: {chosen}")
+    return str(chosen)

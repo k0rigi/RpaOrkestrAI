@@ -696,6 +696,19 @@ LIBRARY = [
                                                          {"value": "file", "label": "Dosya"},
                                                          {"value": "folder", "label": "Klasör"}]),
             output("file_exists")]),
+    action("file.info", "Dosya bilgisi ve uzantı kontrolü", "Dosya ve Excel",
+           "Dosyanın adını, uzantısını, boyutunu ve içerik türünü okur; izin verilen uzantıları ve içeriğin "
+           "uzantıyla uyuşmasını denetler (ör. .xlsx adıyla inen bir web sayfası).",
+           [field("path", "Dosya yolu", "path", "${web_file}", required=True,
+                  help="İndirilen veya seçilen dosyanın değişkeni (${web_file}, ${chosen_file}, ${row.path}) ya da tam yol."),
+            field("extensions", "İzin verilen uzantılar", default="", help="Virgülle ayırın (ör. xlsx, xls, csv). Boş: her uzantı kabul edilir."),
+            field("check_content", "İçeriğin uzantıyla uyuştuğunu denetle", "boolean", True,
+                  help="Açıkken dosyanın içi okunur; .xlsx adıyla web sayfası veya boş dosya gibi durumlar yakalanır."),
+            field("on_problem", "Uygun değilse", "select", "stop", required=True, options=[
+                {"value": "stop", "label": "Akışı durdur"},
+                {"value": "continue", "label": "Devam et (sonucu Koşul ile kontrol et)"}]),
+            output("file_info", "Sonraki adımlarda ${file_info.extension}, ${file_info.ok}, ${file_info.size} "
+                                "ve ${file_info.problem} ile kullanın.")]),
     action("file.list", "Klasördeki dosyaları listele", "Dosya ve Excel",
            "Klasördeki dosyaları listeler; Her satır için döngüsüyle tek tek işleyin (${row.path}).",
            [field("folder", "Klasör", "path", "", required=True), field("pattern", "Dosya deseni", default="*",
@@ -872,6 +885,15 @@ LIBRARY = [
             field("on_cancel", "İptal edilirse", "select", "stop", options=[
                 {"value": "stop", "label": "Akışı durdur"}, {"value": "continue", "label": "Boş değerle devam et"}]),
             output("user_input")]),
+    action("ui.choose_file", "Kullanıcıya dosya seçtir", "Kullanıcı etkileşimi",
+           "Bilgisayarın kendi Aç penceresini gösterir; yalnız izin verilen uzantılar seçilebilir. Seçilen dosyanın "
+           "yolu değişkene kaydedilir.",
+           [field("title", "Başlık", default="Dosya seçin"),
+            field("extensions", "İzin verilen uzantılar", default="", help="Virgülle ayırın (ör. xlsx, xls, csv). Boş: her uzantı kabul edilir."),
+            field("folder", "Başlangıç klasörü", "path", "", help="Boş: bilgisayarın son kullandığı klasör."),
+            field("on_cancel", "İptal edilirse", "select", "stop", options=[
+                {"value": "stop", "label": "Akışı durdur"}, {"value": "continue", "label": "Boş değerle devam et"}]),
+            output("chosen_file", "Seçilen dosyanın tam yolu.")]),
     # ----- Web ve API --------------------------------------------------------------------
     action("web.open", "Web sayfası aç", "Web, e-posta ve API",
            "Bilgisayardaki Edge veya Chrome ile sayfayı açar; sonraki web adımları bu sayfada çalışır. Tarayıcı, "
@@ -957,6 +979,9 @@ LIBRARY = [
                   help="Klasör yoksa oluşturulur. Dosya, sitenin verdiği adla kaydedilir."),
             field("overwrite", "Aynı adlı dosyanın üzerine yaz", "boolean", False,
                   help="Kapalıyken aynı ad varsa sonuna (2), (3)… eklenir."),
+            field("extensions", "İzin verilen uzantılar", default="", omit_default=True,
+                  help="Ör. xlsx, csv. İnen dosya bu türlerde değilse veya içi uzantısıyla uyuşmuyorsa (ör. site "
+                       "hata sayfası indirdi) akış durur; dosya silinmez. Boş: kontrol edilmez."),
             output("web_file", "İndirilen dosyanın tam yolu.")]),
     action("web.upload", "Web'e dosya yükle", "Web, e-posta ve API",
            "Sayfadaki dosya seçme alanına bilgisayardaki dosyaları verir (Gözat penceresi açılmaz).",
@@ -1089,7 +1114,7 @@ ENDINGS = {"control.goto", "control.continue", "control.break", "control.stop"}
 # they only compute or read, and never click, type or write.
 TEST_PREPARE = {"file.read_pdf", "core.set", "data.append", "data.calculate", "text.transform", "data.date", "data.list", "data.sample",
                 "desktop.find_window", "desktop.window_wait_image", "screen.find_image", "screen.read_text", "screen.wait_text", "screen.pixel",
-                "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists",
+                "input.mouse_position", "clipboard.get", "file.read_table", "file.read_text", "file.exists", "file.info",
                 "file.list", "sheets.read_cell", "sheets.read_rows", "sheets.read_column", "sheets.read",
                 "database.read", "database.query", "ai.ask"}
 # A test can show where these steps point (the mouse moves there) without clicking or typing.

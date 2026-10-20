@@ -247,6 +247,10 @@ STEP_FIELD_HELP = {
     ("ui.input", "prompt"): "Kullanıcıya sorulacak soru (ör. Fatura tarihini girin).",
     ("ui.input", "default"): "Kutuda hazır gelecek değer.",
     ("ui.input", "on_cancel"): "Kullanıcı İptal'e basarsa ne olacağı.",
+    ("file.info", "on_problem"): "Dosya yoksa, uzantısı izinli değilse veya içeriği uyuşmuyorsa ne olacağı. Devam "
+                                 "seçilirse ${file_info.ok} yanlış olur ve neden ${file_info.problem} içinde yazar.",
+    ("ui.choose_file", "title"): "Dosya seçme penceresinin başlığı.",
+    ("ui.choose_file", "on_cancel"): "Kullanıcı dosya seçmeden kapatırsa ne olacağı.",
     ("http.request", "method"): "Veri almak için GET, göndermek için POST.",
     ("http.request", "url"): "API bağlantısı seçiliyse yol (ör. /v1/siparisler/${row.no}); değilse https:// ile "
                              "başlayan tam adres.",
@@ -402,7 +406,8 @@ GUIDES = {
         ["İndirmeyi başlatan bağlantıyı veya düğmeyi hedef olarak yazın (ör. Excel'e aktar).",
          "Kaydedilecek klasörü seçin."],
         "${web_file}: indirilen dosyanın tam yolu; ardından Excel / CSV oku ile açabilirsiniz.",
-        "Tıklamadan sonra süre içinde indirme başlamazsa adım durur."),
+        "Tıklamadan sonra süre içinde indirme başlamazsa adım durur. İzin verilen uzantılar yazılırsa inen dosyanın "
+        "türü ve içeriği de denetlenir."),
     "web.upload": guide(
         ["Dosya seçme alanını etiketiyle veya CSS ile belirtin.", "Her satıra bir dosya yolu yazın."],
         "", "Gözat penceresi açılmaz; dosya doğrudan alana verilir. Ardından Yükle düğmesine tıklayın."),
@@ -592,6 +597,14 @@ GUIDES = {
     "file.exists": guide(
         ["Kontrol edilecek yolu yazın veya seçin."],
         "${file_exists}: var mı? Koşul adımında Dolu / doğru ile kontrol edin."),
+    "file.info": guide(
+        ["Dosya yolu alanına indirilen veya seçilen dosyanın değişkenini yazın (ör. ${web_file}).",
+         "İzin verilen uzantıları virgülle yazın (ör. xlsx, csv); boş bırakırsanız her uzantı kabul edilir.",
+         "Uygun değilse akışın durmasını veya devam edip sonucu Koşul ile kontrol etmeyi seçin."],
+        "${file_info}: name (ad), extension (uzantı, noktasız), size (bayt), modified (değişme zamanı), type (içerik "
+        "türü), ok (uygun mu), problem (neden uygun değil).",
+        "İçerik denetimi dosyanın ilk baytlarına bakar: .xlsx adıyla inen web sayfası, boş dosya veya .pdf olmayan "
+        ".pdf yakalanır. Koşul'da ${file_info.extension} eşittir xlsx gibi karşılaştırabilirsiniz."),
     "file.list": guide(
         ["Klasörü seçin; gerekiyorsa *.pdf gibi bir desen yazın.", "Ardından Her satır için ile dosyaları tek tek işleyin."],
         "${files}: dosya listesi. Döngüde ${row.path} tam yol, ${row.name} dosya adıdır."),
@@ -762,6 +775,10 @@ GUIDES = {
         ["Başlığı ve mesajı yazın.", "Onay istenecekse Evet / Hayır seçin."],
         "${answer}: ok, cancel, yes veya no; Otomatik kapanma süresi dolarsa timeout.",
         "Akış, kutu kapatılana kadar bekler. Gözetimsiz çalışacak akışlarda kullanmayın."),
+    "ui.choose_file": guide(
+        ["Başlığı ve izin verilen uzantıları yazın (ör. xlsx, csv).", "İsterseniz başlangıç klasörünü seçin."],
+        "${chosen_file}: seçilen dosyanın tam yolu.",
+        "Pencere yalnız izin verilen türdeki dosyaları gösterir; seçim ayrıca tekrar denetlenir."),
     "ui.input": guide(
         ["Soruyu ve varsa varsayılan değeri yazın.", "Çıktı değişkenine ad verin."],
         "Kullanıcının yazdığı değer.",

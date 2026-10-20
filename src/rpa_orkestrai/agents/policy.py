@@ -28,9 +28,9 @@ UNSUPPORTED = frozenset({
 })
 FILE_FIELDS = {
     "file.read_text": ("path",), "file.write_text": ("path",), "file.read_table": ("path",),
-    "file.write_table": ("path",), "file.read_pdf": ("path",), "file.exists": ("path",),
+    "file.write_table": ("path",), "file.read_pdf": ("path",), "file.exists": ("path",), "file.info": ("path",),
     "file.list": ("folder",), "file.wait": ("path",), "file.operation": ("source", "destination"),
-    "mail.read": ("attachment_folder",), "ftp.transfer": ("local_path",),
+    "mail.read": ("attachment_folder",), "ftp.transfer": ("local_path",), "ui.choose_file": ("folder",),
 }
 # Steps whose server is fixed by a named connection; the connection itself must not come from a variable.
 CONNECTION_STEPS = {"http.request", "database.query", "database.execute", "mail.read", "ftp.transfer", "notify.send",

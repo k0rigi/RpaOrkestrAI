@@ -190,12 +190,19 @@ def web_read_table(ctx, p):
 
 @handler("web.download")
 def web_download(ctx, p):
+    from ..file_types import describe, parse_extensions, problem
     from .common import path
 
     target = web_target(p)
     folder = path(p.get("folder"), "Kaydedilecek klasör")
+    allowed = parse_extensions(p.get("extensions"))
     saved = act(ctx, lambda web: web.download(target, folder, p.get("overwrite") is True))
     ctx.log(f"Dosya indirildi: {saved}")
+    if allowed:
+        # Wrong kind (e.g. the site's error page saved as .xlsx): stop before a later step works on it.
+        reason = problem(describe(saved), allowed, True)
+        if reason:
+            raise WorkflowError(f"{reason} Dosya silinmedi: {saved}. Akış durduruldu.")
     return str(saved)
 
 

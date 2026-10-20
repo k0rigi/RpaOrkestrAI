@@ -137,21 +137,21 @@ def office_browser():
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/*", route_request)
 
-        def start(*, webgl=True):
+        def start(*, webgl=True, extra=None):
             if not webgl:
                 page.add_init_script("""(() => { const original = HTMLCanvasElement.prototype.getContext;
                   HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
                     return kind.includes('webgl') ? null : original.call(this, kind, ...args);
                   }; })();""")
             page.goto("http://office.test/", wait_until="networkidle")
-            page.evaluate("""async () => {
-              window.officeOptions = {initialTab: 'office', api: async (path, options) => {
+            page.evaluate("""async (extra) => {
+              window.officeOptions = {...extra, initialTab: 'office', api: async (path, options) => {
                 const response = await fetch(path, options);
                 if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Bağlantı hatası");
                 return response.status === 204 ? null : response.json(); }, toast: (text) => (window.officeToasts ||= []).push(text),
                 openRun: () => { throw new Error('Ofis çalışma başlatamaz'); }};
               await window.RpaAgents.mount(document.getElementById('test-root'), window.officeOptions);
-            }""")
+            }""", extra or {})
             page.locator('.office-view[data-mode]').wait_for()
             return page
 
@@ -653,3 +653,37 @@ def test_without_rights_the_panel_offers_no_decisions(office_browser):
     page.get_by_role("button", name="Görevler ekranına git", exact=True).wait_for()
     assert page.get_by_role("button", name="Görev ata", exact=True).count() == 0
     assert all(method == "GET" for method, _, _ in calls)
+
+
+def test_the_show_plays_the_chain_of_work_with_the_offices_own_agents_and_starts_nothing(office_browser):
+    start, _, calls, _, data = office_browser
+    populated(data)
+    page = start(extra={"showStep": 1500})  # The real show waits 4.5 s per turn.
+    page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
+    manager, first = data["agents"][0], data["agents"][1]
+    manager_label = page.locator(f'.office-person-label[data-person="{manager["id"]}"]')
+    first_label = page.locator(f'.office-person-label[data-person="{first["id"]}"]')
+    asked = len(calls)
+    page.get_by_role("button", name="Gösterimi oynat", exact=True).click()
+    page.get_by_text("Gösterim oynatılıyor · gerçek iş yapılmıyor", exact=True).wait_for()
+    manager_label.locator(".office-person-speech").get_by_text("Görev", exact=True).wait_for()
+    before = first_label.evaluate("node => node.style.transform")
+    first_label.locator(".office-person-speech").get_by_text("Araştırıyor", exact=True).wait_for(timeout=15_000)
+    page.wait_for_timeout(1500)
+    # The department really walks: its label follows the character to the research corner.
+    assert first_label.evaluate("node => node.style.transform") != before
+    first_label.locator(".office-person-speech").get_by_text("Soru", exact=True).wait_for(timeout=15_000)
+    manager_label.locator(".office-person-speech").get_by_text("Yanıt", exact=True).wait_for(timeout=10_000)
+    page.get_by_role("button", name="Gösterimi durdur", exact=True).click()
+    page.get_by_role("button", name="Gösterimi oynat", exact=True).wait_for()
+    assert first_label.get_attribute("data-activity") == "workflow"  # back to what the agent really does
+    # Only the office's own reads: no task, chat or answer was sent.
+    assert all(method == "GET" for method, _, _ in calls[asked:])
+    assert "gosterim" not in page.locator(".office-feed").inner_text().casefold()
+
+
+def test_the_show_explains_what_it_needs_without_a_team(office_browser):
+    start, _, _, _, _ = office_browser
+    page = start()
+    page.get_by_role("button", name="Gösterimi oynat", exact=True).click()
+    page.get_by_text("Gösterim için ofiste bir yönetici ajan ve en az bir departman ajanı olmalı", exact=False).wait_for()
