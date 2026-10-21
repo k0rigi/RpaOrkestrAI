@@ -379,6 +379,10 @@ class AgentEvent(Model):
         return validate_json_value(value)
 
 
+# A channel outside the Studio through which a person gave a task, answered or decided.
+Via = Literal["telegram"]
+
+
 class AgentRunRequest(Model):
     task: str = Field(min_length=1, max_length=16_000)
     title: str = Field(default="", max_length=200)
@@ -427,6 +431,8 @@ class AgentRun(AgentRunRequest):
     handoff_resolved_at: str | None = None
     handoff_resolved_by: str | None = Field(default=None, max_length=200)
     office_id: Identifier | None = None
+    # Where the task was given when not in the Studio itself (only Telegram so far); absent from the file otherwise.
+    via: Via | None = None
 
     @field_validator("result", "pending_question", "pending_approval", mode="before")
     @classmethod
@@ -468,6 +474,7 @@ class AgentTask(Model):
     summary: str = Field(default="", max_length=20_000)
     result: Any = None
     office_id: Identifier | None = None
+    via: Via | None = None
 
     @field_validator("result", mode="before")
     @classmethod

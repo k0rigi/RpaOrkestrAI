@@ -199,7 +199,7 @@
           const card = el("article", undefined, "agent-card");
           const who = kind === "human" ? members.find((m) => m.kullanici_id === task.assignee_user_id)?.ad_soyad
             : options.agents.find((a) => a.id === task.assigned_agent_id)?.name;
-          card.append(el("span", who || (kind === "human" ? "İnsan çalışan" : "Ajan"), "agent-eyebrow"),
+          card.append(el("span", `${who || (kind === "human" ? "İnsan çalışan" : "Ajan")}${task.via === "telegram" ? " · Telegram'dan" : ""}`, "agent-eyebrow"),
             el("h3", task.title), state(task.status), el("p", time(task.created_at), "agent-help"));
           const actions = el("div", undefined, "agent-actions");
           if (kind === "human") actions.append(button("Görevi aç", () => view.act(() => showHuman(task.id))));

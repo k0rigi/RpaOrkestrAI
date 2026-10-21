@@ -472,7 +472,7 @@ export function mountOffice(container, options) {
     const thread = node("ol", undefined, "office-chat"), text = node("textarea"); text.rows = 3; text.maxLength = 4000;
     const show = (messages) => thread.replaceChildren(...(messages || []).slice(-6).map((item) => {
       const row = node("li", undefined, item.role === "user" ? "mine" : "theirs");
-      row.append(node("strong", item.role === "user" ? (item.user || "Siz") : person.name), node("span", item.text));
+      row.append(node("strong", `${item.role === "user" ? (item.user || "Siz") : person.name}${item.via === "telegram" ? " · Telegram'dan" : ""}`), node("span", item.text));
       return row;
     }));
     const send = button("Sor", async () => {

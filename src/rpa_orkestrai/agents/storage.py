@@ -58,6 +58,9 @@ class AgentStore:
         # A firm without offices keeps writing the same files as before offices existed.
         if data.get("office_id", "") is None:
             data.pop("office_id")
+        # Tasks given in the Studio keep the file of earlier versions; only a Telegram task carries "via".
+        if data.get("via", "") is None:
+            data.pop("via")
         if kind == "agents":
             # Unused newer fields stay out of the file, so earlier Studio versions still read the agent.
             if data.get("web_access") == "off":

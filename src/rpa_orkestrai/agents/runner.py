@@ -886,7 +886,8 @@ class AgentService:
             child.wake.set()
         return {"answered": True, "agent_id": child.agent.id, "task_id": child.run.task_id}
 
-    def start(self, agent_id: str, body: AgentRunRequest, *, office: str | None = None) -> AgentRun:
+    def start(self, agent_id: str, body: AgentRunRequest, *, office: str | None = None,
+              via: str | None = None) -> AgentRun:
         actor = self._authorize()
         if office is not None:
             # An automation starts in its own office even while another office of the account is on screen.
@@ -901,7 +902,7 @@ class AgentService:
                       if context.run.status not in TERMINAL_STATUSES]
             if len(active) >= 128:
                 raise AgentServiceError("Ajan görev kuyruğu dolu; açık görevlerin tamamlanmasını bekleyin.", 409)
-            return self._enqueue(agent, body, actor)
+            return self._enqueue(agent, body, actor, via=via)
 
     def start_automated(self, agent_id: str, body: AgentRunRequest, source: dict,
                         office: str | None = None) -> AgentRun:
@@ -913,10 +914,10 @@ class AgentService:
                 self._event(context, "automation", "Görev otomasyonla başlatıldı.", source, refresh_secrets=False)
         return run
 
-    def _enqueue(self, agent, body, actor, *, parent=None, priority="normal"):
+    def _enqueue(self, agent, body, actor, *, parent=None, priority="normal", via=None):
         run = AgentRun(agent_id=agent.id, task=body.task, title=body.title, inputs=body.inputs,
                        actor=actor, agent_revision=agent.revision, task_id=uid(),
-                       parent_run_id=parent.run.id if parent else None, office_id=actor.office_id)
+                       parent_run_id=parent.run.id if parent else None, office_id=actor.office_id, via=via)
         run.root_run_id = parent.run.root_run_id if parent else run.id
         deadline = time.monotonic() + agent.limits.max_seconds
         budget = parent.budget if parent else TeamBudget(agent.limits, deadline)
@@ -925,12 +926,14 @@ class AgentService:
                          assigned_agent_id=agent.id, assignee_id=agent.id, assignee_type="agent",
                          title=body.title or body.task[:200], instructions=body.task, run_id=run.id,
                          root_run_id=run.root_run_id, agent_name=agent.name, department=agent.department,
-                         priority=priority, office_id=actor.office_id)
+                         priority=priority, office_id=actor.office_id, via=via)
         context = Context(agent=agent, run=run, redactor=self._new_redactor(), budget=budget, task=task,
                           deadline=min(deadline, budget.deadline))
         self._contexts[run.id] = context
         self._event(context, "created", "Ajan görevi kuyruğa alındı.", {"task": run.task, "inputs": run.inputs},
                     refresh_secrets=False)
+        if via == "telegram":
+            self._event(context, "telegram", "Görev Telegram'dan verildi.", {}, refresh_secrets=False)
         self._queue_wake.set()
         return self._view(context)
 
@@ -940,6 +943,13 @@ class AgentService:
         context.run.finished_at = now()
         self._save(context)
         self._contexts.pop(context.run.id, None)
+        self._tell_finished(context)
+
+    def _tell_finished(self, context):
+        """A task given from outside the Studio reports its end there too (the summary or why it stopped)."""
+        if context.run.via and context.run.parent_run_id is None:
+            self._outward("finished", context, {"status": context.run.status, "title": context.run.title or context.run.task,
+                                                "summary": context.run.summary, "error": context.run.error})
 
     def _schedule_loop(self):
         while not self._closed:
@@ -1293,6 +1303,7 @@ class AgentService:
                 context.wake.set()
                 self._contexts.pop(context.run.id, None)
                 self._queue_wake.set()
+                self._tell_finished(context)
 
     def _find_run(self, identity: str, actor: Actor) -> AgentRun:
         try:
@@ -1411,7 +1422,8 @@ class AgentService:
             raise AgentServiceError("Çalışma artık kullanıcı yanıtı beklemiyor.", 409)
         return context
 
-    def answer(self, identity: str, question_id: str, answer: Any, *, office: str | None = None) -> AgentRun:
+    def answer(self, identity: str, question_id: str, answer: Any, *, office: str | None = None,
+               via: str | None = None) -> AgentRun:
         actor = self._actor_for(self._authorize(), office)
         validate_json_value(answer)
         with self._lock:
@@ -1425,14 +1437,15 @@ class AgentService:
             except AgentStopped as exc:
                 raise AgentServiceError(str(exc), 503) from None
             question["answered"], question["answer"] = True, context.redactor.sanitize(answer)
-            self._event(context, "user_answer", "Kullanıcı soruyu yanıtladı.",
-                        {"question_id": question_id, "user_id": actor.user_id, "answer": answer},
-                        refresh_secrets=False)
+            self._event(context, "user_answer", "Kullanıcı soruyu Telegram'dan yanıtladı." if via == "telegram"
+                        else "Kullanıcı soruyu yanıtladı.",
+                        {"question_id": question_id, "user_id": actor.user_id, "answer": answer,
+                         **({"via": via} if via else {})}, refresh_secrets=False)
             context.wake.set()
             return self._view(context)
 
     def approve(self, identity: str, approval_id: str, approved: bool, inputs: dict | None = None, *,
-                office: str | None = None) -> AgentRun:
+                office: str | None = None, via: str | None = None) -> AgentRun:
         actor = self._actor_for(self._authorize(None), office)
         if not actor.can_approve:
             raise AgentServiceError("Riskli işlemi yalnız onay yetkilisi onaylayabilir veya reddedebilir.", 403)
@@ -1453,10 +1466,12 @@ class AgentService:
             if edit is None and remote is None:
                 approval["decision"] = True if approved else False
                 approval["approver"] = actor
-                self._event(context, "approval_decision", "İşlem onaylandı." if approved else "İşlem reddedildi.",
+                where = " (Telegram'dan)" if via == "telegram" else ""
+                self._event(context, "approval_decision", ("İşlem onaylandı." if approved else "İşlem reddedildi.")[:-1]
+                            + where + ".",
                             {"approval_id": approval_id, "digest": approval["digest"], "approved": approved,
                              "user_id": actor.user_id, "company_id": actor.company_id, "at": now(),
-                             **self._card_data(approval)})
+                             **self._card_data(approval), **({"via": via} if via else {})})
                 context.wake.set()
                 return self._view(context)
             if edit is not None and remote is None:
@@ -1488,7 +1503,8 @@ class AgentService:
             raise AgentServiceError("Merkezi onay kararı kaydedilemedi; işlem başlatılmadı.", 503) from None
         with self._lock:
             self._event(context, "approval_submitted", "Karar merkezi onay hizmetine gönderildi.",
-                        {"approval_id": approval_id, "user_id": actor.user_id, "approved": approved})
+                        {"approval_id": approval_id, "user_id": actor.user_id, "approved": approved,
+                         **({"via": via} if via else {})})
             context.wake.set()
             return self._view(context)
 

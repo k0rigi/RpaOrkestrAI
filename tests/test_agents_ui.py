@@ -378,6 +378,25 @@ def test_run_timeline_reads_as_sentences_and_hides_technical_records(ui):
     assert_unique_interactive_ids(page)
 
 
+def test_work_given_or_decided_on_telegram_says_so_in_the_list_and_the_timeline(ui):
+    page, _, _, _, run = ui
+    run.update(pending_question=None, status="running", started_at="2026-10-13T12:00:00+00:00", via="telegram")
+    run["events"] = [
+        {"id": "1" * 32, "kind": "telegram", "message": "Görev Telegram'dan verildi.", "timestamp": "2026-10-13T12:00:01+00:00",
+         "data": {}},
+        {"id": "2" * 32, "kind": "user_answer", "message": "Kullanıcı soruyu Telegram'dan yanıtladı.",
+         "timestamp": "2026-10-13T12:00:02+00:00", "data": {"question_id": "q", "answer": "A", "via": "telegram"}},
+        {"id": "3" * 32, "kind": "approval_decision", "message": "İşlem onaylandı (Telegram'dan).",
+         "timestamp": "2026-10-13T12:00:03+00:00", "data": {"approved": True, "via": "telegram"}},
+    ]
+    page.evaluate("identity => window.RpaAgents.openRun(identity)", RID)
+    timeline = page.locator(".agent-timeline")
+    timeline.get_by_text("Telegram'dan verildi", exact=True).wait_for()
+    assert timeline.get_by_text("Yanıtınız Telegram'dan iletildi", exact=True).is_visible()
+    assert timeline.get_by_text("İşlem onaylandı · Telegram'dan", exact=True).is_visible()
+    assert "Telegram'dan" in page.locator(".agent-run-choice").first.inner_text()
+
+
 def note_routes(page, calls):
     notes = {AID: [{"id": "9" * 32, "text": "Raporlar Paylaşılan klasöründedir.", "user_name": ATTACK,
                     "updated_at": "2026-10-13T12:00:00+00:00", "created_at": "2026-10-13T12:00:00+00:00", "user_id": 1}]}

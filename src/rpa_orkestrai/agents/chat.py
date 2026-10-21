@@ -22,7 +22,7 @@ from ..config import atomic_json
 from ..errors import WorkflowError
 from ..models import Model, now
 from .abilities import tool_names as ability_tools
-from .models import Identifier, visible
+from .models import Identifier, Via, visible
 from .providers import ProviderError
 from .runner import NOTES_GUIDE, AgentServiceError
 from .tools import (
@@ -86,6 +86,7 @@ class ChatMessage(Model):
     at: str = Field(default_factory=now)
     user: str = Field(default="", max_length=200)
     tokens: int = Field(default=0, ge=0)
+    via: Via | None = None
 
 
 class ChatRecord(Model):
@@ -138,7 +139,11 @@ class AgentChat:
 
     def _write(self, record: ChatRecord) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        atomic_json(self._path(record.agent_id), record.model_dump(mode="json"))
+        data = record.model_dump(mode="json")
+        for message in data["messages"]:
+            if message.get("via", "") is None:
+                message.pop("via")  # Studio questions keep the file earlier versions read.
+        atomic_json(self._path(record.agent_id), data)
 
     def history(self, agent_id: str) -> list[ChatMessage]:
         agent = self.service._find_agent(agent_id, self.service._authorize())
@@ -312,9 +317,9 @@ class AgentChat:
         return abilities.read_emails(chat, arguments)
 
     # ----- asking --------------------------------------------------------------------
-    def ask(self, agent_id: str, question: str) -> dict:
+    def ask(self, agent_id: str, question: str, *, office: str | None = None, via: str | None = None) -> dict:
         service = self.service
-        actor = service._authorize()
+        actor = service._actor_for(service._authorize(), office)
         agent = service._find_agent(agent_id, actor)
         text = str(question or "").strip()
         if not text:
@@ -331,12 +336,12 @@ class AgentChat:
                 raise AgentServiceError("Ajan önceki soruyu yanıtlıyor; biraz bekleyin.", 409)
             self._busy.add(agent.id)
         try:
-            return self._answer(agent, actor, text, redactor)
+            return self._answer(agent, actor, text, redactor, via)
         finally:
             with self._lock:
                 self._busy.discard(agent.id)
 
-    def _answer(self, agent, actor, text, redactor) -> dict:
+    def _answer(self, agent, actor, text, redactor, via=None) -> dict:
         service = self.service
         model = agent.model or (service.model_resolver(agent) if service.model_resolver else "")
         if not isinstance(model, str) or not model or redactor.contains_secret(model):
@@ -407,10 +412,10 @@ class AgentChat:
         except ProviderError as exc:
             raise AgentServiceError(str(exc), 502) from None
         answer = redactor.text(answer).strip() or "Bu soruya yanıt veremedim."
-        reply = ChatMessage(role="assistant", text=answer[:20_000], tokens=chat.tokens)
+        reply = ChatMessage(role="assistant", text=answer[:20_000], tokens=chat.tokens, via=via)
         with self._lock:
             record = self._read(agent)
-            record.messages = (record.messages + [ChatMessage(role="user", text=redactor.text(text), user=actor.name),
-                                                  reply])[-CHAT_LIMIT:]
+            record.messages = (record.messages + [ChatMessage(role="user", text=redactor.text(text), user=actor.name,
+                                                              via=via), reply])[-CHAT_LIMIT:]
             self._write(record)
         return {"reply": reply, "messages": record.messages}

@@ -83,7 +83,7 @@
     note_suggested: "Ajan kalıcı not önerdi", web_search: "İnternette arandı", web_fetch: "Web sayfası okundu",
     automation: "Otomasyonla başladı", knowledge_search: "Bilgi kaynaklarında arandı", playbook_selected: "Süreç kartı seçildi",
     handoff: "İş size bırakıldı", document_read: "Belge okundu", emails_read: "Gelen kutusu okundu",
-    email_sent: "E-posta gönderildi", message_sent: "Mesaj gönderildi" };
+    email_sent: "E-posta gönderildi", message_sent: "Mesaj gönderildi", telegram: "Telegram'dan verildi" };
   const playbookModes = { act: "Akış izinlerine göre uygula", review: "Her değişikliği onaya sun (taslak)",
     handoff: "Değişiklik yapma, insana bırak" };
   const technicalEvents = new Set(["provider_request", "tool_result", "context_compacted", "output_limited"]);
@@ -1130,7 +1130,7 @@
     };
     const paint = (messages) => {
       list.replaceChildren(...(messages.length ? messages.map((item) => bubble(item.role, item.text,
-        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.tokens ? ` · ${count(item.tokens)} token` : ""}`))
+        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.via === "telegram" ? " · Telegram'dan" : ""}${item.tokens ? ` · ${count(item.tokens)} token` : ""}`))
         : [element("li", "Henüz soru yok. Aşağıdaki önerilerden birini seçebilir veya kendi sorunuzu yazabilirsiniz.", "agent-help")]));
       list.scrollTop = list.scrollHeight;
     };
@@ -1245,7 +1245,7 @@
     const nodes = view.runs.filter((item) => !view.filterAgent || item.agent_id === view.filterAgent).map((run) => {
       const button = action("", () => openRun(view, run.id), "agent-run-choice");
       button.classList.toggle("selected", run.id === view.selectedRun);
-      button.append(element("small", `${run.parent_run_id ? "↳ Alt görev · " : ""}${agentName(view, run.agent_id)}`, "agent-eyebrow"),
+      button.append(element("small", `${run.parent_run_id ? "↳ Alt görev · " : ""}${agentName(view, run.agent_id)}${run.via === "telegram" ? " · Telegram'dan" : ""}`, "agent-eyebrow"),
         element("strong", run.title || run.task?.slice(0, 100) || "Ajan görevi"), status(run.status),
         element("small", timeLabel(run.created_at), "muted"));
       return button;
@@ -1377,9 +1377,11 @@
   }
   function eventTitle(event) {
     if (event.kind === "tool_call") return toolTitles[event.data?.name] || "Araç kullanıldı";
-    if (event.kind === "approval_decision") return event.data?.edited ? "Taslak düzeltilerek onaylandı"
-      : event.data?.approved ? "İşlem onaylandı" : "İşlem reddedildi";
-    return eventTitles[event.kind] || "Kayıt";
+    const telegram = event.data?.via === "telegram" ? " · Telegram'dan" : "";
+    if (event.kind === "approval_decision") return (event.data?.edited ? "Taslak düzeltilerek onaylandı"
+      : event.data?.approved ? "İşlem onaylandı" : "İşlem reddedildi") + telegram;
+    if (event.kind === "user_answer" && telegram) return "Yanıtınız Telegram'dan iletildi";
+    return (eventTitles[event.kind] || "Kayıt") + (event.kind === "approval_submitted" ? telegram : "");
   }
   // Event data are untrusted model or user text; they are only ever rendered with textContent.
   function eventDetail(view, event) {

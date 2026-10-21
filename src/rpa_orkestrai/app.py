@@ -182,6 +182,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
     # Questions and approvals reach the person on Telegram when they set it up; answers come back from there.
     telegram = TelegramBridge(agents, lambda: connections)
     agents.notifier = telegram
+    telegram.start_if_configured()
     manager.finished_listeners.append(automations.workflow_finished)
 
     def license_locked(reason):

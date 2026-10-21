@@ -66,18 +66,22 @@ class Service:
     def _authorize(self, permission="agents.use"):
         return self.actor
 
-    def answer(self, run_id, item_id, value, *, office=None):
+    def answer(self, run_id, item_id, value, *, office=None, via=None):
+        assert via == "telegram"
         if self.error:
             raise AgentServiceError(self.error, 409)
         self.answers.append((run_id, item_id, value, office))
 
-    def approve(self, run_id, item_id, approved, inputs=None, *, office=None):
+    def approve(self, run_id, item_id, approved, inputs=None, *, office=None, via=None):
+        assert via == "telegram"
         self.decisions.append((run_id, item_id, approved, office))
 
 
 def make(tmp_path, actor=OWNER, **settings):
+    """A bridge whose background loops are off: the tests hand it each update themselves."""
     telegram, service = Telegram(), Service(tmp_path, actor)
     bridge = TelegramBridge(service, Connections, transport=telegram)
+    bridge.close()
     chosen = TelegramSettings(connection_id=CONNECTION, chat_id=CHAT, **settings)
     bridge.save(actor, chosen)
     return bridge, telegram, service, chosen
@@ -203,14 +207,15 @@ def test_secrets_are_masked_closed_items_reject_late_answers_and_switches_are_ke
     assert silent_telegram.sent() == []
 
 
-def test_an_idle_channel_reads_nothing_and_calls_telegram_for_nothing(tmp_path):
-    bridge, telegram, service, _ = make(tmp_path)
-    reads = []
-    service._authorize = lambda permission="agents.use": reads.append(permission) or OWNER
-    bridge.notify("closed", context(), {"id": ITEM})  # Starts the channel, but nothing was sent and nothing waits.
+def test_without_telegram_set_up_nothing_is_sent_or_read_from_telegram(tmp_path):
+    telegram, service = Telegram(), Service(tmp_path)
+    bridge = TelegramBridge(service, Connections, transport=telegram)
+    bridge.start_if_configured()  # Nobody set Telegram up on this computer: the channel does not even start.
+    assert bridge._threads == []
+    bridge.notify("closed", context(), {"id": ITEM})
     time.sleep(0.3)
     bridge.close()
-    assert reads == [] and telegram.calls == []
+    assert telegram.calls == []
 
 
 def test_a_refused_answer_is_explained_on_telegram(tmp_path):
@@ -245,6 +250,7 @@ def test_an_agents_question_is_answered_from_telegram_and_the_run_continues(runt
 def test_settings_routes_are_licensed_and_validated(agent_api, monkeypatch):  # noqa: F811
     bridge = agent_api.app.state.telegram
     monkeypatch.setattr(bridge, "connections", Connections)
+    monkeypatch.setattr(bridge, "transport", Telegram())  # Saving starts listening: never the real Telegram.
     client = agent_api.client
     assert client.get("/api/agents/telegram").json()["configured"] is False
     assert client.put("/api/agents/telegram", json={"connection_id": CONNECTION, "chat_id": "-100"}).status_code == 422

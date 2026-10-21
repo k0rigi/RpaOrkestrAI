@@ -305,6 +305,36 @@ Nasıl çalışır:
 - Ayar kişiseldir: aynı bilgisayardaki başka hesap kendi ayarını yapar. Diğer ofislerinizdeki soru ve onaylar da
   gelir ve kendi ofislerinde yanıtlanır.
 
+### Telegram'dan görev ve soru (0.9.41)
+
+Telegram ayarlıysa bota yazarak ajanlarınıza görev verebilir ve soru sorabilirsiniz:
+
+| Bota yazın | Ne olur? |
+| --- | --- |
+| `/gorev bugünkü bekleyen işleri özetle` | Ofisinizin yönetici ajanına görev verilir; yönetici gerekirse departmanlara dağıtır. |
+| `/gorev Rapor ajanı: haftalık tabloyu hazırla` | Görev adı yazılan ajana gider. |
+| `/sor kaç görev bekliyor?` | Yönetici iş başlatmadan, bildiklerinden yanıt verir (Soru sor ile aynı). |
+| Komutsuz mesaj | Yanıt bekleyen bir soru yoksa yöneticiye soru sayılır. |
+| `/ajanlar` | Ofisleriniz ve ajanlarınız listelenir. |
+| `/yardim` | Komutları gösterir. |
+
+- **Birden fazla ofis:** mesajı ofis adıyla başlatın: `/gorev Lojistik: yarının sevkiyatlarını planla` veya
+  `/gorev Lojistik: Rota ajanı: rota çıkar`. Ofis yazılmazsa iş gönderilmez ve ofisleriniz listelenir. Aynı adlı ajan
+  birden fazla ofiste varsa ofis adı istenir; iş tahminle bir ajana verilmez.
+- **Sonuç:** görev başlayınca "Görev … ajanına verildi" mesajı gelir; bitince sonuç özeti, başarısız olursa nedeni
+  Telegram'a yazılır. Aradaki sorular ve onaylar her zamanki gibi gelir.
+- **Kayıtlar:** Telegram'dan verilen görev Studio'da verilmiş görev gibi **Görevler** ve **Çalışmalar**'da tüm
+  ayrıntısıyla durur; listede ve zaman çizelgesinde "Telegram'dan" yazar. Telegram'dan sorulan soru ajanın soru
+  geçmişine "Telegram'dan" işaretiyle kaydedilir. Telegram'dan verilen yanıtlar ("Yanıtınız Telegram'dan iletildi")
+  ve onay kararları ("İşlem onaylandı · Telegram'dan") da çalışma kaydında böyle görünür. Kayıtlar yalnız bu
+  bilgisayardadır.
+- **Yetki:** görev ve soru, Studio'daki gibi oturum, lisans, ofis, ajanın izinli akışları ve riskli işlem onayından
+  geçer. Yalnız kayıtlı özel sohbetinizden gelen komutlar kabul edilir.
+- **Studio kapalıyken** gönderilen `/gorev` ve `/sor` (10 dakikadan eski) çalıştırılmaz; "Studio kapalıyken
+  gönderildi" yanıtı gelir, gerekiyorsa yeniden gönderin. Studio açıkken Telegram ayarlıysa bot sürekli dinlenir.
+- Telegram'dan verilen görevin kaydı 0.9.41 öncesi sürümlerde okunmaz; Studio'da verilen görevlerin kayıtları
+  değişmez.
+
 ## Bireysel hesapta ajanlar (0.9.35)
 
 Bireysel hesapta (bkz. [lisans](lisans.md#bireysel-hesaplar-0935)) Ajanlar ek modüldür ve ekip tek kişidir.
