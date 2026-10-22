@@ -14,6 +14,8 @@ NOTES: list[dict] = [
         "söyler (bota henüz yazılmamış, webhook tanımlı veya başka bir program okuyor).",
         "Sohbet kimliğine botun adı yazılamaz; alanın açıklaması buraya kişinin numarasının geldiğini söyler.",
         "Telegram hataları Telegram'ın verdiği gerçek nedenle açıklanır (ör. kişi bota henüz Başlat dememiş).",
+        "Ajana izin verilemeyen akışlarda hangi adımın neden engellediği yazar (ör. web adımları ve Yapay zekâya sor "
+        "ajan akışlarında kullanılamaz).",
     ]},
     {"version": "0.9.43", "date": "2026-10-22", "items": [
         "Ofisi sil: ofisin yetkilisi Ofisim sekmesinin sonundaki Ofisi sil bölümünde ofisin adını aynen yazarak "

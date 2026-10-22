@@ -107,6 +107,18 @@ def test_workflow_metadata_hides_parameters_and_allows_configuring_file_grant(cl
     assert items[first.id]["inputs"] == [{"name": "dosya", "required": True}]
     assert items[second.id]["agent_supported"] is False
     assert "gizli-komut-metni" not in response.text
+    # The reason names the step that keeps the flow from agents, not a generic sentence.
+    assert "Komut / script çalıştır" in items[second.id]["blocked_reason"]
+
+
+def test_a_web_or_ai_flow_says_which_step_keeps_it_from_agents(client):
+    web = Workflow(name="Portal", steps=[Step(action="web.open", params={"url": "https://portal.example.com"})])
+    ask = Workflow(name="Sınıflandır", steps=[Step(action="ai.ask", params={"prompt": "x", "output": "cevap"})])
+    for workflow in (web, ask):
+        client.app.state.store.save_workflow(workflow)
+    items = {item["id"]: item for item in client.client.get("/api/agents/workflows").json()}
+    assert "Web sayfası aç" in items[web.id]["blocked_reason"] and not items[web.id]["agent_supported"]
+    assert "Yapay zekâya sor" in items[ask.id]["blocked_reason"]
 
 
 @pytest.mark.parametrize("provider", ["ollama", "openai", "shared"])

@@ -37,6 +37,13 @@ Her ajan için izinli akışlar açıkça seçilir. Alt akışlar da ayrı ayrı
 Dinamik alt akış kimliği, döngüsel başvuru ve desteklenmeyen adımlar reddedilir.
 Yönetici ajan akış çalıştıramaz; bu yetki yalnız departman ajanlarına verilir.
 
+Ajanın dışına taşamayacağı denetlenebilir bir sınırı olmayan adımlar ajan akışlarında
+kullanılamaz: web adımları (Web sayfası aç, Web öğesine tıkla…), Yapay zekâya sor,
+Komut / script çalıştır, Uygulama aç/kapat, Zip, ekran görüntüsü ve ham fare/klavye
+adımları. Bu adımları içeren akışlar elle veya Zamanlayıcı ile çalışmaya devam eder.
+Ajanın izin listesinde böyle bir akışın altında hangi adımın neden engellediği yazar
+(0.9.44+).
+
 Katalogdaki her adım risk tablosunda sınıflandırılır. Masaüstünden tablo okumak bile
 tıklama ve seçim değiştiriyorsa onay gerektirir. Akışın riski tüm alt akışları kapsar.
 Bilinmeyen bir adım okuma sayılmaz. API bağlantısı kullanan HTTP isteği, veritabanı

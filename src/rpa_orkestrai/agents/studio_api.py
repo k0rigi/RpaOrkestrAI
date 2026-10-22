@@ -148,7 +148,10 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
             capability = {"requires_roots": False, "dependencies": []}
             try:
                 capability = inspect_workflow(workflow.id, service.store)
-            except (WorkflowError, KeyError, ValueError):
+            except WorkflowError as exc:
+                # The rule's own sentence names the step and what to change; only masked text leaves.
+                supported, reason = False, redactor.text(str(exc))[:500]
+            except (KeyError, ValueError):
                 supported, reason = False, "Bu akışın adımları veya kaynak izinleri ajan sınırına uygun değil."
             contract = infer_contract(workflow, loaded).as_dict()
             items.append({"id": workflow.id, "name": redactor.text(workflow.name),
