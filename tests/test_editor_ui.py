@@ -2308,9 +2308,21 @@ def test_release_notes_open_once_after_an_update_and_from_the_version(tmp_path):
             dialog = page.locator("dialog")
             playwright.expect(dialog.locator("h2")).to_have_text(f"RpaOrkestrAI {__version__} sürümüne güncellendi")
             assert dialog.get_by_text(NOTES[0]["items"][0], exact=True).is_visible()
+            # Coming from a version that never remembered what was seen: every note since 0.9.41 is open.
+            for item in NOTES:
+                if tuple(map(int, item["version"].split("."))) > (0, 9, 41):
+                    assert dialog.get_by_text(f"Sürüm {item['version']}", exact=False).first.is_visible()
+            assert not dialog.get_by_text("Sürüm 0.9.41", exact=False).first.is_visible()  # folded below
             assert dialog.get_by_text("Önceki sürümler", exact=True).is_visible()
             dialog.get_by_role("button", name="Tamam").click()
             playwright.expect(dialog).to_have_count(0)
+            assert page.evaluate("localStorage.getItem('rpa.seenVersion')") == __version__
+            # Next time this computer knows what was seen: only the newer version's notes open.
+            page.evaluate(f"localStorage.setItem('rpa.seenVersion', '{NOTES[1]['version']}')")
+            page.reload()
+            playwright.expect(dialog.locator("h2")).to_have_text(f"RpaOrkestrAI {__version__} sürümüne güncellendi")
+            assert dialog.locator(".release-notes > .release-notes-version").count() == 1
+            dialog.get_by_role("button", name="Tamam").click()
             # Any time later: the version in the top bar opens the notes.
             page.get_by_role("button", name=f"Sürüm {__version__}: sürüm notlarını aç").click()
             playwright.expect(page.locator("dialog h2")).to_have_text("Sürüm notları")

@@ -8191,8 +8191,11 @@
       state.quickGuide = data.quick_guide || [];
       state.releaseNotes = data.release_notes || [];
       render();
-      // Once after an update: what the new version brings.
-      if (state.updates.installed) showReleaseNotes(state.updates.installed);
+      // Once after an update: everything new since the version last opened on this computer.
+      let seen = null;
+      try { seen = localStorage.getItem("rpa.seenVersion"); } catch { /* No storage: the notes still open. */ }
+      if (state.updates.installed) showReleaseNotes(state.updates.installed, seen || FIRST_NOTES_BEFORE);
+      try { if (state.version) localStorage.setItem("rpa.seenVersion", state.version); } catch { /* optional */ }
       pollRunList();
       pollUpdates();
       watchLicense();
@@ -8216,10 +8219,23 @@
       root.append(screen);
     }
   }
-  // Yenilikler: the installed version first; earlier versions folded below.
-  function showReleaseNotes(installed = null) {
+  // Versions before this one never remembered what was seen: an update from them shows every note since.
+  const FIRST_NOTES_BEFORE = "0.9.41";
+  const versionKey = (value) => String(value || "").split(".").map((part) => Number(part) || 0);
+  const newer = (a, b) => {
+    const [x, y] = [versionKey(a), versionKey(b)];
+    for (let index = 0; index < Math.max(x.length, y.length); index++) {
+      if ((x[index] || 0) !== (y[index] || 0)) return (x[index] || 0) > (y[index] || 0);
+    }
+    return false;
+  };
+  // Yenilikler: the installed version and any version skipped since `since` open; earlier ones folded below.
+  function showReleaseNotes(installed = null, since = null) {
     const notes = state.releaseNotes || [];
     const current = notes.find((item) => item.version === (installed || state.version)) || notes[0];
+    const shown = since && current
+      ? notes.filter((item) => item === current || (newer(item.version, since) && !newer(item.version, current.version)))
+      : current ? [current] : [];
     const section = (item) => {
       const block = node("section", "release-notes-version");
       const date = item.date ? new Date(`${item.date}T12:00:00`).toLocaleDateString("tr-TR") : "";
@@ -8235,8 +8251,8 @@
         body.append(node("p", "small muted", "Sürüm notları bulunamadı."));
         return;
       }
-      body.append(section(current));
-      const earlier = notes.filter((item) => item !== current);
+      body.append(...shown.map(section));
+      const earlier = notes.filter((item) => !shown.includes(item));
       if (earlier.length) {
         const more = node("details", "release-notes-earlier");
         more.append(node("summary", "", "Önceki sürümler"), ...earlier.map(section));
