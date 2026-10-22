@@ -4,6 +4,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -179,7 +180,7 @@ def test_windows_installer_uses_separate_argv_wait_pid_and_no_forced_close(monke
     assert f"/RPAPID={os.getpid()}" in plan.command
     assert "/RPAUPDATE" in plan.command
     assert "/NOCLOSEAPPLICATIONS" in plan.command
-    # No setup window during an update: the Studio closes and opens again by itself.
+    # No setup wizard during an update: the Studio's own progress window shows it instead.
     assert "/VERYSILENT" in plan.command and "/SILENT" not in plan.command
     popen = Mock(return_value=SimpleNamespace(pid=1234))
     monkeypatch.setattr(installer.subprocess, "Popen", popen)
@@ -255,11 +256,18 @@ def test_shell_transaction_requires_healthy_matching_package_and_preserves_works
     # POSIX quoting for this test fixture; production paths are argv, never source.
     script = installer._MAC_HELPER.replace("/usr/bin/open", shlex.quote(str(launcher)))
     helper.write_text(script.replace('"$count" -ge 90', '"$count" -ge 1'))
-    result = subprocess.run(
-        ["/bin/sh", str(helper), "2147483647", str(target), str(staged), str(stage / "previous.app"),
-         str(stage), "0.2.0", "macos-arm64", str(marker)],
-        capture_output=True, timeout=10,
-    )
+    progress = subprocess.Popen(["/bin/sleep", "60"])  # stands for the "güncelleniyor" window
+    try:
+        result = subprocess.run(
+            ["/bin/sh", str(helper), "2147483647", str(target), str(staged), str(stage / "previous.app"),
+             str(stage), "0.2.0", "macos-arm64", str(marker), str(progress.pid)],
+            capture_output=True, timeout=10,
+        )
+        # Installed or rolled back, the progress window never stays open.
+        assert progress.wait(timeout=5) is not None
+    finally:
+        if progress.poll() is None:
+            progress.kill()
     success = scenario == "healthy"
     assert (result.returncode == 0) is success, result.stdout.decode() + result.stderr.decode()
     version = installer._bundle_metadata(target)["CFBundleShortVersionString"]
@@ -296,3 +304,40 @@ def test_handoff_rechecks_identity_and_does_not_replace_unrecognized_target(tmp_
     assert b"identity changed" in result.stdout
     assert not (stage / "previous.app").exists()
     assert target.is_dir() and staged.is_dir()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS progress window")
+def test_mac_progress_window_script_compiles(tmp_path):
+    result = subprocess.run(["/usr/bin/osacompile", "-o", str(tmp_path / "progress.scpt"), "-e", installer.MAC_PROGRESS],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows progress window")
+def test_windows_progress_window_builds_and_closes_when_the_new_version_starts(tmp_path):
+    process = installer.windows_progress("0.9.42", tmp_path / "installing.json", check_only=True)
+    output, _ = process.communicate(timeout=120)
+    assert output.decode("utf-8").lstrip("\ufeff").startswith("check:RpaOrkestrAI 0.9.42 sürümüne güncelleniyor.")
+    marker = tmp_path / "installing.json"
+    marker.write_text("{}")
+    window = installer.windows_progress("0.9.42", marker)
+    try:
+        time.sleep(3)
+        assert window.poll() is None  # shown while the update installs
+        marker.unlink()  # the new version starts and removes the marker
+        assert window.wait(timeout=30) == 0
+    finally:
+        if window.poll() is None:
+            window.kill()
+
+
+def test_progress_is_optional_and_never_stops_an_update(monkeypatch):
+    monkeypatch.setattr(installer.platform, "system", lambda: "Linux")
+    assert installer.show_progress("0.9.42") is None
+    monkeypatch.setattr(installer.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(installer.subprocess, "Popen", Mock(side_effect=OSError("no osascript")))
+    assert installer.show_progress("0.9.42") is None
+    installer.stop_progress(None)
+    finished = SimpleNamespace(poll=lambda: 0, terminate=Mock())
+    installer.stop_progress(finished)
+    finished.terminate.assert_not_called()

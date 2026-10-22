@@ -486,8 +486,12 @@ export function mountOffice(container, options) {
       } catch (error) { toast(error.message, true); } finally { send.disabled = false; text.disabled = false; }
     });
     send.classList.add("primary");
+    // Enter asks at once, as in the agents' own chat; Shift + Enter starts a new line.
+    text.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!send.disabled) send.click(); }
+    });
     work.replaceChildren(node("h4", person.role === "manager" ? "Yöneticiye soru sor" : "Ajana soru sor"), thread,
-      field("Sorunuz (ajan iş başlatmaz, bildiklerinden yanıtlar)", text), send);
+      field("Sorunuz (Enter ile sorulur; ajan iş başlatmaz, bildiklerinden yanıtlar)", text), send);
     text.focus();
     try {
       const history = await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`);

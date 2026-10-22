@@ -53,12 +53,18 @@ def prepared(tmp_path, monkeypatch):
     prepare = Mock(return_value=plan)
     handoff = Mock(return_value=SimpleNamespace(pid=98765))
     cleanup = Mock()
+    progress = SimpleNamespace(pid=4321)
+    show, stop = Mock(return_value=progress), Mock()
     monkeypatch.setattr(update_install, "prepare_install", prepare)
     monkeypatch.setattr(update_install, "handoff", handoff)
     monkeypatch.setattr(update_install, "cleanup", cleanup)
+    # No real progress window during tests; the Windows path unless a test chooses the Mac one.
+    monkeypatch.setattr(update_install, "show_progress", show)
+    monkeypatch.setattr(update_install, "stop_progress", stop)
+    monkeypatch.setattr(update_service.platform, "system", lambda: "Windows")
     yield SimpleNamespace(updater=updater, client=client, envelope=envelope, asset=asset,
                           settings=SimpleNamespace(data_dir=data), prepare=prepare, handoff=handoff,
-                          cleanup=cleanup, plan=plan, workspace=tmp_path)
+                          cleanup=cleanup, plan=plan, workspace=tmp_path, show=show, stop=stop, progress=progress)
     updater.stop()
 
 
@@ -80,8 +86,12 @@ def test_source_checkout_does_not_check_download_or_install(prepared):
 def test_pending_signed_package_handoff_exits_without_opening_or_modifying_workspace(prepared):
     updater = prepared.updater
     assert updater.apply_pending(prepared.settings) is True
-    prepared.prepare.assert_called_once_with(prepared.asset, "exe", "9.0.0", updater.executable, updater.cache)
+    prepared.prepare.assert_called_once_with(prepared.asset, "exe", "9.0.0", updater.executable, updater.cache,
+                                             progress_pid=None)
     prepared.handoff.assert_called_once_with(prepared.plan)
+    # Windows: the progress window watches the install marker, so it opens once the marker exists.
+    prepared.show.assert_called_once_with("9.0.0", updater.installing)
+    prepared.stop.assert_not_called()  # it closes itself when the new version starts
     prepared.cleanup.assert_not_called()
     assert updater._read(updater.installing)["pid"] == 98765
     assert updater._read(updater.installing)["phase"] == "helper"
@@ -107,6 +117,22 @@ def test_failed_handoff_cleans_stage_and_cannot_create_restart_loop(prepared):
     assert prepared.updater.status()["status"] == "manual"
     assert prepared.updater.apply_pending(prepared.settings) is False
     assert prepared.handoff.call_count == 1
+
+
+def test_mac_progress_opens_before_the_long_preparation_and_the_helper_closes_it(prepared, monkeypatch):
+    monkeypatch.setattr(update_service.platform, "system", lambda: "Darwin")
+    order = []
+    prepared.show.side_effect = lambda *args: order.append(("show", args)) or prepared.progress
+    prepared.prepare.side_effect = lambda *args, **kwargs: order.append(("prepare", kwargs)) or prepared.plan
+    assert prepared.updater.apply_pending(prepared.settings) is True
+    assert order == [("show", ("9.0.0",)), ("prepare", {"progress_pid": 4321})]
+    prepared.stop.assert_not_called()
+
+
+def test_a_failed_update_closes_its_progress_window(prepared):
+    prepared.handoff.side_effect = OSError("installer unavailable")
+    assert prepared.updater.apply_pending(prepared.settings) is False
+    prepared.stop.assert_called_once_with(prepared.progress)
 
 
 def test_failed_preparation_does_not_repeat_on_every_start(prepared):

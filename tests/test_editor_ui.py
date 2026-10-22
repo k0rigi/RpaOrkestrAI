@@ -2244,3 +2244,75 @@ def test_whatsapp_connection_from_the_message_step(tmp_path):
         assert saved["service"] == "whatsapp" and saved["to"] == "905321234567" and saved["mode"] == "template"
         assert saved["has_token"] and "EAAG-gizli-anahtar" not in str(saved)
     assert not errors
+
+
+def test_a_flow_is_renamed_from_its_name_in_the_editor_and_from_the_list(tmp_path):
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+
+    errors = []
+    with TestClient(create_app(Settings(tmp_path / "data", dotenv=False))) as client:
+        made = client.post("/api/workflows", json={"name": "Eski ad", "steps": [
+            {"id": "a", "action": "core.log", "params": {"message": "x"}}]})
+        assert made.status_code == 201, made.text
+        identity = made.json()["id"]
+        with playwright.sync_playwright() as runner:
+            browser, page = studio_page(runner, client, errors)
+            page.get_by_role("button", name="Eski ad", exact=True).click()
+            # The name in the editor's heading opens the details.
+            page.get_by_role("button", name="Akışın adını değiştir: Eski ad", exact=True).click()
+            dialog = page.locator("dialog")
+            dialog.get_by_label("Akış adı").fill("Fatura aktarımı")
+            dialog.get_by_role("button", name="Uygula").click()
+            playwright.expect(page.locator(".toast").last).to_contain_text("Kaydet'e basın")
+            assert client.get(f"/api/workflows/{identity}").json()["name"] == "Eski ad"  # applied, not saved yet
+            page.get_by_role("button", name="Kaydet", exact=True).click()
+            playwright.expect(page.locator(".toast").last).to_have_text("Akış kaydedildi.")
+            assert client.get(f"/api/workflows/{identity}").json()["name"] == "Fatura aktarımı"
+            # From the list the new name is saved at once and the steps stay as they were.
+            page.get_by_role("button", name="Akışlara dön").click()
+            card = page.locator(".workflow-card", has_text="Fatura aktarımı")
+            card.get_by_role("button", name="Adını değiştir").click()
+            dialog = page.locator("dialog")
+            dialog.get_by_label("Akış adı").fill("Fatura aktarımı (günlük)")
+            dialog.get_by_label("Departman").fill("Finans")
+            dialog.get_by_role("button", name="Uygula").click()
+            page.locator(".workflow-card h3", has_text="Fatura aktarımı (günlük)").wait_for()
+            stored = client.get(f"/api/workflows/{identity}").json()
+            assert (stored["name"], stored["department"], len(stored["steps"])) == ("Fatura aktarımı (günlük)", "Finans", 1)
+            browser.close()
+    assert not errors
+
+
+def test_release_notes_open_once_after_an_update_and_from_the_version(tmp_path):
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    from rpa_orkestrai import __version__
+    from rpa_orkestrai.app import create_app
+    from rpa_orkestrai.config import Settings
+    from rpa_orkestrai.release_notes import NOTES
+
+    errors = []
+    settings = Settings(tmp_path / "data", dotenv=False)
+    status = {"enabled": True, "status": "current", "message": "", "installed": __version__}
+    settings.desktop_updates = SimpleNamespace(status=lambda: dict(status), start=lambda: None)
+    with TestClient(create_app(settings)) as client:
+        with playwright.sync_playwright() as runner:
+            browser, page = studio_page(runner, client, errors)
+            dialog = page.locator("dialog")
+            playwright.expect(dialog.locator("h2")).to_have_text(f"RpaOrkestrAI {__version__} sürümüne güncellendi")
+            assert dialog.get_by_text(NOTES[0]["items"][0], exact=True).is_visible()
+            assert dialog.get_by_text("Önceki sürümler", exact=True).is_visible()
+            dialog.get_by_role("button", name="Tamam").click()
+            playwright.expect(dialog).to_have_count(0)
+            # Any time later: the version in the top bar opens the notes.
+            page.get_by_role("button", name=f"Sürüm {__version__}: sürüm notlarını aç").click()
+            playwright.expect(page.locator("dialog h2")).to_have_text("Sürüm notları")
+            browser.close()
+    assert not errors

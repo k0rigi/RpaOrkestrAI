@@ -16,9 +16,16 @@ EXE kurulur; Mac'te `.app`, DMG'den Uygulamalar klasörüne taşınır ve oradan
 Kurulu uygulama açılışta daha önce indirilmiş, doğrulanmış bir güncelleme olup
 olmadığına bakar. Yeni sürüm denetimi ve indirme arka planda gerçekleşir. İndirilen
 paket bir sonraki açılışta tekrar doğrulanıp kurulur; böylece devam eden bir ERP
-işleminin ortasında uygulama değiştirilmez. Kurulum penceresi açılmaz: Windows'ta
-kurulum `/VERYSILENT` ile, Mac'te `.app` yerine taşınarak yapılır. Kurulumdan sonra
-uygulama kendiliğinden yeniden açılır; kullanıcı bu sırada birkaç saniye bekler.
+işleminin ortasında uygulama değiştirilmez. Kurulum sihirbazı açılmaz: Windows'ta
+kurulum `/VERYSILENT` ile, Mac'te `.app` yerine taşınarak yapılır. Kurulum sürerken
+(0.9.42+) Studio'nun kendi "RpaOrkestrAI x sürümüne güncelleniyor" penceresi görünür:
+Mac'te hazırlık başlarken açılır ve kurulum yardımcısı yeni sürümü açarken (veya geri
+dönüşte) kapatır; Windows'ta ilerleme çubuklu küçük bir pencere açılır ve yeni sürüm
+başlayıp kurulum işaretini sildiğinde (en geç 10 dakika sonra) kendiliğinden kapanır.
+Pencere açılamazsa kurulum yine de sürer. Kurulumdan sonra uygulama kendiliğinden
+yeniden açılır ve ilk açılışta **Yenilikler** penceresi o sürümün notlarını gösterir;
+notlar sonradan üst çubuktaki sürüm numarasından açılır. Sürüm notları
+`src/rpa_orkestrai/release_notes.py` içindedir; her yeni sürümde en üste eklenir.
 Mac'te DMG içinden çalışan veya mevcut kullanıcının değiştiremediği konuma kurulmuş
 bir kopya için elle kurulum gerekebilir.
 

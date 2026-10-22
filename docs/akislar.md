@@ -2,6 +2,13 @@
 
 Bir akış ad, açıklama, departman ve sıralı adımlardan oluşur. Her adımın bir işlem türü ve parametreleri vardır. Koşul ve döngü adımları alt adımlar içerir. Studio, Python kodu yazmadan bu yapıyı düzenlemek için kullanılır.
 
+## Akışın adını değiştirmek
+
+- **Akışlar** sayfasında akışın kartındaki **Adını değiştir** (kalem) düğmesi adı, açıklamayı ve departmanı
+  değiştirir; değişiklik hemen kaydedilir, adımlara dokunulmaz.
+- Düzenleyicide başlıktaki akış adına (veya yanındaki kalem simgesine) tıklayın, **Uygula** deyin ve **Kaydet**'e
+  basın. Kaydetmeden çıkarsanız ad değişmez.
+
 ## Tasarım düzeni
 
 İlk adım havuzu pencere tanıma, pencere içinde tıklama/yazma, Sheets hücresi okuma ve koşul adımlarını içerir. [ERP penceresiyle başlangıç rehberini](pencere-tanitma.md) izleyebilirsiniz. Yeni adımlar gerçek ihtiyaçlara göre geliştirilip kütüphaneye eklenir. Eski kayıtlı veya içe aktarılan akışlar, mevcut işlem tanımlarıyla açılabilir, düzenlenebilir ve çalıştırılabilir; aşağıdaki örnekler bu işlem desteğini anlatır.

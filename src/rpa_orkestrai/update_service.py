@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import platform
 import sys
 import threading
 import time
@@ -215,16 +216,23 @@ class DesktopUpdates:
                           release.version)
                 return False
             try:
-                from .update_install import cleanup, handoff, prepare_install
+                from .update_install import cleanup, handoff, prepare_install, show_progress, stop_progress
 
-                plan = None
+                plan, progress = None, None
                 # Preparation or handoff failures must not create an endless startup loop.
                 atomic_json(self.attempt, {"version": release.version})
                 try:
-                    plan = prepare_install(asset, release.asset.type, release.version, self.executable, self.cache)
+                    # The person sees the update working: on a Mac from the start of the (longer) preparation,
+                    # and the install helper closes it; on Windows once the marker it watches exists.
+                    if platform.system() == "Darwin":
+                        progress = show_progress(release.version)
+                    plan = prepare_install(asset, release.asset.type, release.version, self.executable, self.cache,
+                                           progress_pid=progress.pid if progress else None)
                     marker = {"version": release.version, "pid": os.getpid(), "created_at": time.time(),
                               "executable": os.path.normcase(str(self.executable.resolve())), "phase": "parent"}
                     atomic_json(self.installing, marker)
+                    if platform.system() == "Windows":
+                        progress = show_progress(release.version, self.installing)
                     process = handoff(plan)
                     handoff_started = True
                     # From this point the current process MUST exit, even if persistence fails.
@@ -234,6 +242,7 @@ class DesktopUpdates:
                         logger.warning("Kurulum başladı; yardımcı süreç kaydı yazılamadı.", exc_info=True)
                 finally:
                     if not handoff_started:
+                        stop_progress(progress)
                         try:
                             self.installing.unlink(missing_ok=True)
                         finally:

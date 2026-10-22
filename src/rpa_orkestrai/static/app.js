@@ -676,7 +676,7 @@
     right.append(
       theme,
       platform,
-      node("span", "version", `v${state.version || "0.9.3"}`),
+      versionButton(),
     );
     const updateNotice = button("Güncelleme hazır", "download", () => navigate("settings"));
     updateNotice.id = "update-notice";
@@ -921,9 +921,29 @@
       glyph,
       copy,
       node("span", "pill", "Akış"),
+      iconButton("Adını değiştir", "edit", () => renameWorkflow(workflow.id)),
       iconButton("Akışı düzenle", "chevron", () => openWorkflow(workflow.id)),
     );
     return row;
+  }
+  // From the list the new name, description and department are saved at once; the steps stay as saved.
+  async function renameWorkflow(id) {
+    await attempt(async () => {
+      const stored = await api(`/api/workflows/${encodeURIComponent(id)}`);
+      workflowMetadata(stored, (data, d) => attempt(async () => {
+        const { steps, notes } = stored;
+        const saved = await api(`/api/workflows/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          body: JSON.stringify({ ...data, steps, notes: notes || [] }),
+        });
+        upsert(state.workflows, saved);
+        // The same flow open in the editor keeps its unsaved steps and takes the new details.
+        if (state.workflow?.id === id) Object.assign(state.workflow, data, { updated_at: saved.updated_at });
+        d.close();
+        toast("Akış bilgileri kaydedildi.");
+        renderPage();
+      }));
+    });
   }
 
   function workflowsPage() {
@@ -979,6 +999,7 @@
         glyph.append(icon("flow"));
         const tools = node("div", "actions");
         tools.append(
+          iconButton("Adını değiştir", "edit", () => renameWorkflow(w.id)),
           iconButton("Akışı çoğalt", "copy", () => duplicateWorkflow(w.id)),
           iconButton("Akışı sil", "trash", () => deleteWorkflow(w), "danger"),
         );
@@ -1152,21 +1173,27 @@
       iconButton("Akışlara dön", "back", () => navigate("workflows")),
     );
     const titleCopy = node("div");
-    titleCopy.append(node("h1", "", state.workflow.name));
+    const editDetails = () =>
+      workflowMetadata(state.workflow, (data, d) => {
+        Object.assign(state.workflow, data);
+        markDirty();
+        d.close();
+        renderPage();
+        toast("Akış bilgileri değişti; kalıcı olması için Kaydet'e basın.");
+      });
+    // The name itself opens the details: that is where people look to rename a flow.
+    const heading = node("h1");
+    const nameButton = node("button", "title-edit", state.workflow.name);
+    nameButton.type = "button";
+    nameButton.title = "Akışın adını, açıklamasını ve departmanını değiştirin";
+    nameButton.setAttribute("aria-label", `Akışın adını değiştir: ${state.workflow.name}`);
+    nameButton.addEventListener("click", editDetails);
+    heading.append(nameButton);
+    titleCopy.append(heading);
     const saved = node("div");
     saved.id = "saved-label";
     titleCopy.append(saved);
-    title.append(
-      titleCopy,
-      iconButton("Akış bilgilerini düzenle", "edit", () =>
-        workflowMetadata(state.workflow, (data, d) => {
-          Object.assign(state.workflow, data);
-          markDirty();
-          d.close();
-          renderPage();
-        }),
-      ),
-    );
+    title.append(titleCopy, iconButton("Akış bilgilerini düzenle", "edit", editDetails));
     const actions = node("div", "editor-actions");
     const dry = node("label", "checkbox-label");
     const check = node("input");
@@ -7499,9 +7526,9 @@
     }
     const updatePanel = panel(
       "Uygulama güncellemeleri", "refresh",
-      "Yeni sürümler arka planda indirilir. Studio'yu kapatıp açtığınızda kurulum ekranı açılmadan kendiliğinden "
-        + "kurulur: birkaç saniye sonra Studio yeni sürümle açılır. Akışlarınız ve bağlantı ayarlarınız korunur; "
-        + "paketi elle indirmeniz gerekmez.",
+      "Yeni sürümler arka planda indirilir. Studio'yu kapatıp açtığınızda kurulur; kurulum sürerken ilerlemesi "
+        + "gösterilir ve bitince Studio yeni sürümle kendiliğinden açılır. Akışlarınız ve bağlantı ayarlarınız "
+        + "korunur; paketi elle indirmeniz gerekmez.",
     );
     updatePanel.append(node("p", "", `Yüklü sürüm: ${state.version}`));
     const updateMessage = node("p", "update-message", state.updates.message || "Güncelleme durumu yükleniyor…");
@@ -7522,8 +7549,10 @@
     downloads.href = "https://orkestrai.net/rpa/";
     downloads.target = "_blank";
     downloads.rel = "noopener noreferrer";
+    const notesButton = button("Sürüm notları", "info", () => showReleaseNotes());
+    notesButton.id = "release-notes";
     const updateActions = node("div", "update-actions");
-    updateActions.append(checkUpdate, downloads);
+    updateActions.append(checkUpdate, notesButton, downloads);
     updatePanel.append(updateMessage, updateActions);
     form.append(updatePanel, secretsPanel(panel));
     const appearance = panel("Görünüm", "sun",
@@ -8160,9 +8189,10 @@
       state.updates = data.updates || {};
       state.connections = data.connections || [];
       state.quickGuide = data.quick_guide || [];
+      state.releaseNotes = data.release_notes || [];
       render();
-      // The update installs without a window of its own, so the new version says so once.
-      if (state.updates.installed) toast(`RpaOrkestrAI ${state.updates.installed} sürümüne güncellendi.`);
+      // Once after an update: what the new version brings.
+      if (state.updates.installed) showReleaseNotes(state.updates.installed);
       pollRunList();
       pollUpdates();
       watchLicense();
@@ -8185,6 +8215,42 @@
       screen.append(content);
       root.append(screen);
     }
+  }
+  // Yenilikler: the installed version first; earlier versions folded below.
+  function showReleaseNotes(installed = null) {
+    const notes = state.releaseNotes || [];
+    const current = notes.find((item) => item.version === (installed || state.version)) || notes[0];
+    const section = (item) => {
+      const block = node("section", "release-notes-version");
+      const date = item.date ? new Date(`${item.date}T12:00:00`).toLocaleDateString("tr-TR") : "";
+      block.append(node("h3", "", `Sürüm ${item.version}${date ? ` · ${date}` : ""}`));
+      const list = node("ul", "release-notes-list");
+      for (const text of item.items || []) list.append(node("li", "", text));
+      block.append(list);
+      return block;
+    };
+    dialog(installed ? `RpaOrkestrAI ${installed} sürümüne güncellendi` : "Sürüm notları", (body) => {
+      body.classList.add("release-notes");
+      if (!current) {
+        body.append(node("p", "small muted", "Sürüm notları bulunamadı."));
+        return;
+      }
+      body.append(section(current));
+      const earlier = notes.filter((item) => item !== current);
+      if (earlier.length) {
+        const more = node("details", "release-notes-earlier");
+        more.append(node("summary", "", "Önceki sürümler"), ...earlier.map(section));
+        body.append(more);
+      }
+    }, [{ label: "Tamam", variant: "primary", fn: (d) => d.close() }]);
+  }
+  function versionButton() {
+    const item = node("button", "version", `v${state.version || ""}`);
+    item.type = "button";
+    item.title = "Sürüm notları: bu sürümde neler değişti";
+    item.setAttribute("aria-label", `Sürüm ${state.version}: sürüm notlarını aç`);
+    item.addEventListener("click", () => showReleaseNotes());
+    return item;
   }
   function paintUpdates() {
     const message = document.getElementById("update-message");

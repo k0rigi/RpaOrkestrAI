@@ -54,8 +54,15 @@ stage_root=$5
 version=$6
 platform=$7
 marker=$8
+progress=${9:-}
 state=old
 health_pid=
+close_progress() {
+    if [ -n "$progress" ]; then
+        /bin/kill "$progress" 2>/dev/null || true
+        progress=
+    fi
+}
 stop_health() {
     if [ -n "$health_pid" ]; then
         /bin/kill -TERM "$health_pid" 2>/dev/null || true
@@ -69,6 +76,7 @@ rollback() {
     result=$?
     trap - EXIT HUP INT TERM
     stop_health
+    close_progress
     if [ "$state" = new ]; then
         if /bin/mv "$target" "$staged" && /bin/mv "$backup" "$target"; then
             /bin/rm -f "$marker"
@@ -136,6 +144,7 @@ if [ "$(/usr/bin/plutil -extract ok raw -expect bool -o - "$report")" != true ] 
     exit 1
 fi
 /bin/rm -f "$marker"
+close_progress
 /usr/bin/open "$target"
 state=complete
 trap - EXIT HUP INT TERM
@@ -217,7 +226,7 @@ def _remove_stage(stage: Path, target: Path) -> None:
         shutil.rmtree(stage)
 
 
-def _prepare_mac(asset: Path, version: str, executable: Path, cache: Path) -> InstallPlan:
+def _prepare_mac(asset: Path, version: str, executable: Path, cache: Path, progress_pid: int | None) -> InstallPlan:
     target = _mac_target(executable)
     machine = platform.machine().lower()
     if machine in ("arm64", "aarch64"):
@@ -263,7 +272,8 @@ def _prepare_mac(asset: Path, version: str, executable: Path, cache: Path) -> In
         plan = InstallPlan(
             platform="Darwin",
             command=("/bin/sh", str(helper), str(os.getpid()), str(target), str(staged),
-                     str(stage / "previous.app"), str(stage), version, platform_key, str(cache / "installing.json")),
+                     str(stage / "previous.app"), str(stage), version, platform_key, str(cache / "installing.json"),
+                     *([str(progress_pid)] if progress_pid else [])),
             log_path=cache / f"install-{version}.log",
             target=target,
             staging_dir=stage,
@@ -293,7 +303,8 @@ def _prepare_mac(asset: Path, version: str, executable: Path, cache: Path) -> In
 
 
 def prepare_install(
-    asset_path: Path, asset_type: str, version: str, current_executable: Path, cache_dir: Path,
+    asset_path: Path, asset_type: str, version: str, current_executable: Path, cache_dir: Path, *,
+    progress_pid: int | None = None,
 ) -> InstallPlan:
     """Validate local installation and stage an authenticated ``exe`` or ``dmg``.
 
@@ -315,7 +326,7 @@ def prepare_install(
     executable = executable.resolve(strict=True)
     system = platform.system()
     if system == "Darwin" and asset_type == "dmg" and asset.suffix.lower() == ".dmg":
-        return _prepare_mac(asset, version, executable, cache)
+        return _prepare_mac(asset, version, executable, cache, progress_pid)
     if system == "Windows" and asset_type == "exe" and asset.suffix.lower() == ".exe":
         target = executable.parent
         if executable.name.lower() != "rpaorkestrai.exe" or not (target / "unins000.exe").is_file():
@@ -358,6 +369,85 @@ def handoff(plan: InstallPlan) -> subprocess.Popen:
             return subprocess.Popen(plan.command, stdout=log, stderr=subprocess.STDOUT, **options)
     except OSError as exc:
         raise UpdateInstallError("Güncelleme başlatılamadı; uygulamayı kullanmaya devam edebilirsiniz.") from exc
+
+
+# ----- the update shows that it is working ---------------------------------------------------------
+PROGRESS_TEXT = ("RpaOrkestrAI {version} sürümüne güncelleniyor.\n\nBu bir dakika kadar sürebilir; "
+                 "bitince Studio kendiliğinden açılır.")
+PROGRESS_SECONDS = 600
+# macOS: shown while the update is prepared and installed; the install helper closes it.
+MAC_PROGRESS = """on run argv
+    activate
+    display dialog (item 1 of argv) with title "RpaOrkestrAI" buttons {"Gizle"} default button "Gizle" with icon note giving up after ((item 2 of argv) as integer)
+end run"""
+# Windows: a small window of its own (not the setup wizard); it closes once the new version has started
+# (it removes the install marker) or after PROGRESS_SECONDS. RPA_CHECK_ONLY builds it without showing it.
+WINDOWS_PROGRESS = r"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'RpaOrkestrAI'
+$form.TopMost = $true
+$form.StartPosition = 'CenterScreen'
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+$form.ClientSize = New-Object System.Drawing.Size(440, 120)
+$label = New-Object System.Windows.Forms.Label
+$label.Text = $env:RPA_TEXT
+$label.SetBounds(16, 14, 408, 56)
+$bar = New-Object System.Windows.Forms.ProgressBar
+$bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
+$bar.MarqueeAnimationSpeed = 30
+$bar.SetBounds(16, 82, 408, 18)
+$form.Controls.AddRange(@($label, $bar))
+if ($env:RPA_CHECK_ONLY) { [Console]::Out.Write('check:' + $label.Text); exit 0 }
+$limit = (Get-Date).AddSeconds([int]$env:RPA_SECONDS)
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 500
+$timer.Add_Tick({
+    if (-not (Test-Path -LiteralPath $env:RPA_MARKER) -or (Get-Date) -gt $limit) { $timer.Stop(); $form.Close() }
+})
+$timer.Start()
+[void]$form.ShowDialog()
+"""
+
+
+def windows_progress(version: str, marker: Path, *, check_only: bool = False) -> subprocess.Popen:
+    import base64
+
+    encoded = base64.b64encode(WINDOWS_PROGRESS.encode("utf-16-le")).decode("ascii")
+    environment = {**os.environ, "RPA_TEXT": PROGRESS_TEXT.format(version=version), "RPA_MARKER": str(marker),
+                   "RPA_SECONDS": str(PROGRESS_SECONDS)}
+    if check_only:
+        environment["RPA_CHECK_ONLY"] = "1"
+    # A separate process: it stays while the installer replaces the application files.
+    return subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if check_only else subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, env=environment, close_fds=True,
+                            creationflags=0x08000000 | 0x00000200)  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+
+
+def show_progress(version: str, marker: Path | None = None) -> subprocess.Popen | None:
+    """The update's progress window; None when it cannot be shown (the update goes on without it)."""
+    try:
+        if platform.system() == "Darwin":
+            return subprocess.Popen(["/usr/bin/osascript", "-e", MAC_PROGRESS, PROGRESS_TEXT.format(version=version),
+                                     str(PROGRESS_SECONDS)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        if platform.system() == "Windows" and marker is not None:
+            return windows_progress(version, marker)
+    except OSError:
+        logger.warning("Güncelleme ilerleme penceresi açılamadı.", exc_info=True)
+    return None
+
+
+def stop_progress(process: subprocess.Popen | None) -> None:
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            pass
 
 
 def cleanup(plan: InstallPlan) -> None:

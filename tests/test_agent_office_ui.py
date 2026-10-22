@@ -624,9 +624,16 @@ def test_work_is_managed_from_the_3d_office(office_browser):
     eventually(page, "(window.officeToasts || []).some((text) => text.endsWith('görevi aldı.'))")
     assert data["_started"] == [(manager["id"], {"task": "Bugünkü iadeleri topla"})]
     page.get_by_role("button", name="Yöneticiye yaz", exact=True).click()
-    detail.get_by_label("Sorunuz", exact=False).fill("Bugün ne bitti?")
-    detail.get_by_role("button", name="Sor", exact=True).click()
+    question = detail.get_by_label("Sorunuz", exact=False)
+    question.fill("Bugün ne bitti?")
+    question.press("Shift+Enter")  # a new line, not a question yet
+    assert not data.get("_chat")
+    question.press("Enter")  # Enter asks at once
     detail.get_by_text("Bugün iki iş bitti.", exact=True).wait_for()
+    assert data["_chat"][0]["text"] == "Bugün ne bitti?"
+    detail.get_by_label("Sorunuz", exact=False).fill("Ya yarın?")
+    detail.get_by_role("button", name="Sor", exact=True).click()
+    eventually(page, "document.querySelectorAll('.office-chat li').length === 4")
     # A task for a person of the office.
     page.locator('.office-person-label[data-person="human-18"]').click()
     detail.get_by_role("button", name="Görev ata", exact=True).click()

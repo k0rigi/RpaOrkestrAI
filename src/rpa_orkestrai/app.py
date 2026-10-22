@@ -378,7 +378,9 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
 
     @app.get("/api/bootstrap")
     def bootstrap():
-        return {"platform": platform.system(), "version": __version__, "workflows": store.workflows(),
+        from .release_notes import recent
+
+        return {"release_notes": recent(), "platform": platform.system(), "version": __version__, "workflows": store.workflows(),
                 "runs": store.runs(), "catalog": library_catalog(agents_allowed()), "settings": settings.public(),
                 "action_definitions": ACTION_DEFINITIONS + library_catalog(),
                 "favorites": store.favorites(), "updates": update_status(), "connections": connections.list(),
