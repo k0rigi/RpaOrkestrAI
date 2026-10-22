@@ -386,6 +386,7 @@ WINDOWS_PROGRESS = r"""
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'RpaOrkestrAI'
 $form.TopMost = $true
