@@ -668,19 +668,32 @@ def test_the_show_plays_the_chain_of_work_with_the_offices_own_agents_and_starts
     page = start(extra={"showStep": 1500})  # The real show waits 4.5 s per turn.
     page.get_by_text("3D ofis · yerel görünüm", exact=True).wait_for()
     manager, first = data["agents"][0], data["agents"][1]
-    manager_label = page.locator(f'.office-person-label[data-person="{manager["id"]}"]')
     first_label = page.locator(f'.office-person-label[data-person="{first["id"]}"]')
     asked = len(calls)
+    # Every balloon shown is recorded, so a slow machine cannot miss a short one; then the order is checked.
+    page.evaluate("""() => { window.balloons = []; window.places = new Set();
+      new MutationObserver(() => {
+        for (const label of document.querySelectorAll('.office-person-label')) {
+          const speech = label.querySelector('.office-person-speech');
+          const said = speech && !speech.hidden ? speech.textContent : '';
+          const last = window.balloons.filter((item) => item[0] === label.dataset.person).at(-1);
+          if (said && (!last || last[1] !== said)) window.balloons.push([label.dataset.person, said]);
+        }
+      }).observe(document.querySelector('.office-view'), {subtree: true, childList: true, characterData: true,
+                                                         attributes: true});
+    }""")
     page.get_by_role("button", name="Gösterimi oynat", exact=True).click()
     page.get_by_text("Gösterim oynatılıyor · gerçek iş yapılmıyor", exact=True).wait_for()
-    manager_label.locator(".office-person-speech").get_by_text("Görev", exact=True).wait_for()
     before = first_label.evaluate("node => node.style.transform")
-    first_label.locator(".office-person-speech").get_by_text("Araştırıyor", exact=True).wait_for(timeout=15_000)
+    eventually(page, f"window.balloons.some(([who, said]) => who === '{first['id']}' && said === 'Araştırıyor')", 30)
     page.wait_for_timeout(1500)
     # The department really walks: its label follows the character to the research corner.
     assert first_label.evaluate("node => node.style.transform") != before
-    first_label.locator(".office-person-speech").get_by_text("Soru", exact=True).wait_for(timeout=15_000)
-    manager_label.locator(".office-person-speech").get_by_text("Yanıt", exact=True).wait_for(timeout=10_000)
+    eventually(page, f"window.balloons.some(([who, said]) => who === '{manager['id']}' && said === 'Yanıt')", 30)
+    said = [(who, text) for who, text in page.evaluate("window.balloons") if who in (manager["id"], first["id"])]
+    order = [said.index(item) for item in ((manager["id"], "Görev"), (first["id"], "Araştırıyor"),
+                                           (first["id"], "Soru"), (manager["id"], "Yanıt"))]
+    assert order == sorted(order), said
     page.get_by_role("button", name="Gösterimi durdur", exact=True).click()
     page.get_by_role("button", name="Gösterimi oynat", exact=True).wait_for()
     assert first_label.get_attribute("data-activity") == "workflow"  # back to what the agent really does

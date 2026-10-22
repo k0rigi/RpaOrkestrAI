@@ -289,7 +289,9 @@ Bilgisayar başında değilken ajanlar size Telegram'dan ulaşabilir. Kurulum i�
 
 1. @BotFather'dan bir bot oluşturun.
 2. Bot anahtarını Studio **Ayarlar → Bağlantılar**'da bir Telegram (bot) bağlantısına kaydedin.
-3. Kendi Telegram hesabınızla bota `/start` yazın ve sohbet kimliğinizi bağlantıya ekleyin.
+3. Kendi Telegram hesabınızla botu açıp **Başlat**'a (`/start`) basın. Bağlantı penceresinde **Sohbetleri bul**'a
+   basıp kendi adınızı seçin; sohbet kimliği numaranızla dolar (ör. `123456789`; botun `@..._bot` adı değil).
+   Sohbet bulunamazsa pencere nedenini ve anahtarın hangi bota ait olduğunu yazar (0.9.44+).
 4. **Ajanlar → Bağlantılar → Telegram'dan soru ve onay** bölümünde bağlantıyı ve sohbet kimliğinizi seçip
    **Kaydet ve aç**'a basın. **Deneme mesajı gönder** ile kontrol edebilirsiniz.
 

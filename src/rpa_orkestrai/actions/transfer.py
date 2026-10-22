@@ -94,9 +94,34 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: float) -> tuple[
 
 TELEGRAM_HINTS = {
     401: "Bot anahtarı geçersiz; @BotFather'dan aldığınız anahtarı kontrol edin.",
-    403: "Bot bu sohbete yazamıyor: kişi botu engellemiş ya da bot gruptan çıkarılmış.",
+    403: "Bot bu sohbete yazamıyor.",
     429: "Telegram istek sınırı aşıldı; biraz sonra yeniden deneyin.",
 }
+# Telegram's own reason (its description text) -> what to do, in Turkish.
+TELEGRAM_REASONS = (
+    ("bots can't send messages to bots", "Sohbet kimliğine bir botun adı yazılmış. Buraya mesajın gideceği kişinin "
+                                         "numarası gelir; Sohbetleri bul ile seçin."),
+    ("can't initiate conversation", "Kişi bota henüz yazmamış: Telegram'da botu açıp Başlat'a (/start) basmalı."),
+    ("blocked by the user", "Kişi botu engellemiş: Telegram'da botun engelini kaldırıp Başlat'a basmalı."),
+    ("kicked", "Bot bu gruptan çıkarılmış; botu gruba yeniden ekleyin."),
+    ("not a member", "Bot bu grubun veya kanalın üyesi değil; botu ekleyin."),
+    ("chat not found", "Sohbet bulunamadı: kişi bota önce /start yazmalı ya da bot gruba eklenmeli; sohbet kimliğini "
+                       "kontrol edin."),
+    ("webhook is active", "Bu botta bir webhook tanımlı; mesajlar başka bir adrese gidiyor. Bu iş için @BotFather'da "
+                          "yeni bir bot oluşturun."),
+    ("terminated by other getupdates", "Bu botun mesajlarını şu anda başka bir program okuyor. Bu iş için @BotFather'da "
+                                        "yeni bir bot oluşturun."),
+)
+
+
+def telegram_reason(status: int, answer: dict) -> str:
+    description = str(answer.get("description") or "").casefold()
+    for needle, reason in TELEGRAM_REASONS:
+        if needle in description:
+            return reason
+    if status in TELEGRAM_HINTS:
+        return TELEGRAM_HINTS[status]
+    return "Telegram isteği reddetti" + (f": {answer.get('description')}" if answer.get("description") else ".")
 
 
 def send_telegram(config: dict, title: str, body: str, to: str, timeout: float) -> dict:
@@ -108,27 +133,40 @@ def send_telegram(config: dict, title: str, body: str, to: str, timeout: float) 
                                 {"chat_id": chat, "text": text[:4096], "disable_web_page_preview": True}, {}, timeout)
     if status == 200 and answer.get("ok") is True:
         return {"service": "telegram", "chat": chat, "id": (answer.get("result") or {}).get("message_id")}
-    description = str(answer.get("description") or "").casefold()
-    hint = TELEGRAM_HINTS.get(status) or ("Sohbet bulunamadı: kişi bota önce /start yazmalı ya da bot gruba eklenmeli; "
-                                          "sohbet kimliğini kontrol edin." if "chat not found" in description
-                                          else "Telegram isteği reddetti.")
-    raise WorkflowError(f"Telegram mesajı gönderilemedi ({status}). {hint}")
+    raise WorkflowError(f"Telegram mesajı gönderilemedi ({status}). {telegram_reason(status, answer)}")
 
 
-def telegram_chats(token: str, timeout: float = 20) -> list[dict]:
-    """Chats that recently wrote to the bot, to fill in the chat id; nothing is sent."""
-    status, answer = _post_json(f"https://api.telegram.org/bot{token}/getUpdates", {"limit": 100}, {}, timeout)
-    if status != 200 or answer.get("ok") is not True:
-        raise WorkflowError(f"Telegram sohbetleri okunamadı ({status}). {TELEGRAM_HINTS.get(status, 'Bot anahtarını kontrol edin.')}")
+def telegram_chats(token: str, timeout: float = 20) -> dict:
+    """Which bot the key belongs to and the chats that recently wrote to it (to fill in the chat id); when there is
+    none, why (no message yet, a webhook, another reader). Nothing is sent."""
+    def call(method: str, payload: dict) -> dict:
+        status, answer = _post_json(f"https://api.telegram.org/bot{token}/{method}", payload, {}, timeout)
+        if status != 200 or answer.get("ok") is not True:
+            raise WorkflowError(f"Telegram sohbetleri okunamadı ({status}). {telegram_reason(status, answer)}")
+        return answer.get("result")
+
+    me = call("getMe", {})
+    bot = f"@{me.get('username')}" if isinstance(me, dict) and me.get("username") else ""
+    updates = call("getUpdates", {"limit": 100})
     chats = {}
-    for update in answer.get("result") or []:
+    for update in updates if isinstance(updates, list) else []:
         for key in ("message", "channel_post", "my_chat_member", "edited_message"):
             chat = (update.get(key) or {}).get("chat") if isinstance(update, dict) else None
             if isinstance(chat, dict) and "id" in chat:
                 name = chat.get("title") or " ".join(part for part in (chat.get("first_name"), chat.get("last_name")) if part)
                 chats[str(chat["id"])] = {"id": str(chat["id"]), "name": str(name or chat.get("username") or "")[:120],
                                           "type": str(chat.get("type") or "")}
-    return list(chats.values())[-20:]
+    note = ""
+    if not chats:
+        hook = call("getWebhookInfo", {})
+        if isinstance(hook, dict) and hook.get("url"):
+            note = (f"{bot or 'Bu bot'} için bir webhook tanımlı; mesajlar başka bir adrese gidiyor ve burada görünmez. "
+                    "Bu iş için @BotFather'da yeni bir bot oluşturun.")
+        else:
+            note = (f"{bot or 'Bota'} Telegram'dan son 24 saatte yazılmış mesaj yok. Telegram'da {bot or 'botu'} "
+                    "arayıp açın, Başlat'a basın ve bir mesaj yazın; sonra yeniden deneyin. Mesaj yazdığınız hâlde "
+                    "görünmüyorsa bu bot anahtarını başka bir program da kullanıyordur.")
+    return {"bot": bot, "chats": list(chats.values())[-20:], "note": note}
 
 
 WHATSAPP_HINTS = {

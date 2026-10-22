@@ -7280,14 +7280,16 @@
           const found = await api("/api/connections/telegram-chats", {
             method: "POST", body: JSON.stringify({ token: inputs.token.value.trim(), id: profile?.id }),
           });
-          chatList.replaceChildren(...(found.chats.length ? found.chats.map((chat) => button(
-            `${chat.name || "Adsız sohbet"} · ${chat.id}`, "", () => { inputs.chat_id.value = chat.id; }, "small"))
-            : [node("p", "help", "Sohbet bulunamadı. Bota Telegram'dan /start yazın veya botu gruba ekleyip bir mesaj gönderin, sonra yeniden deneyin.")]));
+          const which = found.bot ? [node("p", "help", `Bu anahtar ${found.bot} botuna ait.`)] : [];
+          chatList.replaceChildren(...which, ...(found.chats?.length ? found.chats.map((chat) => button(
+            `${chat.name || "Adsız sohbet"} · ${chat.id}${chat.type === "private" ? "" : " (grup/kanal)"}`, "",
+            () => { inputs.chat_id.value = chat.id; }, "small"))
+            : [node("p", "help", found.note || "Sohbet bulunamadı. Bota Telegram'dan /start yazın, sonra yeniden deneyin.")]));
         } finally {
           findChats.disabled = false;
         }
       }), "small");
-      const chatField = field("Sohbet kimliği", inputs.chat_id, "Bota /start yazan kişinin, botun eklendiği grubun veya kanalın kimliği.", true);
+      const chatField = field("Sohbet kimliği", inputs.chat_id, "Mesajların gideceği kişinin numarası (ör. 123456789); botun adı değil. Bota Telegram'dan Başlat deyin, sonra Sohbetleri bul ile kendinizi seçin.", true);
       chatField.append(findChats, chatList);
       const phoneField = field("Telefon numarası kimliği (Phone number ID)", inputs.phone_number_id,
         "Meta for Developers → WhatsApp → API Setup sayfasında yazar.", true);

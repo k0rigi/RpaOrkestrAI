@@ -51,7 +51,12 @@ def test_telegram_sends_to_the_chat_and_keeps_the_token_secret(tmp_path, sent):
 @pytest.mark.parametrize("status,answer,text", [
     (400, {"ok": False, "description": "Bad Request: chat not found"}, "/start"),
     (401, {"ok": False}, "Bot anahtarı geçersiz"),
-    (403, {"ok": False}, "engellemiş"),
+    (403, {"ok": False}, "Bot bu sohbete yazamıyor"),
+    # Telegram's own reason decides the advice.
+    (403, {"ok": False, "description": "Forbidden: bots can't send messages to bots"}, "botun adı yazılmış"),
+    (403, {"ok": False, "description": "Forbidden: bot can't initiate conversation with a user"}, "Başlat"),
+    (403, {"ok": False, "description": "Forbidden: bot was blocked by the user"}, "engellemiş"),
+    (400, {"ok": False, "description": "Bad Request: something new"}, "something new"),
 ])
 def test_telegram_errors_are_explained_without_the_token(tmp_path, sent, status, answer, text):
     connections, profile = create(tmp_path, service="telegram", token="123456:gizli-bot-anahtari", chat_id="42")
@@ -98,6 +103,7 @@ def test_whatsapp_errors_are_explained(tmp_path, sent, code, text):
 def test_messaging_connections_validate_their_fields(tmp_path):
     connections = Connections(tmp_path)
     for config, message in [({"service": "telegram", "token": "1:a", "chat_id": "kanal"}, "sohbet kimliği"),
+                            ({"service": "telegram", "token": "1:a", "chat_id": "@Dorimuo_bot"}, "botun adı olamaz"),
                             ({"service": "whatsapp", "token": "x", "phone_number_id": "abc"}, "rakam"),
                             ({"service": "whatsapp", "token": "x", "phone_number_id": "1", "to": "0532"}, "ülke koduyla"),
                             ({"service": "whatsapp", "token": "x", "phone_number_id": "1", "mode": "template",
@@ -116,10 +122,32 @@ def test_messaging_connections_validate_their_fields(tmp_path):
         transfer.notify_send(ctx, {"connection": slack["id"], "text": "x", "to": "905321234567"})
 
 
-def test_telegram_chat_finder_lists_recent_chats(monkeypatch):
-    monkeypatch.setattr(transfer, "_post_json", lambda url, payload, headers, timeout: (200, {"ok": True, "result": [
+def telegram_api(monkeypatch, updates, webhook="", status=200, answer=None):
+    def reply(url, payload, headers, timeout):
+        method = url.rsplit("/", 1)[1]
+        if method == "getUpdates" and status != 200:
+            return status, answer
+        return 200, {"ok": True, "result": {"getMe": {"username": "Dorimuo_bot"}, "getUpdates": updates,
+                                            "getWebhookInfo": {"url": webhook}}[method]}
+    monkeypatch.setattr(transfer, "_post_json", reply)
+
+
+def test_telegram_chat_finder_lists_recent_chats_and_names_the_bot(monkeypatch):
+    telegram_api(monkeypatch, [
         {"message": {"chat": {"id": 42, "first_name": "Ayşe", "last_name": "Yılmaz", "type": "private"}}},
         {"my_chat_member": {"chat": {"id": -1001, "title": "Muhasebe", "type": "supergroup"}}},
-        {"message": {"chat": {"id": 42, "first_name": "Ayşe", "type": "private"}}}]}))
-    assert transfer.telegram_chats("1:a") == [{"id": "42", "name": "Ayşe", "type": "private"},
-                                              {"id": "-1001", "name": "Muhasebe", "type": "supergroup"}]
+        {"message": {"chat": {"id": 42, "first_name": "Ayşe", "type": "private"}}}])
+    assert transfer.telegram_chats("1:a") == {"bot": "@Dorimuo_bot", "note": "", "chats": [
+        {"id": "42", "name": "Ayşe", "type": "private"}, {"id": "-1001", "name": "Muhasebe", "type": "supergroup"}]}
+
+
+def test_telegram_chat_finder_says_why_nothing_is_found(monkeypatch):
+    telegram_api(monkeypatch, [])
+    found = transfer.telegram_chats("1:a")
+    assert found["chats"] == [] and "@Dorimuo_bot" in found["note"] and "Başlat" in found["note"]
+    telegram_api(monkeypatch, [], webhook="https://example.com/hook")
+    assert "webhook tanımlı" in transfer.telegram_chats("1:a")["note"]
+    telegram_api(monkeypatch, [], status=409, answer={"ok": False, "description":
+                                                      "Conflict: terminated by other getUpdates request"})
+    with pytest.raises(WorkflowError, match="başka bir program okuyor"):
+        transfer.telegram_chats("1:a")

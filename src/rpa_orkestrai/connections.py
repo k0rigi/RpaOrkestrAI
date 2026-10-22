@@ -309,6 +309,9 @@ class Connections:
             chat = value("chat_id", "Sohbet kimliği", 40)
             if chat and not TELEGRAM_CHAT.fullmatch(chat):
                 raise ValueError("Telegram sohbet kimliği bir sayı (ör. -1001234567890) veya @kanaladi olmalıdır.")
+            if chat.startswith("@") and chat.casefold().endswith("bot"):
+                raise ValueError("Sohbet kimliği botun adı olamaz: buraya mesajın gideceği kişinin numarası "
+                                 "(ör. 123456789) gelir. Bota Başlat deyip Sohbetleri bul ile seçin.")
             return {"service": service, "token": token, "chat_id": chat}
         number_id = value("phone_number_id", "Telefon numarası kimliği", 30)
         if number_id and not number_id.isdigit():

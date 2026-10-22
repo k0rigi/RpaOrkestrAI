@@ -1056,7 +1056,7 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         if not token.strip() or any(ord(char) < 33 for char in token.strip()):
             raise HTTPException(status_code=422, detail="Önce bot anahtarını yazın.")
         try:
-            return {"chats": read_chats(token.strip())}
+            return read_chats(token.strip())
         except WorkflowError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
