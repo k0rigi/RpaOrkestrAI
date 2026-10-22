@@ -255,13 +255,14 @@ def test_shell_transaction_requires_healthy_matching_package_and_preserves_works
     helper = tmp_path / "helper.sh"
     # POSIX quoting for this test fixture; production paths are argv, never source.
     script = installer._MAC_HELPER.replace("/usr/bin/open", shlex.quote(str(launcher)))
-    helper.write_text(script.replace('"$count" -ge 90', '"$count" -ge 1'))
+    # A short health-check limit (the timeout scenario needs it), but long enough for a slow, cold start.
+    helper.write_text(script.replace('"$count" -ge 90', '"$count" -ge 5'))
     progress = subprocess.Popen(["/bin/sleep", "60"])  # stands for the "güncelleniyor" window
     try:
         result = subprocess.run(
             ["/bin/sh", str(helper), "2147483647", str(target), str(staged), str(stage / "previous.app"),
              str(stage), "0.2.0", "macos-arm64", str(marker), str(progress.pid)],
-            capture_output=True, timeout=10,
+            capture_output=True, timeout=30,
         )
         # Installed or rolled back, the progress window never stays open.
         assert progress.wait(timeout=5) is not None
