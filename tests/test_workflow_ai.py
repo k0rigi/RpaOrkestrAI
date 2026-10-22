@@ -15,7 +15,7 @@ from rpa_orkestrai.agents.schema import compile_schema
 from rpa_orkestrai.agents.workflow_ai import WorkflowAIService
 from rpa_orkestrai.config import Settings
 from rpa_orkestrai.engine import UNKNOWN, Executor, RunManager, step_reads, step_test_plan
-from rpa_orkestrai.errors import AgentPolicyStop, Cancelled, WorkflowError
+from rpa_orkestrai.errors import Cancelled, WorkflowError
 from rpa_orkestrai.models import Run, Step, Workflow, uid
 from rpa_orkestrai.package_check import _check_ai_schema
 from rpa_orkestrai.storage import Store
@@ -356,7 +356,7 @@ def test_ai_limits_and_unexpected_tools_fail_closed(ai, kind):
     assert "result" not in ai.executor.variables
 
 
-def test_agent_cannot_call_ai_step_directly_or_via_subworkflow(ai):
+def test_an_agent_runs_an_ai_step_of_its_flow_only_after_approval(ai):
     child = Workflow(steps=[ai.step()])
     parent = Workflow(steps=[Step(action="control.run_workflow", params={"workflow": child.id})])
     for item in (child, parent):
@@ -364,11 +364,11 @@ def test_agent_cannot_call_ai_step_directly_or_via_subworkflow(ai):
     agent = Agent(name="Analiz", company_id=2, user_id=1,
                   workflows=[WorkflowGrant(workflow_id=item.id) for item in (child, parent)])
     for item in (child, parent):
-        with pytest.raises(WorkflowError):
-            prepare_workflow(agent, item.id, ai.store, {}, actor=ai.actor)
-    ai.executor.agent_context = object()
-    with pytest.raises(AgentPolicyStop):
-        ai.service.complete(ai.executor, ai.step().params)
+        assert prepare_workflow(agent, item.id, ai.store, {}, actor=ai.actor).approval_required
+    # Without the sub-flow in its grant the agent still cannot reach it.
+    only_parent = agent.model_copy(update={"workflows": [WorkflowGrant(workflow_id=parent.id)]})
+    with pytest.raises(WorkflowError):
+        prepare_workflow(only_parent, parent.id, ai.store, {}, actor=ai.actor)
 
 
 def test_schema_package_self_check_and_run_manager_service_hook(ai):

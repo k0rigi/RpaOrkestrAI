@@ -37,12 +37,19 @@ Her ajan için izinli akışlar açıkça seçilir. Alt akışlar da ayrı ayrı
 Dinamik alt akış kimliği, döngüsel başvuru ve desteklenmeyen adımlar reddedilir.
 Yönetici ajan akış çalıştıramaz; bu yetki yalnız departman ajanlarına verilir.
 
-Ajanın dışına taşamayacağı denetlenebilir bir sınırı olmayan adımlar ajan akışlarında
-kullanılamaz: web adımları (Web sayfası aç, Web öğesine tıkla…), Yapay zekâya sor,
-Komut / script çalıştır, Uygulama aç/kapat, Zip, ekran görüntüsü ve ham fare/klavye
-adımları. Bu adımları içeren akışlar elle veya Zamanlayıcı ile çalışmaya devam eder.
-Ajanın izin listesinde böyle bir akışın altında hangi adımın neden engellediği yazar
-(0.9.44+).
+Ajana bir akış verdiğinizde ajan o akışı içindeki her adımla çalıştırır (0.9.44+): web
+adımları, Yapay zekâya sor, Komut / script çalıştır, Uygulama aç/kapat, Zip, ekran
+görüntüsü ve fare/klavye adımları dahil. Güvenlik şöyle korunur:
+
+- **Onay:** geri alınamaz (riskli) adım içeren akış, o izinde **Onaysız çalışabilir**
+  açılmadıkça her çalıştırmada onay yetkilisinin onayını bekler.
+- **Klasör izni isteğe bağlıdır:** boşsa akış dosyalara kendi yazdığı yollarla erişir;
+  klasör yazılırsa ajan o klasörlerin dışına çıkamaz.
+- **Her zaman kapalı:** Studio'nun kendi penceresi ve dosyaları, kimlik bilgisi klasörleri
+  (.ssh, credentials…) ve izin verilmemiş alt akışlar. Ajan bu yolla kendi onayını veremez.
+- Resim, Excel, PDF gibi çıktılar olduğu gibi saklanır; kayıtlı bir şifre böyle bir
+  dosyanın içine yazılmışsa ajan dosyayı kaydetmez.
+- Ajana verilemeyen akışın (ör. Studio penceresini hedefleyen) altında nedeni yazar.
 
 Katalogdaki her adım risk tablosunda sınıflandırılır. Masaüstünden tablo okumak bile
 tıklama ve seçim değiştiriyorsa onay gerektirir. Akışın riski tüm alt akışları kapsar.

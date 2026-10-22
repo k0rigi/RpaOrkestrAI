@@ -86,8 +86,7 @@ class WorkflowAIService:
             raise WorkflowError("Gizli değer denetimi tamamlanamadı; yapay zekâ işlemi durduruldu.") from None
 
     def complete(self, ctx, parameters):
-        if ctx.agent_context is not None:
-            raise AgentPolicyStop("Ajan akışı başka bir yapay zekâ çağrısı başlatamaz.")
+        # A flow given to an agent may ask the AI too; saved secrets are masked here as for any run.
         if ctx.run.dry_run:
             from ..engine import UNKNOWN
 

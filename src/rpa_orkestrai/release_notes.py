@@ -14,8 +14,11 @@ NOTES: list[dict] = [
         "söyler (bota henüz yazılmamış, webhook tanımlı veya başka bir program okuyor).",
         "Sohbet kimliğine botun adı yazılamaz; alanın açıklaması buraya kişinin numarasının geldiğini söyler.",
         "Telegram hataları Telegram'ın verdiği gerçek nedenle açıklanır (ör. kişi bota henüz Başlat dememiş).",
-        "Ajana izin verilemeyen akışlarda hangi adımın neden engellediği yazar (ör. web adımları ve Yapay zekâya sor "
-        "ajan akışlarında kullanılamaz).",
+        "Ajana verdiğiniz akış içindeki her adımla çalışır: web adımları, Yapay zekâya sor, komut ve uygulama "
+        "adımları dahil. Riskli adım içeren akış, izinde Onaysız çalışabilir açılmadıkça her çalıştırmada onayınızı "
+        "bekler. Klasör izni isteğe bağlıdır; Studio'nun kendi penceresi ve dosyaları ajana kapalı kalır.",
+        "Ajana soru sorarken yanıt beklenirken sayaç görünür ve yanıtın kaç saniye sürdüğü yazılır; selamlaşma gibi "
+        "basit sorular araç kullanılmadan, daha hızlı yanıtlanır.",
     ]},
     {"version": "0.9.43", "date": "2026-10-22", "items": [
         "Ofisi sil: ofisin yetkilisi Ofisim sekmesinin sonundaki Ofisi sil bölümünde ofisin adını aynen yazarak "

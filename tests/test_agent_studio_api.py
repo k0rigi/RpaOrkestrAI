@@ -105,20 +105,19 @@ def test_workflow_metadata_hides_parameters_and_allows_configuring_file_grant(cl
     items = {item["id"]: item for item in response.json()}
     assert items[first.id]["agent_supported"] is True and items[first.id]["requires_roots"] is True
     assert items[first.id]["inputs"] == [{"name": "dosya", "required": True}]
-    assert items[second.id]["agent_supported"] is False
+    assert items[second.id]["agent_supported"] is True and items[second.id]["risk"] == "geri_alinamaz"
     assert "gizli-komut-metni" not in response.text
-    # The reason names the step that keeps the flow from agents, not a generic sentence.
-    assert "Komut / script çalıştır" in items[second.id]["blocked_reason"]
 
 
-def test_a_web_or_ai_flow_says_which_step_keeps_it_from_agents(client):
+def test_web_and_ai_flows_can_be_given_to_agents_and_a_blocked_one_says_why(client):
     web = Workflow(name="Portal", steps=[Step(action="web.open", params={"url": "https://portal.example.com"})])
     ask = Workflow(name="Sınıflandır", steps=[Step(action="ai.ask", params={"prompt": "x", "output": "cevap"})])
-    for workflow in (web, ask):
+    studio = Workflow(name="Studio", steps=[Step(action="desktop.find_window", params={"application": "RpaOrkestrAI"})])
+    for workflow in (web, ask, studio):
         client.app.state.store.save_workflow(workflow)
     items = {item["id"]: item for item in client.client.get("/api/agents/workflows").json()}
-    assert "Web sayfası aç" in items[web.id]["blocked_reason"] and not items[web.id]["agent_supported"]
-    assert "Yapay zekâya sor" in items[ask.id]["blocked_reason"]
+    assert items[web.id]["agent_supported"] and items[ask.id]["agent_supported"]
+    assert not items[studio.id]["agent_supported"] and "Studio penceresini" in items[studio.id]["blocked_reason"]
 
 
 @pytest.mark.parametrize("provider", ["ollama", "openai", "shared"])

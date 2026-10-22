@@ -166,6 +166,9 @@ def test_chat_answers_from_the_work_records_and_cannot_send(runtime, outbox):
         ProviderResponse(text="Bugün 1 görev tamamladım; bekleyen iş yok.", usage=Usage(20, 8))])
     answer = runtime.service.chat.ask(agent.id, "Bugün neler yaptın?")
     assert answer["reply"].text == "Bugün 1 görev tamamladım; bekleyen iş yok." and answer["reply"].tokens == 43
+    # The screen shows how long the answer took and how many model calls it needed.
+    assert answer["rounds"] == 2 and answer["seconds"] >= 0
+    assert "Selamlaşma" in provider.requests[0]["messages"][0]["content"] and provider.requests[0]["max_tokens"] <= 2048
     tools = {tool["name"] for tool in provider.requests[0]["tools"]}
     assert {"work_summary", "list_tasks", "get_task", "read_document"} <= tools and "send_email" not in tools
     summary, refused = [json.loads(message["content"])["untrusted_data"] for message in provider.requests[1]["messages"]

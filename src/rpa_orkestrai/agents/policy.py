@@ -17,15 +17,6 @@ from .redaction import MASK, Redactor
 from .risk import WRITE, workflow_risk
 
 WORKFLOW_ID = re.compile(r"^[a-f0-9]{32}$")
-# These handlers lack a enforceable resource boundary. Human-run flows are unaffected.
-UNSUPPORTED = frozenset({
-    "ai.ask",
-    "system.command", "system.run_file", "system.open", "system.close_app", "web.script",
-    "file.zip", "screen.screenshot", "desktop.ocr",
-    "desktop.click", "desktop.write", "desktop.hotkey", "desktop.press", "desktop.click_template",
-    "desktop.scan_dropdown", "clipboard.get", "clipboard.set", "input.mouse_click", "input.mouse_move",
-    "input.drag", "input.scroll", "input.type", "input.hotkey", "input.press", "input.key_state",
-})
 FILE_FIELDS = {
     "file.read_text": ("path",), "file.write_text": ("path",), "file.read_table": ("path",),
     "file.write_table": ("path",), "file.read_pdf": ("path",), "file.exists": ("path",), "file.info": ("path",),
@@ -43,15 +34,9 @@ def _file_field_used(action, raw) -> bool:
     if action == "ftp.transfer":
         return raw.get("operation", "download") != "list"
     return True
-UNSAFE_APPLICATIONS = frozenset({"terminal", "iterm", "iterm2", "cmd", "powershell", "pwsh",
-                                 "windowsterminal", "wt", "conhost", "bash", "zsh", "sh",
-                                 "safari", "google chrome", "chrome", "chromium", "msedge",
-                                 "microsoft edge", "firefox", "explorer", "finder"})
-
-
-def _unsafe_application(value):
-    name = str(value).strip().casefold().removesuffix(".exe").removesuffix(".app")
-    return name in UNSAFE_APPLICATIONS or "rpaorkestrai" in name
+def _studio_application(value):
+    """The Studio itself is never an agent's target: it would approve its own requests."""
+    return "rpaorkestrai" in str(value or "").casefold()
 
 
 def _stop(message: str):
@@ -135,40 +120,20 @@ class PreparedWorkflow:
     actor: dict[str, Any]
 
 
-def _supported(workflow, grant, *, require_resource_grants=True):
+def _supported(workflow, grant):
+    """A flow given to an agent may run every step it has (risky ones wait for approval unless the grant says
+    otherwise). Only what would let the agent leave its grant is refused: unknown steps, the Studio as a target and
+    the system variables."""
     from ..catalog import BY_TYPE
     from ..engine import variable_name
 
     for step in walk_steps(workflow.steps):
         if step.action not in BY_TYPE:
-            raise WorkflowError("Akışta ajan tarafından desteklenmeyen adım türü var.")
-        if step.action in UNSUPPORTED or step.action.startswith(("web.", "browser.")):
-            raise WorkflowError(f"“{BY_TYPE[step.action]['label']}” adımının hedef sınırı ajan için güvenle "
-                                "doğrulanamıyor; bu akış elle çalıştırılabilir.")
+            raise WorkflowError("Akışta bu Studio sürümünün tanımadığı bir adım türü var; Studio'yu güncelleyin.")
         raw = parameters(step)
-        if step.action == "desktop.find_window":
-            application = raw.get("application")
-            if not isinstance(application, str) or not application.strip() or "${" in application:
-                raise WorkflowError("Ajanın Pencereyi tanı adımında uygulama adı sabit ve dolu olmalıdır.")
-            if _unsafe_application(application):
-                raise WorkflowError("Ajan kabuk, tarayıcı, dosya yöneticisi veya Studio penceresini yönetemez.")
-        if step.action in FILE_FIELDS and _file_field_used(step.action, raw) and require_resource_grants \
-                and not grant.allowed_roots:
-            raise WorkflowError("Dosya adımları için ajanın akış izninde izin verilen klasörleri belirtin.")
-        if step.action in CONNECTION_STEPS and "${" in str(raw.get("connection") or ""):
-            raise WorkflowError("Ajan akışlarında bağlantı sabit seçilmelidir; değişkenden gelemez.")
-        if step.action == "http.request":
-            url = str(raw.get("url") or "")
-            if not raw.get("connection") or "://" in url:
-                raise WorkflowError("Ajanın HTTP isteği bir API bağlantısı kullanmalı ve adres bağlantıya göre bir yol "
-                                    "olmalıdır (ör. /v1/siparisler/${no}); kimlik bilgileri böylece yalnız o sunucuya gider.")
-        if step.action in {"screen.read_text", "screen.wait_text", "screen.find_image", "screen.click_image"}:
-            if raw.get("relative_to") != "window":
-                raise WorkflowError("Ajanın ekran adımı yalnız tanıtılmış bir pencere içinde çalışabilir.")
-        if step.action == "control.try" and raw.get("screenshot"):
-            raise WorkflowError("Ajan akışlarında hata ekranı otomatik kaydedilemez; gizli veri içerebilir.")
-        if step.action == "file.list" and raw.get("recursive"):
-            raise WorkflowError("Ajanın dosya listesinde alt klasörleri tarama bu sürümde desteklenmiyor.")
+        if step.action == "desktop.find_window" and any(_studio_application(raw.get(key)) for key in ("application",
+                                                                                                    "title")):
+            raise WorkflowError("Ajan Studio penceresini hedefleyemez.")
         for key in ("output", "item_name", "error_name"):
             if raw.get(key):
                 variable_name(raw[key])
@@ -184,7 +149,7 @@ def inspect_workflow(workflow_id, store):
     """Editor-only capabilities; never constructs execution permissions or approval tokens."""
     graph = _load_graph(workflow_id, store)
     for workflow in graph.values():
-        _supported(workflow, None, require_resource_grants=False)
+        _supported(workflow, None)
     return {"requires_roots": any(step.action in FILE_FIELDS for workflow in graph.values()
                                   for step in walk_steps(workflow.steps)),
             "dependencies": [key for key in graph if key != workflow_id]}
@@ -273,30 +238,33 @@ class AgentExecutionPolicy:
         return result if isinstance(result, dict) else {"bilgi": result}
 
     def _path(self, raw, grants):
-        if not isinstance(raw, str) or not raw or any(token in raw for token in ("*", "?", "\x00")):
-            _stop("Ajan dosya adımı açık bir dosya veya klasör yolu gerektirir.")
+        if not isinstance(raw, str) or not raw.strip() or "\x00" in raw:
+            _stop("Ajan dosya adımında dosya veya klasör yolu boş.")
         candidate = Path(os.path.expandvars(os.path.expanduser(raw)))
-        if not candidate.is_absolute():
-            _stop("Ajan dosya yolu mutlak olmalıdır.")
+        # A pattern (rapor*.xlsx) is checked by the folder it looks in.
+        if any(token in candidate.name for token in ("*", "?")):
+            candidate = candidate.parent
         resolved = candidate.resolve()
         if any(part.casefold() in {"credentials", ".git", ".ssh", ".aws", ".azure"} for part in resolved.parts):
             _stop("Kimlik bilgisi veya uygulama yönetimi klasörüne ajan erişemez.")
         if any(resolved == root or root in resolved.parents for root in self.protected_roots):
             _stop("Studio dosyalarına ajan erişemez.")
         for grant in grants:
+            if not grant.allowed_roots:
+                continue  # No folders named for this flow: its paths are not limited.
             roots = [Path(root).expanduser().resolve() for root in grant.allowed_roots]
             if not any(resolved == root or root in resolved.parents for root in roots):
                 _stop("Dosya yolu bu akış için izin verilen klasörlerin dışında.")
-        # Handlers may traverse symlinks after this guard. Reject them rather than granting their targets.
-        if any(item.is_symlink() for item in (candidate, *candidate.parents)):
-            _stop("Ajan dosya yolunda sembolik bağlantı kullanılamaz.")
+            # Inside named folders a link could point outside them.
+            if any(item.is_symlink() for item in (candidate, *candidate.parents)):
+                _stop("Ajan dosya yolunda sembolik bağlantı kullanılamaz.")
         return resolved
 
     def _window(self, value):
         if type(value) is not dict or value.get("found") is not True or _hash(value) not in self._known_windows:
             _stop("Ajan yalnız bu çalışmada tanıtılmış pencereyi kullanabilir.")
-        if value.get("pid") == os.getpid() or _unsafe_application(value.get("application", "")):
-            _stop("Ajan kabuk, tarayıcı, dosya yöneticisi veya Studio penceresini yönetemez.")
+        if value.get("pid") == os.getpid() or _studio_application(value.get("application")):
+            _stop("Ajan Studio penceresini yönetemez.")
         if self.window_validator is None:
             _stop("Pencere güvenliği doğrulanamadı; ajan masaüstü işlemi durduruldu.")
         self.window_validator(value)
@@ -319,24 +287,13 @@ class AgentExecutionPolicy:
             if not _file_field_used(step.action, resolved_params):
                 continue
             path = self._path(value, grants)
-            if step.action == "file.operation" and field == "source" and path.is_dir() \
-                    and resolved_params.get("operation") != "create_folder":
-                _stop("Ajanın klasör taşıma, kopyalama veya silme işlemi bu sürümde desteklenmiyor.")
-            if step.action == "file.list" and path.is_dir() and any(item.is_symlink() for item in path.iterdir()):
-                _stop("Listelenecek klasörde sembolik bağlantı var; ajan işlemi durduruldu.")
             if step.action == "file.operation" and field == "destination" and path.is_dir():
-                self._path(str(path / Path(resolved_params["source"]).name), grants)
+                self._path(str(path / Path(str(resolved_params.get("source") or "x")).name), grants)
         if "window" in raw:
             self._window(resolved_params.get("window"))
         if step.action == "desktop.find_window":
             if any("rpaorkestrai" in str(resolved_params.get(key, "")).casefold() for key in ("application", "title")):
                 _stop("Ajan Studio penceresini hedefleyemez.")
-        if step.action == "http.request" and "://" in str(resolved_params.get("url") or ""):
-            _stop("Ajanın HTTP isteği yalnız API bağlantısının sunucusuna gidebilir.")
-        if step.action == "mail.send":
-            attachments = resolved_params.get("attachments")
-            if attachments:
-                _stop("Ajan e-postasına dosya ekleme bu sürümde desteklenmiyor.")
 
     def after_step(self, step, result, variables):
         if not self._frames or self._frames[-1][0] != step.id:
@@ -351,15 +308,19 @@ class AgentExecutionPolicy:
             for key in outputs:
                 value = variables.get(key)
                 if type(value) is dict and value.get("found") is True:
-                    if value.get("pid") == os.getpid() or _unsafe_application(value.get("application", "")):
-                        _stop("Ajan kabuk, tarayıcı, dosya yöneticisi veya Studio penceresini kullanamaz.")
+                    if value.get("pid") == os.getpid() or _studio_application(value.get("application")):
+                        _stop("Ajan Studio penceresini kullanamaz.")
                     self._known_windows.add(_hash(value))
 
     def artifact(self, name: str, data: bytes) -> bytes:
-        if Path(name).suffix.casefold() not in {".txt", ".csv", ".json"}:
-            _stop("Ajan yalnız temizlenebilir metin, CSV veya JSON çıktısı oluşturabilir.")
         if any(frame[1] for frame in self._frames):
             return MASK.encode("utf-8")
+        if Path(name).suffix.casefold() not in {".txt", ".csv", ".json"}:
+            # Excel, PDF, images are kept as the flow made them; they cannot be masked, so a saved secret written
+            # into one stops the run instead.
+            if self.redactor.contains_secret(data.decode("utf-8", errors="ignore")):
+                _stop("Çıktı dosyası kayıtlı bir gizli değer içeriyor; ajan bu dosyayı kaydetmedi.")
+            return data
         try:
             content = data.decode("utf-8-sig")
         except UnicodeDecodeError:

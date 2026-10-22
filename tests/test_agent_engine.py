@@ -123,7 +123,8 @@ def test_agent_text_artifact_redacts_before_writing(tmp_path):
                         agent_context=policy)
     artifact = executor.save_artifact("rapor.json", json.dumps({"value": "tiny"}).encode())
     assert "tiny" not in artifact.read_text()
-    with pytest.raises(AgentPolicyStop):
+    assert executor.save_artifact("ekran.png", b"\x89PNG").read_bytes() == b"\x89PNG"
+    with pytest.raises(AgentPolicyStop, match="gizli değer"):
         executor.save_artifact("ekran.png", b"tiny")
 
 

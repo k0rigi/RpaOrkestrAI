@@ -470,20 +470,35 @@ export function mountOffice(container, options) {
   }
   async function chatForm(person, work, version) {
     const thread = node("ol", undefined, "office-chat"), text = node("textarea"); text.rows = 3; text.maxLength = 4000;
-    const show = (messages) => thread.replaceChildren(...(messages || []).slice(-6).map((item) => {
-      const row = node("li", undefined, item.role === "user" ? "mine" : "theirs");
-      row.append(node("strong", `${item.role === "user" ? (item.user || "Siz") : person.name}${item.via === "telegram" ? " · Telegram'dan" : ""}`), node("span", item.text));
-      return row;
-    }));
+    const show = (messages, seconds) => {
+      const shown = (messages || []).slice(-6);
+      thread.replaceChildren(...shown.map((item, index) => {
+        const row = node("li", undefined, item.role === "user" ? "mine" : "theirs");
+        // The answer just given says how long it took (a slow model is visible, not a frozen screen).
+        const took = seconds && index === shown.length - 1 && item.role !== "user" ? ` · ${Math.max(1, Math.round(seconds))} sn` : "";
+        row.append(node("strong", `${item.role === "user" ? (item.user || "Siz") : person.name}${item.via === "telegram" ? " · Telegram'dan" : ""}${took}`), node("span", item.text));
+        return row;
+      }));
+      thread.scrollTop = thread.scrollHeight;
+    };
     const send = button("Sor", async () => {
       const question = text.value.trim();
       if (!question) { toast("Sorunuzu yazın.", true); return; }
       send.disabled = true; text.disabled = true;
+      // The question shows at once with a running clock until the answer comes.
+      const mine = node("li", undefined, "mine"); mine.append(node("strong", "Siz"), node("span", question));
+      const waiting = node("li", undefined, "theirs office-chat-waiting"), clock = node("span", "Yanıt hazırlanıyor…");
+      waiting.append(node("strong", person.name), clock); thread.append(mine, waiting); thread.scrollTop = thread.scrollHeight;
+      const began = Date.now();
+      const tick = setInterval(() => { clock.textContent = `Yanıt hazırlanıyor… ${Math.round((Date.now() - began) / 1000)} sn`; }, 1000);
+      text.value = "";
       try {
         const answer = await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`, { method: "POST", body: JSON.stringify({ text: question }) });
         if (!alive || panelVersion !== version) return;
-        show(answer?.messages); text.value = "";
-      } catch (error) { toast(error.message, true); } finally { send.disabled = false; text.disabled = false; }
+        show(answer?.messages, answer?.seconds);
+      } catch (error) {
+        mine.remove(); waiting.remove(); text.value = question; toast(error.message, true);
+      } finally { clearInterval(tick); send.disabled = false; text.disabled = false; if (alive) text.focus(); }
     });
     send.classList.add("primary");
     // Enter asks at once, as in the agents' own chat; Shift + Enter starts a new line.

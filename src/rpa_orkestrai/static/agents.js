@@ -609,7 +609,7 @@
       if (flow && roots.length) can.push(`${name} dosyalara yalnız şu klasörlerde erişir: ${roots.join(", ")}.`);
     }
     if (!(agent.workflows || []).length) cannot.push("Henüz akış izni yok; görev verilse bile iş yapamaz.");
-    else can.push("İzinli akışların ürettiği CSV, JSON ve metin çıktılarını okuyup yorumlayabilir.");
+    else can.push("İzinli akışların ürettiği çıktıları (Excel, CSV, JSON, metin) okuyup yorumlayabilir.");
     const manager = view.agents.find((item) => item.id === agent.manager_id);
     can.push(manager ? `Takıldığında önce yöneticisi ${manager.name} ajanına, gerekirse size sorar.` : "Takıldığında size sorar.");
     cannot.push("İzin verilmeyen akışları çalıştıramaz.",
@@ -878,8 +878,8 @@
       const settings = element("div", null, "agent-grant-settings");
       const automatic = toggle("Onaysız çalışabilir", grant?.allow_without_approval || false);
       automatic.input.disabled = !view.session.can_approve;
-      const roots = field("İzin verilen dosya klasörleri", (grant?.allowed_roots || []).join("\n"), "textarea",
-        "Dosya kullanan akışlarda her satıra tam bir klasör yolu yazın. Bu klasörlerin dışına erişilemez.");
+      const roots = field("İzin verilen dosya klasörleri (isteğe bağlı)", (grant?.allowed_roots || []).join("\n"), "textarea",
+        "Boş bırakılırsa akış dosyalara kendi yazdığı yollarla erişir. Klasör yazarsanız (her satıra bir tam yol) ajan bu klasörlerin dışına çıkamaz.");
       roots.input.rows = 2;
       settings.append(automatic.wrapper, element("p", "Bu tercih yalnız onay yetkilisi tarafından değiştirilir ve kayda geçer.", "agent-help"), roots.wrapper);
       row.append(settings);
@@ -1128,9 +1128,9 @@
       item.append(element("small", meta, "muted"), element("p", body, "agent-task-text"));
       return item;
     };
-    const paint = (messages) => {
-      list.replaceChildren(...(messages.length ? messages.map((item) => bubble(item.role, item.text,
-        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.via === "telegram" ? " · Telegram'dan" : ""}${item.tokens ? ` · ${count(item.tokens)} token` : ""}`))
+    const paint = (messages, seconds) => {
+      list.replaceChildren(...(messages.length ? messages.map((item, index) => bubble(item.role, item.text,
+        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.via === "telegram" ? " · Telegram'dan" : ""}${item.tokens ? ` · ${count(item.tokens)} token` : ""}${seconds && index === messages.length - 1 && item.role !== "user" ? ` · ${Math.max(1, Math.round(seconds))} sn` : ""}`))
         : [element("li", "Henüz soru yok. Aşağıdaki önerilerden birini seçebilir veya kendi sorunuzu yazabilirsiniz.", "agent-help")]));
       list.scrollTop = list.scrollHeight;
     };
@@ -1142,17 +1142,21 @@
       const textValue = question.input.value.trim();
       if (!textValue) return;
       view.busy(send, async () => {
-        const waiting = [bubble("user", textValue, "Siz"), bubble("assistant", "Düşünüyor…", agent.name)];
+        const waiting = [bubble("user", textValue, "Siz"), bubble("assistant", "Yanıt hazırlanıyor…", agent.name)];
         list.append(...waiting); list.scrollTop = list.scrollHeight;
         question.input.value = ""; question.input.disabled = true;
+        // A running clock: a slow model is visible, not a frozen screen.
+        const began = Date.now(), clock = waiting[1].querySelector("p");
+        const tick = setInterval(() => { clock.textContent = `Yanıt hazırlanıyor… ${Math.round((Date.now() - began) / 1000)} sn`; }, 1000);
         try {
           const answer = await view.request(`/api/agents/${agent.id}/chat`, "POST", { text: textValue });
-          if (view.alive) paint(answer.messages || []);
+          if (view.alive) paint(answer.messages || [], answer.seconds);
         } catch (error) {
           for (const item of waiting) item.remove();
           question.input.value = textValue;
           throw error;
         } finally {
+          clearInterval(tick);
           question.input.disabled = false;
           if (view.alive) question.input.focus();
         }
