@@ -41,6 +41,10 @@ class OfficeName(Model):
     name: str = Field(min_length=2, max_length=120)
 
 
+class OfficeDeletion(Model):
+    name: str = Field(min_length=2, max_length=120)
+
+
 class OfficeMember(Model):
     user_id: int = Field(ge=1, le=2147483647, strict=True)
 
@@ -158,6 +162,25 @@ def router(service, client, approval_backend):
         if not 1 <= user_id <= 2147483647:
             raise HTTPException(422, "Çalışan kimliği geçersiz.")
         return call(request, "POST", f"/ofisim/uyeler/{user_id}/cikar", {}, permission="agents.manage")
+
+    @result.post("/my-office/delete")
+    def delete_office(body: OfficeDeletion):
+        from .office_model import OfficeModels
+
+        actor = call(service._authorize, "agents.manage")
+        # Agents live on this computer: an office is deleted only after its agents here are gone.
+        local = [agent for agent in service.agent_store.agents()
+                 if agent.company_id == actor.company_id and actor.office_id and agent.office_id == actor.office_id]
+        if local:
+            raise HTTPException(409, f"Bu ofiste bu bilgisayarda {len(local)} ajan var. Ofisi silmeden önce "
+                                     "ajanları Ajanlar sekmesinden silin.")
+        answer = call(request, "POST", "/ofisim/sil", body.model_dump(), permission="agents.manage")
+        try:
+            OfficeModels(service.settings.data_dir).delete(actor)  # its 3D model on this computer
+        except Exception:  # noqa: BLE001 - The office is deleted; a leftover model file never blocks that.
+            pass
+        signed_again()
+        return answer
 
     @result.post("/my-office/leave")
     def leave_office():

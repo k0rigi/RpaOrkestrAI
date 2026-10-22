@@ -453,6 +453,27 @@
     return section;
   }
 
+  // An empty, quiet office can be deleted by its authority; the exact name confirms it.
+  function deleteSection(view, options, office, data) {
+    const section = el("section", undefined, "agent-danger-zone");
+    const others = (data.members || []).filter((member) => !member.authority).length;
+    section.append(el("h3", "Ofisi sil"), el("p", "Ofis yalnız boşsa silinir: ofiste başka çalışan, açık insan görevi, bekleyen onay "
+      + "ve bu bilgisayarda bu ofise ait ajan olmamalı. Biten görevler ve denetim kayıtları silinmez. Bu işlem geri alınamaz.", "agent-help"));
+    if (others) section.append(el("p", `Ofiste ${others} çalışan daha var; önce onları yukarıdan ofisten çıkarın.`, "agent-warning"));
+    const typed = input(`Onaylamak için ofisin adını aynen yazın: ${office.name}`);
+    typed.field.maxLength = 120;
+    typed.field.autocomplete = "off";
+    section.append(typed.wrapper, button("Ofisi sil", () => view.act(async () => {
+      const name = typed.field.value.trim().replace(/\s+/g, " ");
+      if (name !== office.name) throw new Error("Silmek için ofisin adını aynen yazın.");
+      if (!(await confirmed(options, "Ofisi sil", `${office.name} ofisi silinsin mi? Bu işlem geri alınamaz.`, "Sil"))) return;
+      await view.request("/api/agents/central/my-office/delete", "POST", { name });
+      options.toast(`${office.name} ofisi silindi.`);
+      options.reload?.();
+    }), "danger"));
+    return section;
+  }
+
   // The office on screen: its authority names it and places licensed colleagues; a member may leave.
   function mountMyOffice(container, options) {
     const view = setup(container, options);
@@ -506,6 +527,7 @@
             parts.push(el("p", "Ofisi olmayan, RPA ve Ajanlar lisanslı çalışan yok. Yeni çalışanlara lisans orkestrai.net yönetiminden verilir; kendi ofisini kuran çalışan buraya gelmez.", "agent-help"));
           }
         }
+        parts.push(deleteSection(view, options, office, data));
       } else {
         parts.push(button("Ofisten ayrıl", () => view.act(async () => {
           if (!(await confirmed(options, "Ofisten ayrıl", "Bu ofisten ayrılırsanız ofisin görevlerini ve onaylarını görmezsiniz. İsterseniz sonra kendi ofisinizi kurabilirsiniz.", "Ayrıl"))) return;

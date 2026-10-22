@@ -62,6 +62,10 @@ def office_ui(ui):  # noqa: F811
         elif path.endswith("/remove"):
             state["members"] = [item for item in state["members"] if f"/{item['user_id']}/" not in path]
             route.fulfill(json={"success": True})
+        elif path.endswith("/my-office/delete"):
+            state["office"] = None
+            session.update(can_create_office=True, office=None, can_manage=False, can_approve=False)
+            route.fulfill(json={"success": True, "office": {"deleted": True}})
         elif path.endswith("/my-office/leave"):
             state["office"] = None
             session.update(can_create_office=True, office=None, can_manage=False, can_approve=False)
@@ -210,3 +214,33 @@ def test_a_member_sees_one_office_without_a_picker_or_new_office_form(office_ui)
     page.get_by_text("Bu ofisin üyesisiniz", exact=False).wait_for()
     assert page.get_by_role("button", name="Yeni ofis kur").count() == 0
     assert page.get_by_role("heading", name="Ofislerim").count() == 0
+
+
+def test_an_authority_deletes_its_office_after_typing_its_name(office_ui):
+    page, calls, session, state, join, remount = office_ui
+    join("Claim & İade")
+    state["members"] = [{"user_id": 1, "name": "Çalışan", "authority": True}, {"user_id": 12, "name": "Ayşe", "authority": False}]
+    remount()
+    page.get_by_role("button", name="Ofisim", exact=True).click()
+    zone = page.locator(".agent-danger-zone")
+    zone.get_by_text("Ofiste 1 çalışan daha var", exact=False).wait_for()
+    zone.get_by_label("Onaylamak için ofisin adını aynen yazın", exact=False).fill("Claim")
+    zone.get_by_role("button", name="Ofisi sil").click()
+    page.wait_for_function("(window.toasts || []).includes('Silmek için ofisin adını aynen yazın.')")
+    assert not [path for method, path, _ in calls if path.endswith("/my-office/delete")]
+    zone.get_by_label("Onaylamak için ofisin adını aynen yazın", exact=False).fill("  Claim   & İade ")
+    zone.get_by_role("button", name="Ofisi sil").click()
+    page.get_by_role("heading", name="Ofisinizi kurun").wait_for()
+    assert [(path, body) for method, path, body in calls if path.endswith("/my-office/delete")] == [
+        ("/api/agents/central/my-office/delete", {"name": "Claim & İade"})]
+    assert "Claim & İade ofisi silindi." in page.evaluate("window.toasts")
+
+
+def test_a_member_has_no_delete_section(office_ui):
+    page, calls, session, state, join, remount = office_ui
+    state["authority"] = False
+    join("Claim & İade")
+    remount()
+    page.get_by_role("button", name="Ofisim", exact=True).click()
+    page.get_by_text("Bu ofisin üyesisiniz", exact=False).wait_for()
+    assert page.locator(".agent-danger-zone").count() == 0

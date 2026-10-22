@@ -9,6 +9,11 @@ from __future__ import annotations
 SHOWN = 8  # how many versions the Studio lists
 
 NOTES: list[dict] = [
+    {"version": "0.9.43", "date": "2026-10-22", "items": [
+        "Ofisi sil: ofisin yetkilisi Ofisim sekmesinin sonundaki Ofisi sil bölümünde ofisin adını aynen yazarak "
+        "boş bir ofisi siler. Ofiste başka çalışan, açık görev, bekleyen onay veya bu bilgisayarda o ofise ait ajan "
+        "varsa silinmez ve nedeni yazılır; geçmiş kayıtlar korunur.",
+    ]},
     {"version": "0.9.42", "date": "2026-10-22", "items": [
         "Yenilikler penceresi: güncellemeden sonra son sürümde nelerin değiştiği gösterilir. Üst çubuktaki sürüm "
         "numarasına veya Ayarlar → Uygulama güncellemeleri → Sürüm notları'na tıklayarak notlara her zaman ulaşırsınız.",

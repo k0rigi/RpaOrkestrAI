@@ -175,3 +175,7 @@
 .agent-chat-form { margin-top: 12px; }
 .agent-abilities .button { margin-bottom: 12px; }
 @media (max-width: 640px) { .agent-chat-message { max-width: 100%; } }
+
+/* Ofisim: deleting an office sits apart, at the end of the authority's settings. */
+.agent-danger-zone { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
+.agent-danger-zone h3 { color: var(--err); }

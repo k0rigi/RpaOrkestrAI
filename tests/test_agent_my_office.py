@@ -50,12 +50,13 @@ def test_session_tells_the_screen_to_open_an_office_first(agent_api):  # noqa: F
     assert session["can_create_office"] is True and session["office"] is None and session["can_manage"] is False
 
 
-@pytest.mark.parametrize("path", ["/ofisim", "/ofisim/ad", "/ofisim/ayril", "/ofisim/uyeler", "/ofisim/uyeler/11/cikar"])
+@pytest.mark.parametrize("path", ["/ofisim", "/ofisim/ad", "/ofisim/ayril", "/ofisim/sil", "/ofisim/uyeler",
+                                  "/ofisim/uyeler/11/cikar"])
 def test_central_client_allows_the_office_paths(path):
     assert PATH.fullmatch(path)
 
 
-@pytest.mark.parametrize("path", ["/ofisim/uyeler/0/cikar", "/ofisim/uyeler/11", "/ofisim/sil", "/ofisimler",
+@pytest.mark.parametrize("path", ["/ofisim/uyeler/0/cikar", "/ofisim/uyeler/11", "/ofisim/sil/tumu", "/ofisimler",
                                   "/ofisim/uyeler/11/cikar/tumu", "/ofisim/ad/"])
 def test_central_client_refuses_other_office_paths(path):
     assert not PATH.fullmatch(path)
@@ -118,6 +119,30 @@ def test_only_the_office_authority_renames_the_office_and_places_colleagues(cent
     for path, body in (("/name", {"name": "Başka"}), ("/members", {"user_id": 12}), ("/members/11/remove", {})):
         assert client.post("/api/agents/central/my-office" + path, json=body).status_code == 403
     assert len(calls) == 3 and refreshes == []
+
+
+def test_an_office_is_deleted_only_without_its_agents_here_and_its_model_goes_too(central):
+    from rpa_orkestrai.agents.models import AgentInput
+
+    api, calls, refreshes, _ = central
+    actor = api.licensing.actor = api.licensing.actor.model_copy(update={"office_id": OFFICE, "office_name": "Lojistik"})
+    service = api.app.state.agents
+    agent = service.create_agent(AgentInput(name="Rota ajanı", model="test"))
+    refused = api.client.post("/api/agents/central/my-office/delete", json={"name": "Lojistik"})
+    assert refused.status_code == 409 and "1 ajan var" in refused.json()["detail"] and calls == []
+    service.delete_agent(agent.id)
+    models = service.settings.data_dir / "office_models"
+    models.mkdir(parents=True, exist_ok=True)
+    for name in (f"ofis-{OFFICE}.glb", f"ofis-{OFFICE}.json", f"ofis-{OFFICE}.places.json", f"ofis-{'d' * 32}.glb"):
+        (models / name).write_bytes(b"x")
+    for body in ({"name": "L"}, {}, {"name": "Lojistik", "ofis_id": OFFICE}):
+        assert api.client.post("/api/agents/central/my-office/delete", json=body).status_code == 422
+    deleted = api.client.post("/api/agents/central/my-office/delete", json={"name": "Lojistik"})
+    assert deleted.status_code == 200 and calls[-1] == ("POST", "/ofisim/sil", {"name": "Lojistik"}, actor.user_id)
+    assert refreshes == [1]
+    assert sorted(path.name for path in models.iterdir()) == [f"ofis-{'d' * 32}.glb"]  # another office's model stays
+    api.licensing.actor = actor.model_copy(update={"permissions": ("agents.use",)})
+    assert api.client.post("/api/agents/central/my-office/delete", json={"name": "Lojistik"}).status_code == 403
 
 
 SECOND = "d" * 32

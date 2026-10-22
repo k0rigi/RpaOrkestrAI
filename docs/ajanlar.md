@@ -227,6 +227,14 @@ Ajanlar sayfasındaki **Ofisim** sekmesi ofisin bilgilerini gösterir:
   çıkarır. Çıkarılan kişinin ofisteki görev ve onay geçmişi ofiste kalır.
 - **Üye:** **Ofisten ayrıl** ile ayrılabilir; sonra kendi ofisini kurabilir. Üye
   ofisindeyken yeni ofis kuramaz.
+- **Ofisi sil (0.9.43):** yetkili, Ofisim'in sonundaki **Ofisi sil** bölümünde ofisin adını
+  aynen yazarak ofisi siler. Ofis yalnız boşsa silinir: ofiste başka çalışan, açık insan
+  görevi, bekleyen onay ve bu bilgisayarda o ofise ait ajan olmamalıdır; eksik olan
+  yazılır. Biten görevler, karar verilmiş onaylar ve denetim kayıtları silinmez. O ofisin bu
+  bilgisayardaki 3D modeli de silinir. Başka ofisiniz varsa ekran ona geçer; son ofisinizi
+  sildiyseniz **Ofisinizi kurun** ekranı açılır. Silinen ofisin adı yeniden kullanılabilir.
+  İşlem geri alınamaz. Başka bir bilgisayarda o ofise kurulmuş ajanlar orada kalır ama
+  ofisleri olmadığı için görünmez; önce o bilgisayardan silin.
 - Yeni lisans vermek orkestrai.net yönetimindedir; kendi ofisini kurmuş bir çalışan
   başka bir ofise eklenmez.
 - Değişiklik açık Studio'lara en geç 10 dakika içinde yansır. Ofisi kurmak ve
