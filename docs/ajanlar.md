@@ -310,6 +310,23 @@ Bilgisayar başında değilken ajanlar size Telegram'dan ulaşabilir. Kurulum i�
 4. **Ajanlar → Bağlantılar → Telegram'dan soru ve onay** bölümünde bağlantıyı ve sohbet kimliğinizi seçip
    **Kaydet ve aç**'a basın. **Deneme mesajı gönder** ile kontrol edebilirsiniz.
 
+**Ayarlar → Bağlantılar**'daki bağlantı testi yalnız botun size mesaj gönderebildiğini gösterir. Studio'nun bota
+yazdıklarınızı okuması için 4. adım gerekir; bu adım yapılmadan bot yanıt vermez.
+
+Bölümün altındaki durum satırı botun şu an okunup okunmadığını gösterir (0.9.46+):
+
+| Durum | Anlamı |
+| --- | --- |
+| **Dinleniyor · son kontrol 23:25** | Studio botu okuyor; bota `/ajanlar` yazarak deneyin. |
+| **Henüz kapalı** | **Kaydet ve aç**'a basılmamış; Studio bota yazılanları okumuyor. |
+| Bot anahtarı geçersiz (401) | Bağlantıdaki anahtar yanlış; @BotFather'dan yeniden alın. |
+| Bu botu başka bir program okuyor (409) | Botta webhook tanımlı veya başka bir bilgisayardaki Studio aynı botu dinliyor. |
+| Telegram'a ulaşılamadı | Bilgisayarın internet bağlantısını kontrol edin. |
+
+Bota kayıtlı olmayan bir özel sohbetten yazılırsa bot, işlem yapmadan o sohbete sohbet kimliğini yazar. Durum
+satırının altında da **… numarasını kullan** düğmesi çıkar. Sohbet kimliği yanlış girildiyse bot artık sessiz
+kalmaz. Gruplara yanıt verilmez.
+
 Nasıl çalışır:
 
 - **Sorular:** bir ajan size soru sorduğunda soru Telegram'a gelir. Seçenekler düğmedir; yazılı yanıt için

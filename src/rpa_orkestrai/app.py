@@ -1038,7 +1038,11 @@ def create_app(settings: Settings | None = None, *, licensing: LicenseService | 
         if config.get("service") == "whatsapp" and config.get("mode") == "template":
             raise ValueError("Şablonla gönderimde deneme mesajı gönderilmez (şablon ücretli olabilir); bir akışta "
                              "Mesaj gönder adımını Bu adımı test et ile deneyin.")
-        post_message(config, "RpaOrkestrAI", "Bağlantı testi: bu kanal RpaOrkestrAI bildirimleri için hazır.", 20)
+        text = "Bağlantı testi: bu kanal RpaOrkestrAI bildirimleri için hazır."
+        if config.get("service") == "telegram":
+            text += ("\nAjanlarla buradan konuşmak için Studio'da Ajanlar → Bağlantılar → Telegram'dan soru ve onay "
+                     "bölümünde Kaydet ve aç'a basın; sonra bota /ajanlar yazın.")
+        post_message(config, "RpaOrkestrAI", text, 20)
         return "Deneme mesajı gönderildi. Kanalda görünüyorsa bağlantı çalışıyor."
 
     @app.post("/api/connections/telegram-chats")

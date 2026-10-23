@@ -172,6 +172,49 @@ def test_other_chats_and_senders_and_stale_messages_are_ignored(tmp_path):
     assert service.answers == [] and len(telegram.calls) == before
 
 
+def test_an_unregistered_private_chat_learns_its_id_once_and_nothing_runs(tmp_path):
+    bridge, telegram, service, chosen = make(tmp_path)
+    stranger = {"update_id": 3, "message": {"message_id": 5, "text": "/ajanlar", "date": int(time.time()),
+                                            "chat": {"id": 555, "type": "private"}, "from": {"id": 555}}}
+    bridge.handle(stranger, chosen, TOKEN)
+    bridge.handle(stranger, chosen, TOKEN)
+    sent = telegram.sent()
+    assert len(sent) == 1 and sent[0]["chat_id"] == "555" and "Sohbet kimliğiniz: 555" in sent[0]["text"]
+    assert "Görebildiğiniz" not in sent[0]["text"] and service.answers == []
+    assert bridge.public(OWNER)["health"]["stranger"] == "555"
+    # A group the person is in is never answered.
+    group = {"update_id": 4, "message": {"message_id": 6, "text": "selam", "date": int(time.time()),
+                                         "chat": {"id": -100, "type": "group"}, "from": {"id": 556}}}
+    bridge.handle(group, chosen, TOKEN)
+    assert len(telegram.sent()) == 1
+
+
+@pytest.mark.parametrize(("status", "expected"), [(200, "listening"), (409, "error"), (0, "error")])
+def test_the_settings_show_whether_the_bot_is_read_now(tmp_path, status, expected):
+    calls = []
+
+    def transport(token, method, payload, timeout):
+        calls.append(method)
+        if status == 0:
+            raise OSError("ağ yok")
+        return status, {"ok": status == 200, "result": [], "description": "Conflict"}
+
+    service = Service(tmp_path)
+    bridge = TelegramBridge(service, Connections, transport=transport)
+    try:
+        assert bridge.public(OWNER)["health"]["state"] == "off"
+        bridge.save(OWNER, TelegramSettings(connection_id=CONNECTION, chat_id=CHAT))
+        wait_for(lambda: bridge.public(OWNER)["health"]["state"], lambda state: state == expected)
+        health = bridge.public(OWNER)["health"]
+        assert "getUpdates" in calls and health["at"]
+        if status == 409:
+            assert "webhook" in health["detail"]
+        if status == 0:
+            assert "internet" in health["detail"]
+    finally:
+        bridge.close()
+
+
 def test_approvals_go_only_to_an_approver_and_are_decided_with_buttons(tmp_path):
     bridge, telegram, service, chosen = make(tmp_path)
     payload = {"id": ITEM, "workflow_name": "Sipariş gir", "reason": "Yeni kayıt", "inputs": {"musteri": "ACME", "tutar": 12},

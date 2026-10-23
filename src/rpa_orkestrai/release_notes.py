@@ -9,6 +9,15 @@ from __future__ import annotations
 SHOWN = 8  # how many versions the Studio lists
 
 NOTES: list[dict] = [
+    {"version": "0.9.46", "date": "2026-10-23", "items": [
+        "Ajanlar → Bağlantılar → Telegram'dan soru ve onay bölümü botun şu an okunup okunmadığını gösterir "
+        "(Dinleniyor · son kontrol) ya da nedenini yazar: kapalı, geçersiz bot anahtarı, botu başka bir program "
+        "okuyor veya internet yok.",
+        "Bota kayıtlı olmayan bir sohbetten yazılırsa bot işlem yapmadan o sohbete sohbet kimliğini yazar; Studio'da "
+        "numarayı tek dokunuşla kullanma düğmesi çıkar.",
+        "Ayarlar'daki Telegram bağlantı testi, ajanlarla Telegram'dan konuşmak için hangi bölümün açılacağını da "
+        "yazar.",
+    ]},
     {"version": "0.9.45", "date": "2026-10-23", "items": [
         "Silinmiş bir alt akışı çağıran bir akış artık Ajanlar sayfasının açılmasını engellemez; yalnız o akış ajana "
         "verilemez olarak işaretlenir ve Başka akışı çalıştır adımında var olan bir akış seçmeniz istenir.",

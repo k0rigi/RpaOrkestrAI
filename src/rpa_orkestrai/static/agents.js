@@ -1625,8 +1625,23 @@
     const approvals = toggle("Onay isteklerini Onayla / Reddet düğmeleriyle gönder", settings.approvals);
     const note = element("p", view.session.can_approve ? "Onay düğmesi yalnız onay yetkilisi olduğunuz ofislerin isteklerinde gelir; "
       + "girdileri düzenlemek için Studio'daki onay kartı kullanılır." : "Onay yetkiniz olmadığından onay istekleri size gönderilmez.", "agent-help");
-    const status = element("p", settings.configured ? "Telegram bağlantısı açık." : "Henüz kapalı.", "agent-help");
+    const health = settings.health || {};
+    const listening = { listening: `Dinleniyor${health.at ? ` · son kontrol ${timeLabel(health.at)}` : ""}. Bota /ajanlar yazarak deneyin.`,
+      starting: "Bota bağlanılıyor…", no_session: health.detail, error: health.detail };
+    const status = element("p", settings.configured ? listening[health.state] || "Telegram bağlantısı açık."
+      : "Henüz kapalı: Studio bota yazdıklarınızı okumuyor. Ajanlarla Telegram'dan konuşmak için Kaydet ve aç'a basın.",
+    `agent-help${settings.configured && health.state !== "listening" && health.state !== "starting" ? " agent-error" : ""}`);
     status.setAttribute("role", "status");
+    const extra = [];
+    if (health.stranger) {
+      const use = action(`${health.stranger} numarasını kullan`, () => { chat.input.value = health.stranger; chat.input.focus(); });
+      extra.push(element("p", `Bota kayıtlı olmayan bir sohbetten yazıldı: ${health.stranger}. Bu sizseniz numarayı kullanıp `
+        + "Kaydet ve aç'a basın.", "agent-help"), use);
+    }
+    if (settings.configured && health.state === "starting") {
+      // The first read of the bot ends within seconds; show its outcome without another click.
+      setTimeout(() => { if (view.alive && box.isConnected) renderTelegram(view, box); }, 3000);
+    }
     const body = () => ({ connection_id: connection.input.value, chat_id: chat.input.value.trim(),
       questions: questions.input.checked, approvals: approvals.input.checked });
     const controls = element("div", null, "agent-actions");
@@ -1645,8 +1660,10 @@
         if (view.alive) { view.options.toast("Telegram'dan soru ve onay kapatıldı."); renderTelegram(view, box); }
       }));
       controls.append(off);
+      const again = action("Durumu yenile", () => renderTelegram(view, box));
+      controls.append(again);
     }
-    box.replaceChildren(box.firstElementChild, intro, connection.wrapper, chat.wrapper, questions.wrapper, approvals.wrapper, note, controls, status);
+    box.replaceChildren(box.firstElementChild, intro, connection.wrapper, chat.wrapper, questions.wrapper, approvals.wrapper, note, controls, status, ...extra);
   }
   const searchProviders = [
     ["none", "Kapalı"], ["tavily", "Tavily · ayda 1.000 ücretsiz arama, kart gerekmez (önerilen)"],

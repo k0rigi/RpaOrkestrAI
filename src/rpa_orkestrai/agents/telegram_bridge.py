@@ -35,6 +35,13 @@ VIA = "telegram"
 STALE_SECONDS = 600  # a command older than this was written while the Studio was closed: not run
 IDLE_SECONDS = 15
 MAX_ASKING = 3
+MAX_STRANGERS = 20  # unregistered chats told their own chat id once per Studio session
+POLL_ERRORS = {
+    401: "Bot anahtarı geçersiz (Telegram 401). Ayarlar → Bağlantılar'daki anahtarı @BotFather'dan yeniden alın.",
+    404: "Bot anahtarı geçersiz (Telegram 404). Ayarlar → Bağlantılar'daki anahtarı @BotFather'dan yeniden alın.",
+    409: "Bu botu başka bir program okuyor (Telegram 409): botta webhook tanımlı veya başka bir bilgisayardaki Studio "
+         "aynı botu dinliyor. Bir bot yalnız bir Studio'ya bağlanabilir.",
+}
 HELP = ("RpaOrkestrAI bağlı. Yapabilecekleriniz:\n"
         "/gorev metin — ofisinizin yöneticisine görev verir (ör. /gorev bugünkü bekleyen işleri özetle)\n"
         "/gorev Ajan adı: metin — belirli bir ajana görev verir\n"
@@ -81,6 +88,10 @@ class TelegramBridge:
         self._offset: int | None = None
         self._threads: list[threading.Thread] = []
         self._asking = threading.BoundedSemaphore(MAX_ASKING)
+        # What the person sees under Telegram: whether the bot is read now, or why not. Memory only.
+        self._health: dict = {"state": "starting", "detail": "", "at": ""}
+        self._stranger: str | None = None
+        self._told: set[str] = set()
 
     # ----- settings of the signed-in account ----------------------------------------------------
     def _read(self) -> dict:
@@ -104,11 +115,24 @@ class TelegramBridge:
             raise ValueError("Seçilen bağlantı bot anahtarı kayıtlı bir Telegram bağlantısı değil.")
         return item
 
+    def _note(self, state: str, detail: str = "") -> None:
+        with self._lock:
+            self._health = {"state": state, "detail": detail, "at": datetime.now().astimezone().isoformat()}
+
+    def health(self, settings: TelegramSettings | None) -> dict:
+        with self._lock:
+            value = dict(self._health)
+            stranger = self._stranger
+        if settings is None:
+            return {"state": "off", "detail": "", "at": ""}
+        value["stranger"] = stranger if stranger and stranger != settings.chat_id else ""
+        return value
+
     def public(self, actor) -> dict:
         settings = self.settings(actor)
         choices = [{"id": item["id"], "name": item["name"], "chat_id": item.get("chat_id", ""), "ready": item.get("has_token", False)}
                    for item in self.connections().list() if item.get("type") == "webhook" and item.get("service") == "telegram"]
-        return {"configured": settings is not None, "connections": choices,
+        return {"configured": settings is not None, "connections": choices, "health": self.health(settings),
                 **(settings.model_dump() if settings else {"connection_id": "", "chat_id": "", "questions": True,
                                                            "approvals": True})}
 
@@ -118,6 +142,7 @@ class TelegramBridge:
             stored = self._read()
             stored[f"{actor.company_id}:{actor.user_id}"] = settings.model_dump()
             atomic_json(self.path, stored)
+            self._health = {"state": "starting", "detail": "", "at": ""}
         self.start()
         self._wake.set()
         return self.public(actor)
@@ -271,8 +296,10 @@ class TelegramBridge:
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
             # Tasks and questions can come at any time, so the bot is read whenever Telegram is set up.
-            ready = self._account()[1]
+            actor, ready = self._account()
             if ready is None:
+                self._note("no_session" if actor is None else "off",
+                           "Studio'da lisanslı ajan oturumu yok; Studio'ya giriş yapın." if actor is None else "")
                 self._wake.wait(IDLE_SECONDS)
                 self._wake.clear()
                 continue
@@ -285,8 +312,12 @@ class TelegramBridge:
             except Exception:  # noqa: BLE001 - The connection comes back; nothing is lost on Telegram's side.
                 status, answer = 0, {}
             if status != 200 or answer.get("ok") is not True:
+                self._note("error", POLL_ERRORS.get(status) or (
+                    "Telegram'a ulaşılamadı; internet bağlantısını kontrol edin." if not status
+                    else f"Telegram yanıtı {status}: {str(answer.get('description') or '')[:200]}"))
                 self._stop.wait(10)
                 continue
+            self._note("listening")
             for update in answer.get("result") or []:
                 if isinstance(update, dict) and isinstance(update.get("update_id"), int):
                     self._offset = update["update_id"] + 1
@@ -334,7 +365,10 @@ class TelegramBridge:
             return
         chat, sender = (message.get("chat") or {}).get("id"), (message.get("from") or {}).get("id")
         text = message.get("text")
-        if str(chat) != settings.chat_id or str(sender) != settings.chat_id or not isinstance(text, str):
+        if str(chat) != settings.chat_id or str(sender) != settings.chat_id:
+            self._unregistered(message, token)
+            return
+        if not isinstance(text, str):
             return
         own = message.get("message_id")
         written = message.get("date", 0)
@@ -363,6 +397,24 @@ class TelegramBridge:
         self._reply(settings, token, result, message.get("message_id"))
         if result.startswith("Yanıtınız"):
             self._edit(settings, token, target, target["text"] + "\n\n— " + result)
+
+    def _unregistered(self, message: dict, token: str) -> None:
+        """Someone wrote to the bot from a private chat that is not the saved one: nothing runs, but the
+        person learns the chat id to save, so a wrong id is no longer a silent bot."""
+        chat = message.get("chat") or {}
+        identity = str(chat.get("id"))
+        if chat.get("type") != "private" or identity != str((message.get("from") or {}).get("id")):
+            return
+        with self._lock:
+            self._stranger = identity
+            if identity in self._told or len(self._told) >= MAX_STRANGERS:
+                return
+            self._told.add(identity)
+        self.transport(token, "sendMessage", {
+            "chat_id": identity, "disable_web_page_preview": True,
+            "text": f"Bu sohbet Studio'da kayıtlı değil; işlem yapılmadı. Sohbet kimliğiniz: {identity}\n"
+                    "Bu sizseniz Studio'da Ajanlar → Bağlantılar → Telegram'dan soru ve onay bölümündeki Sohbet "
+                    "kimliğiniz alanına bu numarayı yazıp Kaydet ve aç'a basın."}, 15)
 
     # ----- tasks and questions from Telegram -----------------------------------------------------
     def _command(self, text: str, written, settings, token, reply_to) -> None:
