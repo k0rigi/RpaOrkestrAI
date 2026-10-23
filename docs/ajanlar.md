@@ -34,7 +34,8 @@ otomatik sürdürülmez; eski onaylar kullanılamaz.
 ## İzinli akışlar ve onay
 
 Her ajan için izinli akışlar açıkça seçilir. Alt akışlar da ayrı ayrı izinli olmalıdır.
-Dinamik alt akış kimliği, döngüsel başvuru ve desteklenmeyen adımlar reddedilir.
+Dinamik alt akış kimliği, döngüsel başvuru ve desteklenmeyen adımlar reddedilir. Silinmiş bir alt akışı çağıran akış
+listede ajana verilemez olarak görünür ve nedeni yazılır; diğer akışlar etkilenmez (0.9.45+).
 Yönetici ajan akış çalıştıramaz; bu yetki yalnız departman ajanlarına verilir.
 
 Ajana bir akış verdiğinizde ajan o akışı içindeki her adımla çalıştırır (0.9.44+): web

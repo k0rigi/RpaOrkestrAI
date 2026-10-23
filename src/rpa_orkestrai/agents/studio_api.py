@@ -153,7 +153,13 @@ def router(service, connections, *, shared_client=None) -> APIRouter:
                 supported, reason = False, redactor.text(str(exc))[:500]
             except (KeyError, ValueError):
                 supported, reason = False, "Bu akışın adımları veya kaynak izinleri ajan sınırına uygun değil."
-            contract = infer_contract(workflow, loaded).as_dict()
+            try:
+                contract = infer_contract(workflow, loaded).as_dict()
+            except WorkflowError as exc:
+                # One broken flow (e.g. a deleted sub-flow) must not close the whole Agents page.
+                contract = {"inputs": [], "outputs": [], "uncertain": True}
+                if supported:
+                    supported, reason = False, redactor.text(str(exc))[:500]
             items.append({"id": workflow.id, "name": redactor.text(workflow.name),
                           "description": redactor.text(workflow.description),
                           "department": redactor.text(workflow.department), "risk": workflow_risk(workflow, loaded),

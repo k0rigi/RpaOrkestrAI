@@ -12,7 +12,7 @@ from typing import Any
 
 from ..errors import WorkflowError
 from ..models import Workflow, walk_steps
-from .contracts import RESERVED, parameters, produces, reads, validate_inputs
+from .contracts import MISSING_CHILD, RESERVED, parameters, produces, reads, validate_inputs
 from .redaction import MASK, Redactor
 from .risk import WRITE, workflow_risk
 
@@ -75,7 +75,7 @@ def _load_graph(workflow_id: str, store, *, allowed: set[str] | None = None) -> 
             try:
                 workflow = store.workflow(identity).model_copy(deep=True)
             except (KeyError, ValueError, OSError):
-                raise WorkflowError("İzin verilen akış veya alt akış bulunamadı.") from None
+                raise WorkflowError(MISSING_CHILD) from None
         graph[identity] = workflow
         for step in walk_steps(workflow.steps):
             if step.action == "control.run_workflow":

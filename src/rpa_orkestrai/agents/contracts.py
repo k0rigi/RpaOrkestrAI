@@ -9,6 +9,8 @@ from ..errors import WorkflowError
 from ..models import Step, Workflow
 
 RESERVED = frozenset({"sistem", "sifre", "loop_index"})
+MISSING_CHILD = ("Bu akışın çağırdığı bir alt akış bulunamadı; silinmiş olabilir. "
+                 "\"Başka akışı çalıştır\" adımında var olan bir akışı seçin.")
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,7 @@ def infer_contract(workflow: Workflow, workflows: dict[str, Workflow] | None = N
                 if child_id in stack or len(stack) > 5:
                     raise WorkflowError("Alt akışlarda döngü veya derinlik sınırı aşımı bulundu.")
                 if child_id not in graph:
-                    raise WorkflowError("Girdi çıkarımı için alt akış tanımı bulunamadı.")
+                    raise WorkflowError(MISSING_CHILD)
                 available = visit(graph[child_id].steps, available, conditional=conditional,
                                   stack=(*stack, child_id))
             elif step.action in {"control.if", "control.try"}:

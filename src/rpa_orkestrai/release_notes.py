@@ -9,6 +9,10 @@ from __future__ import annotations
 SHOWN = 8  # how many versions the Studio lists
 
 NOTES: list[dict] = [
+    {"version": "0.9.45", "date": "2026-10-23", "items": [
+        "Silinmiş bir alt akışı çağıran bir akış artık Ajanlar sayfasının açılmasını engellemez; yalnız o akış ajana "
+        "verilemez olarak işaretlenir ve Başka akışı çalıştır adımında var olan bir akış seçmeniz istenir.",
+    ]},
     {"version": "0.9.44", "date": "2026-10-22", "items": [
         "Telegram bağlantısında Sohbetleri bul, anahtarın hangi bota ait olduğunu yazar; sohbet bulunamazsa nedenini "
         "söyler (bota henüz yazılmamış, webhook tanımlı veya başka bir program okuyor).",

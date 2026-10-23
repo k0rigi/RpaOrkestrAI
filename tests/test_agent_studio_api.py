@@ -172,3 +172,17 @@ def test_model_test_validation_never_echoes_raw_input(client, payload):
     item = connection(client)
     response = client.client.post(f"/api/agents/connections/{item['id']}/test", json=payload)
     assert response.status_code == 422 and "secret-model-input" not in response.text
+
+
+def test_a_flow_calling_a_deleted_sub_flow_is_marked_and_does_not_close_the_page(client):
+    healthy = Workflow(name="Sağlam", steps=[Step(action="core.set", params={"name": "a", "value": "1"})])
+    broken = Workflow(name="Kırık", steps=[Step(action="control.run_workflow", params={"workflow": Workflow(name="Silinen").id})])
+    for workflow in (healthy, broken):
+        client.app.state.store.save_workflow(workflow)
+    response = client.client.get("/api/agents/workflows")
+    assert response.status_code == 200, response.text
+    items = {item["id"]: item for item in response.json()}
+    assert items[healthy.id]["agent_supported"] is True
+    assert items[broken.id]["agent_supported"] is False
+    assert "alt akış bulunamadı" in items[broken.id]["blocked_reason"]
+    assert items[broken.id]["inputs"] == [] and items[broken.id]["outputs"] == []
