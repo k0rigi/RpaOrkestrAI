@@ -40,6 +40,10 @@ class ChatQuestion(Model):
     text: str = Field(min_length=1, max_length=4000)
 
 
+class ProposalDecision(Model):
+    start: bool
+
+
 class SearchInput(Model):
     provider: str = Field(max_length=20)
     searxng_url: str = Field(default="", max_length=2000)
@@ -166,6 +170,10 @@ def router(service: AgentService) -> APIRouter:
     @result.post("/{agent_id}/chat")
     def chat_ask(agent_id: str, body: ChatQuestion):
         return call(service.chat.ask, agent_id, body.text)
+
+    @result.post("/{agent_id}/chat/proposals/{proposal_id}")
+    def chat_proposal(agent_id: str, proposal_id: str, body: ProposalDecision):
+        return call(service.chat.decide, agent_id, proposal_id, body.start)
 
     @result.delete("/{agent_id}/chat", status_code=204)
     def chat_clear(agent_id: str):

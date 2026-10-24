@@ -24,7 +24,7 @@ from rpa_orkestrai.agents.providers import ScriptedProvider
 from rpa_orkestrai.agents.redaction import Redactor
 from rpa_orkestrai.agents.runner import AgentServiceError
 from rpa_orkestrai.agents.telegram_bridge import HELP, TelegramBridge, TelegramSettings
-from rpa_orkestrai.agents.telegram_commands import TargetError, fold, listing, route
+from rpa_orkestrai.agents.telegram_commands import TargetError, flows, fold, listing, route
 from rpa_orkestrai.models import uid
 
 CLAIMS = "c" * 32
@@ -220,3 +220,67 @@ def test_answers_given_on_telegram_say_so_in_the_run(runtime):  # noqa: F811
         assert answered.data["answer"] == "A seçeneği"
     finally:
         bridge.close()
+
+
+class Proposing(Team):
+    """The manager answers a work request with a task proposal; deciding goes through chat.decide."""
+
+    def __init__(self, agents, actor=OWNER):
+        super().__init__(agents, actor)
+        self.decided = []
+        self.chat = SimpleNamespace(ask=self.ask, decide=self.decide)
+
+    def ask(self, agent_id, text, *, office=None, via=None):
+        self.asked.append((agent_id, text, office, via))
+        proposal = SimpleNamespace(id="p" * 32, title="Sevkiyat planı", task="Yarının sevkiyatlarını planla")
+        return {"reply": SimpleNamespace(text="Yarının sevkiyatlarını planlamamı ister misiniz?", proposal=proposal)}
+
+    def decide(self, agent_id, proposal_id, start, *, office=None, via=None):
+        if self.error:
+            raise AgentServiceError(self.error, 409)
+        self.decided.append((agent_id, proposal_id, start, office, via))
+        return {}
+
+
+def proposal_keys(telegram, before=0):
+    sent = wait_for(lambda: telegram.sent(), lambda value: len(value) > before and "reply_markup" in value[-1])[-1]
+    return sent, [button["callback_data"] for row in sent["reply_markup"]["inline_keyboard"] for button in row]
+
+
+def test_a_plain_message_asking_for_work_starts_it_only_with_the_start_button(tmp_path):
+    from test_agent_telegram import callback
+
+    team = Proposing(OFFICES)
+    bridge, telegram, chosen = bridge_for(tmp_path, team)
+    bridge.handle(message("Lojistik: yarının sevkiyatlarını planla"), chosen, TOKEN)
+    sent, (start, cancel) = proposal_keys(telegram)
+    assert "Önerilen görev: Sevkiyat planı" in sent["text"] and team.started == [] and team.decided == []
+    assert start.startswith("t:") and start.endswith(":y") and cancel.endswith(":n")
+    bridge.handle(callback(start, sender="555"), chosen, TOKEN)  # someone else cannot press it
+    assert team.decided == []
+    bridge.handle(callback(start), chosen, TOKEN)
+    assert team.decided == [(OFFICES[2].id, "p" * 32, True, LOGISTICS, "telegram")]
+    assert telegram.sent("answerCallbackQuery")[-1]["text"].startswith("▶ Görev başlatıldı")
+    assert telegram.sent("editMessageText")[-1]["text"].endswith("▶ Görev başlatıldı; bitince sonucu buraya yazacağım.")
+    bridge.handle(callback(start), chosen, TOKEN)  # pressed twice: it waits no more
+    assert len(team.decided) == 1 and "beklemiyor" in telegram.sent("answerCallbackQuery")[-1]["text"]
+    before = len(telegram.sent())
+    bridge.handle(message("Lojistik: tekrar planla"), chosen, TOKEN)
+    _, (_, cancel) = proposal_keys(telegram, before)
+    team.error = "Önerinin süresi doldu; isteğinizi yeniden yazın."
+    bridge.handle(callback(cancel), chosen, TOKEN)
+    assert "süresi doldu" in telegram.sent("answerCallbackQuery")[-1]["text"]
+
+
+def test_the_flow_list_names_each_agents_flows_and_says_when_there_are_none():
+    flow = SimpleNamespace(id="a" * 32, name="Sipariş girişi")
+    team = Team(OFFICES)
+    team.store = SimpleNamespace(workflows=lambda: [flow])
+    for agent in OFFICES:
+        agent.workflows = []
+    assert "Henüz hiçbir ajana akış verilmedi" in flows(team, OWNER)
+    OFFICES[3].workflows = [SimpleNamespace(workflow_id=flow.id), SimpleNamespace(workflow_id="b" * 32)]
+    text = flows(team, OWNER)
+    assert "Lojistik ofisi" in text and "• Rota ajanı (Planlama): Sipariş girişi, Silinmiş akış" in text
+    assert "Claim & İade" not in text
+    OFFICES[3].workflows = []

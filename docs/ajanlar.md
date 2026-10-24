@@ -355,14 +355,20 @@ Telegram ayarlıysa bota yazarak ajanlarınıza görev verebilir ve soru sorabil
 | --- | --- |
 | `/gorev bugünkü bekleyen işleri özetle` | Ofisinizin yönetici ajanına görev verilir; yönetici gerekirse departmanlara dağıtır. |
 | `/gorev Rapor ajanı: haftalık tabloyu hazırla` | Görev adı yazılan ajana gider. |
-| `/sor kaç görev bekliyor?` | Yönetici iş başlatmadan, bildiklerinden yanıt verir (Soru sor ile aynı). |
-| Komutsuz mesaj | Yanıt bekleyen bir soru yoksa yöneticiye soru sayılır. |
+| `/sor kaç görev bekliyor?` | Yönetici bildiklerinden yanıt verir (Soru sor ile aynı). |
+| Komutsuz mesaj | Yanıt bekleyen bir soru yoksa yöneticiye sohbet mesajı sayılır. |
+| Komutsuz mesajla iş isteği (ör. `bugünkü siparişleri sisteme gir`) | Yönetici görevi özetler; altında **▶ Başlat** ve **Vazgeç** düğmeleri gelir. Görev yalnız **▶ Başlat** ile başlar (0.9.47+). |
 | `/ajanlar` | Ofisleriniz ve ajanlarınız listelenir. |
+| `/akislar` | Hangi ajana hangi akışların verildiği listelenir (0.9.47+). |
 | `/yardim` | Komutları gösterir. |
 
 - **Birden fazla ofis:** mesajı ofis adıyla başlatın: `/gorev Lojistik: yarının sevkiyatlarını planla` veya
   `/gorev Lojistik: Rota ajanı: rota çıkar`. Ofis yazılmazsa iş gönderilmez ve ofisleriniz listelenir. Aynı adlı ajan
   birden fazla ofiste varsa ofis adı istenir; iş tahminle bir ajana verilmez.
+- **Yöneticiyle konuşarak iş yaptırmak:** bota düz yazın (ör. `Basbug Ofis: bugünkü siparişleri ERP'ye işle`).
+  Yönetici görevi özetleyip **▶ Başlat** düğmesiyle sorar. Siz başlatınca görevi uygun departman ajanına
+  dağıtır; ajan, kendisine verilen akışlardan uygun olanı çalıştırır. Riskli akışlar yine onayınızı bekler.
+  Ajanlar yalnız kendilerine verilen akışları çalıştırır; yeni bir iş için önce akışı Studio'da kurup ajana verin.
 - **Sonuç:** görev başlayınca "Görev … ajanına verildi" mesajı gelir; bitince sonuç özeti, başarısız olursa nedeni
   Telegram'a yazılır. Aradaki sorular ve onaylar her zamanki gibi gelir.
 - **Kayıtlar:** Telegram'dan verilen görev Studio'da verilmiş görev gibi **Görevler** ve **Çalışmalar**'da tüm
@@ -542,8 +548,14 @@ işler neler?», «Son hatalar neydi?», «Bu hafta kaç görev tamamladın?».
 - **Neye bakar:** Ajan bu bilgisayardaki görev kayıtlarına, otomasyon sıralarına, onaylı notlarına ve
   bilgi kaynaklarına bakarak yanıtlar. İnterneti veya okuma yetenekleri açıksa onları da kullanır.
   Yönetici ajan, bağlı departmanların durumunu da anlatır.
-- **Sınır:** Sohbet yalnız bilgi verir; iş başlatmaz, akış çalıştırmaz, e-posta veya mesaj göndermez. İş
-  yaptırmak için **Görev ver** kullanılır.
+- **Sınır:** Sohbet kendiliğinden iş başlatmaz, akış çalıştırmaz, e-posta veya mesaj göndermez.
+- **Sohbetten görev (0.9.47+):** Sohbette bir iş isterseniz (ör. «bugünkü siparişleri sisteme gir») ajan görevi
+  özetleyip **önerir**. Yanıtın altında **Önerilen görev** kartı çıkar. Görev ancak **Görevi başlat**'a
+  bastığınızda, **Görev ver** ile aynı yetki ve sınırlardan geçerek başlar; **Vazgeç** ile hiçbir şey yapılmaz.
+  - Öneri 30 dakika geçerlidir; sonra isteğinizi yeniden yazın.
+  - Aynı öneri iki kez başlatılamaz.
+  - Selamlaşma ve sorularda görev önerilmez.
+  - Görev önerisi içeren sohbet kaydı 0.9.46 ve önceki sürümlerde okunmaz.
 - **Gönderilen veri:** Sohbette görev kayıtlarının maskelenmiş özetleri ajanın model bağlantısına
   gönderilir; kullanılan token her yanıtın altında görünür.
 - **Geçmiş:** Ajan başına son 40 mesaj saklanır; **Sohbeti temizle** ile silinir.
@@ -802,7 +814,8 @@ Ofis görünümünde bir çalışana tıklayınca açılan panel, diğer Studio 
 Bir düğmeye basılmadıkça hiçbir şey yapılmaz.
 
 - **Ajan:** **Görev ver** ajana yeni bir görev başlatır. Yöneticiye verilen görev departmanlara dağıtılabilir.
-  **Soru sor**, ajanla kısa bir sohbet açar; ajan iş başlatmaz, bildiklerinden yanıtlar.
+  **Soru sor**, ajanla kısa bir sohbet açar; ajan bildiklerinden yanıtlar. Bir iş isterseniz görevi önerir ve
+  **Görevi başlat**'a basmanızı bekler (0.9.47+).
 - **Bekleyen soru:** ajan sizden yanıt bekliyorsa soru ve seçenekleri panelde görünür; seçenekle veya yazarak
   yanıtlarsınız.
 - **Bekleyen onay:** onay yetkiliyseniz akışın adı, neden ve girdiler görünür. **Onayla** veya **Reddet**

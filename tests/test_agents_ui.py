@@ -79,6 +79,11 @@ def ui():
                 {"role": "assistant", "text": "Bugün 3 görev tamamladım; 1 onay bekliyor.", "at": "2026-10-18T09:00:05+00:00",
                  "user": "", "tokens": 120}])
             route.fulfill(json={"reply": session["chat"][-1], "messages": session["chat"]})
+        elif path.startswith(f"/api/agents/{AID}/chat/proposals/") and request.method == "POST":
+            for item in session.get("chat", []):
+                if item.get("proposal"):
+                    item["proposal"]["state"] = "started" if body["start"] else "declined"
+            route.fulfill(json={"proposal": {}, "run_id": RID})
         elif path == "/api/agents/handoffs":
             route.fulfill(json=session.get("handoffs", []))
         elif path.startswith(f"/api/agents/runs/{RID}/approvals/") and path.endswith("/decision"):
@@ -594,3 +599,23 @@ def test_asking_an_agent_shows_the_conversation(ui):
     page.get_by_label("Sorunuz").press("Enter")
     page.wait_for_function("() => document.querySelectorAll('.agent-chat-message').length === 4")
     assert_unique_interactive_ids(page)
+
+
+def test_a_task_the_agent_proposes_in_chat_starts_only_with_the_button(ui):
+    from datetime import datetime, timezone
+
+    page, calls, _, session, _ = ui
+    session["chat"] = [
+        {"role": "user", "text": "Bugünkü siparişleri sisteme gir", "at": "2026-10-18T09:00:00+00:00", "user": "Çalışan",
+         "tokens": 0},
+        {"role": "assistant", "text": "Siparişleri işlememi ister misiniz?", "user": "", "tokens": 50,
+         "at": datetime.now(timezone.utc).isoformat(),
+         "proposal": {"id": "9" * 32, "title": "Sipariş girişi", "task": "Bugünkü siparişleri ERP'ye işle", "state": "open"}}]
+    page.get_by_role("button", name="Soru sor").click()
+    page.get_by_text("Önerilen görev: Sipariş girişi").wait_for()
+    assert not [call for call in calls if "/proposals/" in call[1]]
+    assert_unique_interactive_ids(page)
+    page.get_by_role("button", name="Görevi başlat").click()
+    page.get_by_text("Görev başlatıldı", exact=False).wait_for()
+    assert ("POST", f"/api/agents/{AID}/chat/proposals/{'9' * 32}", {"start": True}) in calls
+    assert page.get_by_role("button", name="Görevi başlat").count() == 0

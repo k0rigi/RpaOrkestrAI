@@ -201,3 +201,52 @@ def test_chat_refuses_secrets_and_one_question_at_a_time(runtime, monkeypatch):
     runtime.service.chat._busy.clear()
     runtime.service.delete_agent(agent.id)
     assert not runtime.service.chat._path(agent.id).exists()
+
+
+def test_chat_proposes_a_task_that_starts_only_when_the_person_presses_start(runtime):
+    agent = agent_with(runtime)
+    runtime.state["provider"] = ScriptedProvider([
+        ProviderResponse(tool_calls=[ToolCall(uid(), "propose_task", {"task": "Bugünkü siparişleri ERP'ye işle",
+                                                                        "title": "Sipariş girişi"})], usage=Usage(1, 1)),
+        ProviderResponse(text="Bugünkü siparişleri işlememi ister misiniz? Başlat'a basın.", usage=Usage(1, 1))])
+    answer = runtime.service.chat.ask(agent.id, "Bugünkü siparişleri sisteme gir", via="telegram")
+    proposal = answer["reply"].proposal
+    assert proposal.state == "open" and proposal.title == "Sipariş girişi"
+    assert "propose_task" in {tool["name"] for tool in runtime.state["provider"].requests[0]["tools"]}
+    # Nothing ran: the proposal only waits in the chat record.
+    assert runtime.service.agent_store.runs() == []
+    runtime.state["provider"] = ScriptedProvider([response(finish("Siparişler işlendi."))])
+    decided = runtime.service.chat.decide(agent.id, proposal.id, True, via="telegram")
+    run = runtime.done(runtime.service.agent_store.run(decided["run_id"]))
+    assert run.task == "Bugünkü siparişleri ERP'ye işle" and run.title == "Sipariş girişi" and run.via == "telegram"
+    stored = [item.proposal for item in runtime.service.chat.history(agent.id) if item.proposal][0]
+    assert stored.state == "started" and stored.run_id == run.id
+    with pytest.raises(AgentServiceError, match="zaten"):
+        runtime.service.chat.decide(agent.id, proposal.id, True)
+    with pytest.raises(AgentServiceError, match="bulunamadı"):
+        runtime.service.chat.decide(agent.id, uid(), True)
+    assert len(runtime.service.agent_store.runs()) == 1
+
+
+def test_a_declined_or_expired_proposal_starts_nothing_and_old_files_stay_readable(runtime):
+    agent = agent_with(runtime)
+
+    def propose():
+        runtime.state["provider"] = ScriptedProvider([
+            ProviderResponse(tool_calls=[ToolCall(uid(), "propose_task", {"task": "Raporu hazırla"})], usage=Usage(1, 1)),
+            ProviderResponse(text="", usage=Usage(1, 1))])
+        return runtime.service.chat.ask(agent.id, "Raporu hazırla")["reply"]
+
+    reply = propose()
+    assert "Raporu hazırla" in reply.text  # an empty answer still names the proposal
+    assert runtime.service.chat.decide(agent.id, reply.proposal.id, False)["proposal"]["state"] == "declined"
+    late = propose()
+    path = runtime.service.chat._path(agent.id)
+    data = json.loads(path.read_text())
+    data["messages"][-1]["at"] = "2020-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(data))
+    with pytest.raises(AgentServiceError, match="süresi doldu"):
+        runtime.service.chat.decide(agent.id, late.proposal.id, True)
+    assert runtime.service.agent_store.runs() == []
+    # Messages without a proposal are written without the field, as earlier versions expect.
+    assert all("proposal" not in item for item in data["messages"] if item["role"] == "user")

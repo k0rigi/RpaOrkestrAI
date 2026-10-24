@@ -114,3 +114,28 @@ def listing(service, actor) -> str:
             lines.append(f"  • {agent.name} ({role})")
         lines.append("")
     return "\n".join(lines).strip()
+
+
+def flows(service, actor) -> str:
+    """The /akislar reply: the flows each agent may run, by office. Managers run none; they hand work on."""
+    names = {}
+    for workflow in service.store.workflows():
+        names[workflow.id] = workflow.name
+    members = team(service, actor)
+    lines, any_flow = [], False
+    for office_id, office_name in offices_of(actor):
+        agents = [agent for agent in members.get(office_id, []) if agent.workflows]
+        if not agents:
+            continue
+        lines.append(f"{office_name} ofisi" if office_name else "Ajanlarınızın akışları")
+        for agent in agents:
+            role = agent.department or "departman"
+            titles = [names.get(grant.workflow_id, "Silinmiş akış") for grant in agent.workflows]
+            lines.append(f"  • {agent.name} ({role}): " + ", ".join(titles[:30]) + (" …" if len(titles) > 30 else ""))
+            any_flow = True
+        lines.append("")
+    if not any_flow:
+        return ("Henüz hiçbir ajana akış verilmedi. Studio'da Ajanlar → ajanı düzenle → İzinli akışlar bölümünden "
+                "akış verin.")
+    lines.append("İşi yazmanız yeter: yönetici uygun ajana dağıtır, ajan bu akışlardan uygun olanı çalıştırır.")
+    return "\n".join(lines).strip()

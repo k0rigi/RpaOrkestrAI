@@ -92,6 +92,8 @@
 .office-chat li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r-m); background: var(--surface-2); font-size: 13px; overflow-wrap: anywhere; }
 .office-chat li.mine { background: var(--accent-tint); }
 .office-chat strong { font-size: 11px; color: var(--muted); }
+.office-proposal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; padding: 8px; border: 1px solid var(--accent-line); border-radius: var(--r-m); background: var(--surface); }
+.office-proposal b { flex-basis: 100%; font-size: 12px; }
 /* The plan of an imported model: its own points, paths and labels. */
 .office-plan-path { stroke: var(--line-strong); stroke-width: 2; stroke-dasharray: 5 6; }
 .office-plan-wait { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }

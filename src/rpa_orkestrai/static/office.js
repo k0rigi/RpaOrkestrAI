@@ -71,6 +71,7 @@ const SOLE = .19;
 // Seated pose: the thighs' lower side above the origin, the shin length and how far the pelvis sits forward.
 const THIGH_UNDERSIDE = .66, SHIN = .24, SEAT_FORWARD = .12;
 const WALK_SPEED = 1.4, MAX_TRIP = 6000;
+const PROPOSAL_MINUTES = 30; // a task the agent suggested in chat expires (same as the server)
 const PLACE_NAMES = { work: "Çalışma noktası", wait: "Bekleme noktası", manager: "Yönetici noktası" };
 // Older exporters (e.g. SimLab) write the retired specular-glossiness materials; they are shown as matte standard ones.
 function specularGlossiness(THREE) {
@@ -470,6 +471,33 @@ export function mountOffice(container, options) {
   }
   async function chatForm(person, work, version) {
     const thread = node("ol", undefined, "office-chat"), text = node("textarea"); text.rows = 3; text.maxLength = 4000;
+    // A task the agent suggests starts only with this click, with the same rights as Görev ver.
+    const proposalCard = (message) => {
+      const { proposal } = message, box = node("div", undefined, "office-proposal");
+      box.append(node("b", `Önerilen görev: ${proposal.title || proposal.task.slice(0, 200)}`));
+      const expired = Date.now() - new Date(message.at).getTime() > PROPOSAL_MINUTES * 60_000;
+      if (proposal.state !== "open" || expired) {
+        box.append(node("small", proposal.state === "started" ? "▶ Görev başlatıldı." : proposal.state === "declined"
+          ? "Vazgeçildi." : "Önerinin süresi doldu; isteğinizi yeniden yazın."));
+        return box;
+      }
+      const decide = (start) => {
+        const choice = button(start ? "Görevi başlat" : "Vazgeç", async () => {
+          choice.disabled = true;
+          try {
+            await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat/proposals/${encodeURIComponent(proposal.id)}`,
+              { method: "POST", body: JSON.stringify({ start }) });
+            if (!alive || panelVersion !== version) return;
+            if (start) { toast(`${person.name} görevi aldı.`); refresh(true); }
+            show(await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`));
+          } catch (error) { toast(error.message, true); choice.disabled = false; }
+        });
+        if (start) choice.classList.add("primary");
+        return choice;
+      };
+      box.append(decide(true), decide(false));
+      return box;
+    };
     const show = (messages, seconds) => {
       const shown = (messages || []).slice(-6);
       thread.replaceChildren(...shown.map((item, index) => {
@@ -477,6 +505,7 @@ export function mountOffice(container, options) {
         // The answer just given says how long it took (a slow model is visible, not a frozen screen).
         const took = seconds && index === shown.length - 1 && item.role !== "user" ? ` · ${Math.max(1, Math.round(seconds))} sn` : "";
         row.append(node("strong", `${item.role === "user" ? (item.user || "Siz") : person.name}${item.via === "telegram" ? " · Telegram'dan" : ""}${took}`), node("span", item.text));
+        if (item.proposal) row.append(proposalCard(item));
         return row;
       }));
       thread.scrollTop = thread.scrollHeight;
@@ -506,7 +535,7 @@ export function mountOffice(container, options) {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!send.disabled) send.click(); }
     });
     work.replaceChildren(node("h4", person.role === "manager" ? "Yöneticiye soru sor" : "Ajana soru sor"), thread,
-      field("Sorunuz (Enter ile sorulur; ajan iş başlatmaz, bildiklerinden yanıtlar)", text), send);
+      field("Sorunuz (Enter ile sorulur; bir iş isterseniz ajan görevi önerir, siz başlatırsınız)", text), send);
     text.focus();
     try {
       const history = await options.api(`/api/agents/${encodeURIComponent(person.id)}/chat`);

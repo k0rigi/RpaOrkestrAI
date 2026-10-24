@@ -9,6 +9,12 @@ from __future__ import annotations
 SHOWN = 8  # how many versions the Studio lists
 
 NOTES: list[dict] = [
+    {"version": "0.9.47", "date": "2026-10-24", "items": [
+        "Yöneticinizle konuşarak iş yaptırın: Telegram'da veya Studio'daki sohbette bir iş istediğinizde ajan görevi "
+        "özetleyip önerir; görev yalnız Başlat düğmesine bastığınızda, Görev ver ile aynı yetki ve onaylardan "
+        "geçerek başlar. Öneri 30 dakika geçerlidir.",
+        "Telegram'da /akislar hangi ajana hangi akışların verildiğini listeler.",
+    ]},
     {"version": "0.9.46", "date": "2026-10-23", "items": [
         "Ajanlar → Bağlantılar → Telegram'dan soru ve onay bölümü botun şu an okunup okunmadığını gösterir "
         "(Dinleniyor · son kontrol) ya da nedenini yazar: kapalı, geçersiz bot anahtarı, botu başka bir program "

@@ -172,6 +172,8 @@
 .agent-chat-message.user { align-self: flex-end; background: var(--accent-tint); border-color: var(--accent-line); }
 .agent-chat-message.assistant { align-self: flex-start; }
 .agent-chat-message p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-proposal { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--accent-line); border-radius: var(--r-m); background: var(--accent-tint); }
+.agent-proposal .agent-actions { margin-top: 8px; }
 .agent-chat-form { margin-top: 12px; }
 .agent-abilities .button { margin-bottom: 12px; }
 @media (max-width: 640px) { .agent-chat-message { max-width: 100%; } }

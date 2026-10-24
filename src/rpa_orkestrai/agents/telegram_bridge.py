@@ -45,8 +45,10 @@ POLL_ERRORS = {
 HELP = ("RpaOrkestrAI bağlı. Yapabilecekleriniz:\n"
         "/gorev metin — ofisinizin yöneticisine görev verir (ör. /gorev bugünkü bekleyen işleri özetle)\n"
         "/gorev Ajan adı: metin — belirli bir ajana görev verir\n"
-        "/sor soru — yöneticiye iş başlatmadan soru sorar; komutsuz mesaj da soru sayılır\n"
+        "/sor soru — yöneticiye soru sorar; komutsuz mesaj da böyle gider. Bir iş isterseniz yönetici görevi "
+        "özetler ve ▶ Başlat düğmesiyle onayınızı bekler\n"
         "/ajanlar — ofislerinizi ve ajanlarınızı listeler\n"
+        "/akislar — ajanlarınıza verilen akışları listeler\n"
         "Birden fazla ofisiniz varsa ofis adıyla başlayın: /gorev Lojistik: metin\n"
         "Ajan size soru sorduğunda mesajı Yanıtla ile seçip yazın veya düğmeye dokunun.")
 STATUS = {"succeeded": "✅ Görev bitti", "failed": "❌ Görev tamamlanamadı", "cancelled": "⏹ Görev durduruldu"}
@@ -353,7 +355,9 @@ class TelegramBridge:
                 except (ValueError, IndexError):
                     return
                 result = self._answer(item, choice)
-            elif parts[2] in {"y", "n"}:
+            elif item["kind"] == "proposal" and parts[2] in {"y", "n"}:
+                result = self._propose(item, parts[2] == "y")
+            elif item["kind"] == "approval" and parts[2] in {"y", "n"}:
                 result = self._decide(item, parts[2] == "y")
             else:
                 return
@@ -418,7 +422,7 @@ class TelegramBridge:
 
     # ----- tasks and questions from Telegram -----------------------------------------------------
     def _command(self, text: str, written, settings, token, reply_to) -> None:
-        from .telegram_commands import TargetError, listing, route
+        from .telegram_commands import TargetError, flows, listing, route
 
         name, _, rest = text.partition(" ")
         name = name.split("@", 1)[0].casefold()
@@ -432,6 +436,9 @@ class TelegramBridge:
             return
         if name == "/ajanlar":
             self._reply(settings, token, listing(self.service, actor) or "Görebildiğiniz ajan yok.", reply_to)
+            return
+        if name in {"/akislar", "/akışlar"}:
+            self._reply(settings, token, flows(self.service, actor), reply_to)
             return
         if name not in {"/gorev", "/görev", "/sor"}:
             self._reply(settings, token, HELP, reply_to)
@@ -468,13 +475,47 @@ class TelegramBridge:
             self.transport(token, "sendChatAction", {"chat_id": settings.chat_id, "action": "typing"}, 15)
             answer = self.service.chat.ask(target.agent_id, target.text, office=target.office_id, via=VIA)
             text = f"💬 {target.agent_name}{where}:\n\n{answer['reply'].text}"
+            proposal = getattr(answer["reply"], "proposal", None)
         except AgentServiceError as exc:
-            text = f"Soru sorulamadı: {exc}"
+            text, proposal = f"Soru sorulamadı: {exc}", None
         except Exception:  # noqa: BLE001 - The person gets an answer either way; details stay in the Studio.
-            text = "Soru yanıtlanamadı; Studio'daki ajan bağlantısını kontrol edin."
+            text, proposal = "Soru yanıtlanamadı; Studio'daki ajan bağlantısını kontrol edin.", None
         finally:
             self._asking.release()
-        self._reply(settings, token, text, reply_to)
+        if proposal is None:
+            self._reply(settings, token, text, reply_to)
+            return
+        # The task the manager suggests starts only with the button, never from the text.
+        text = (f"{text}\n\n📋 Önerilen görev: {proposal.title or proposal.task[:300]}\n"
+                "▶ Başlat'a dokunursanız görev başlar; bitince sonucu buraya yazarım.")[:4000]
+        token_key = secrets.token_urlsafe(9)
+        message = {"chat_id": settings.chat_id, "text": text, "disable_web_page_preview": True,
+                   "reply_markup": {"inline_keyboard": [[{"text": "▶ Başlat", "callback_data": f"t:{token_key}:y"},
+                                                         {"text": "Vazgeç", "callback_data": f"t:{token_key}:n"}]]}}
+        if reply_to:
+            message["reply_parameters"] = {"message_id": reply_to}
+        status, sent = self.transport(token, "sendMessage", message, 15)
+        if status != 200 or sent.get("ok") is not True:
+            return
+        with self._lock:
+            if len(self._open) >= MAX_OPEN:
+                self._open.pop(next(iter(self._open)))
+            self._open[token_key] = {
+                "kind": "proposal", "run_id": "", "item_id": proposal.id, "agent_id": target.agent_id,
+                "office": target.office_id, "options": [], "text": text,
+                "message_id": (sent.get("result") or {}).get("message_id"), "sent": time.time(),
+                "chat_id": settings.chat_id}
+
+    def _propose(self, item, start: bool) -> str:
+        from .runner import AgentServiceError
+
+        try:
+            self.service.chat.decide(item["agent_id"], item["item_id"], start, office=item["office"], via=VIA)
+        except AgentServiceError as exc:
+            self._close(item)
+            return f"Görev başlatılamadı: {exc}"
+        self._close(item)
+        return "▶ Görev başlatıldı; bitince sonucu buraya yazacağım." if start else "Vazgeçildi; görev başlatılmadı."
 
     def _close(self, item) -> None:
         with self._lock:

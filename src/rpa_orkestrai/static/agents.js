@@ -1099,14 +1099,32 @@
     name.input.focus();
   }
 
-  // A conversation for information only: the agent answers from its work records and knowledge; it starts nothing.
+  // A proposed task under the agent's answer: it starts only with the person's click (same rights as Görev ver).
+  const PROPOSAL_MINUTES = 30;
+  function proposalCard(proposal, at, decide) {
+    const box = element("div", null, "agent-proposal");
+    box.append(element("strong", `Önerilen görev: ${proposal.title || proposal.task.slice(0, 200)}`));
+    if (proposal.title) box.append(element("p", proposal.task, "agent-task-text"));
+    const expired = Date.now() - new Date(at).getTime() > PROPOSAL_MINUTES * 60_000;
+    if (proposal.state === "started") box.append(element("p", "▶ Görev başlatıldı; Çalışmalar'da izleyebilirsiniz.", "agent-help"));
+    else if (proposal.state === "declined") box.append(element("p", "Vazgeçildi; görev başlatılmadı.", "agent-help"));
+    else if (expired) box.append(element("p", "Önerinin süresi doldu; isteğinizi yeniden yazın.", "agent-help"));
+    else {
+      const controls = element("div", null, "agent-actions");
+      controls.append(decide(true), decide(false));
+      box.append(controls);
+    }
+    return box;
+  }
+
+  // A conversation: the agent answers from its work records and knowledge; a task it suggests starts only on a click.
   function chatView(view, agent) {
     const head = element("div", null, "agent-toolbar");
     head.append(element("h2", `${agent.name} ile konuşun`), action("Görev ver", () => runForm(view, agent)),
       action("Listeye dön", () => renderAgents(view)));
     const intro = element("p", "Ajana bugün neler yaptığını, neyin beklediğini, son hataları veya bildiklerini sorabilirsiniz. "
-      + "Sohbet iş başlatmaz ve bir şey göndermez; iş yaptırmak için Görev ver'i kullanın. Yanıt modelinize gönderilen "
-      + "maskelenmiş kayıtlardan hazırlanır.", "agent-help");
+      + "Bir iş isterseniz ajan görevi özetleyip önerir; görev ancak siz Görevi başlat'a basınca başlar. Yanıt modelinize "
+      + "gönderilen maskelenmiş kayıtlardan hazırlanır.", "agent-help");
     const list = element("ol", null, "agent-chat-list");
     list.setAttribute("aria-live", "polite"); list.setAttribute("aria-label", "Sohbet");
     const form = identify(element("form", null, "agent-chat-form"), "chat");
@@ -1123,14 +1141,24 @@
       chip.addEventListener("click", () => { question.input.value = suggestion; form.requestSubmit(); });
       chips.append(chip);
     }
-    const bubble = (role, body, meta) => {
+    const decide = (message) => (start) => {
+      const button = action(start ? "Görevi başlat" : "Vazgeç", () => view.busy(button, async () => {
+        await view.request(`/api/agents/${agent.id}/chat/proposals/${message.proposal.id}`, "POST", { start });
+        if (!view.alive) return;
+        if (start) view.options.toast(`${agent.name} görevi aldı.`);
+        paint(await view.request(`/api/agents/${agent.id}/chat`));
+      }), start ? "primary" : undefined);
+      return button;
+    };
+    const bubble = (role, body, meta, message) => {
       const item = element("li", null, `agent-chat-message ${role}`);
       item.append(element("small", meta, "muted"), element("p", body, "agent-task-text"));
+      if (message?.proposal) item.append(proposalCard(message.proposal, message.at, decide(message)));
       return item;
     };
     const paint = (messages, seconds) => {
       list.replaceChildren(...(messages.length ? messages.map((item, index) => bubble(item.role, item.text,
-        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.via === "telegram" ? " · Telegram'dan" : ""}${item.tokens ? ` · ${count(item.tokens)} token` : ""}${seconds && index === messages.length - 1 && item.role !== "user" ? ` · ${Math.max(1, Math.round(seconds))} sn` : ""}`))
+        `${item.role === "user" ? item.user || "Siz" : agent.name} · ${timeLabel(item.at)}${item.via === "telegram" ? " · Telegram'dan" : ""}${item.tokens ? ` · ${count(item.tokens)} token` : ""}${seconds && index === messages.length - 1 && item.role !== "user" ? ` · ${Math.max(1, Math.round(seconds))} sn` : ""}`, item))
         : [element("li", "Henüz soru yok. Aşağıdaki önerilerden birini seçebilir veya kendi sorunuzu yazabilirsiniz.", "agent-help")]));
       list.scrollTop = list.scrollHeight;
     };
